@@ -646,3 +646,43 @@ License and author are the USER's decision, entered once via setenv —
 never an implicit default. `stage site mk report <stage>` shows the
 written site.mk any time (this 1-arg form was the seventh find of this
 pass: it only existed as an internal 2-arg batch building block).
+
+## 13. The prerequisites lists: decisions leave the C
+
+The loader's prerequisites arrays (the .lua chain that must EXIST, the
+files that must VERIFY against the manifest) were historically hard
+C — but they are pure DECISIONS, so they moved into the database:
+per-stage lists that elebake emits into the generated foundation.c
+exactly when the checkout expects them (extern declarations in
+measurement.h — old checkouts stay untouched; the catalog decides).
+
+The stdin form makes the source dictate the list — a FROZEN snapshot,
+sixteen entries in one pipe:
+
+```
+$ ls ~/.elebake/tutorial/.staging/stage-*/destdir/boot/lua | sed 's|^|/boot/lua/|' \
+    | ./elebake.sh stage prerequisites exist add illyria-boot -
+# prerequisites exist of illyria-boot: + /boot/lua/cli.lua
+...
+# prerequisites exist of illyria-boot: + /boot/lua/screen.lua
+$ ./elebake.sh stage prerequisites verify add illyria-boot /boot/loader.conf
+$ ./elebake.sh stage prerequisites verify add illyria-boot /boot/device.hints
+$ ./elebake.sh stage prerequisites verify add illyria-boot /boot/loader.efi.signed
+$ ./elebake.sh stage prerequisites verify show illyria-boot
+# prerequisites verify of illyria-boot
+#   /boot/loader.conf
+#   /boot/device.hints
+#   /boot/loader.efi.signed
+```
+
+The third verify entry is this tutorial's own contribution to the
+design: the manifest-covered loader RESERVE is now checked by verified
+read on every boot (an unverified reserve is not a reserve). The short
+spelling `stage prereqs ...` works for everything except `add -`
+(an alias combinator's child cannot inherit your stdin — the long form
+keeps the pipe).
+
+> Safety default, remembered: every UNPINNED terminal displays instead
+> of acting (ELEBAKE_TERMINAL_INTERPRETER=cat). Experienced users flip
+> it once: `elebake setenv ELEBAKE_TERMINAL_INTERPRETER sh` — and
+> inspect single commands via `setintp <family> cat` when wanted.

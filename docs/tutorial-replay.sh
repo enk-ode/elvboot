@@ -99,3 +99,10 @@ cd "$(dirname "$0")/.."
 # 12. site mk: generator needs the outer sudo context (interactive!)
 sudo ELEBAKE_BASE=$HOME/.elebake/db ./elebake.sh stage site mk illyria-boot
 ./elebake.sh stage site mk report illyria-boot > /dev/null
+
+# 13. Prerequisites lists (frozen snapshot from the build's lua/ + verify trio)
+ls "$HOME/.elebake/tutorial/.staging/"stage-*/destdir/boot/lua | sed 's|^|/boot/lua/|' \
+  | ./elebake.sh stage prerequisites exist add illyria-boot -
+./elebake.sh stage prerequisites verify add illyria-boot /boot/loader.conf
+./elebake.sh stage prerequisites verify add illyria-boot /boot/device.hints
+./elebake.sh stage prerequisites verify add illyria-boot /boot/loader.efi.signed

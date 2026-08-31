@@ -73,6 +73,10 @@
 #   Pipeline commands PRINT their shell: review, then append '| sh' to run
 #   ('| sudo sh' where the ESP or root-only keys are involved). Bookkeeping
 #   (add/bind/setenv/filter) is pinned to sh and acts directly.
+#   Experienced users may flip the safety default so EVERY terminal acts:
+#   elebake setenv ELEBAKE_TERMINAL_INTERPRETER sh
+#   (inspect any single command via setintp <family> cat, or per run
+#   under an explicit interpreter).
 #@end
 
 # --- Generated-help engine ---------------------------------------------------
