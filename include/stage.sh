@@ -665,7 +665,9 @@ stage_prereqs_add_worker() {
 # @example elebake stage prerequisites exist add smoke1 /boot/lua/loader.lua
 # @see     stage prerequisites verify add
 #@end
-_stage_prerequisites_exist_add2() { stage_prereqs_add_worker exist "$1" "$2"; }
+_stage_prerequisites_exist_add2() {
+  stage_prereqs_add_worker exist "$1" "$2"
+}
 
 #@help _stage_prerequisites_verify_add2
 # @command stage prerequisites verify add <stage> <path|->
@@ -674,7 +676,9 @@ _stage_prerequisites_exist_add2() { stage_prereqs_add_worker exist "$1" "$2"; }
 # @example elebake stage prerequisites verify add smoke1 /boot/loader.efi.signed
 # @see     stage prerequisites exist add
 #@end
-_stage_prerequisites_verify_add2() { stage_prereqs_add_worker verify "$1" "$2"; }
+_stage_prerequisites_verify_add2() {
+  stage_prereqs_add_worker verify "$1" "$2"
+}
 
 # shared drop worker
 stage_prereqs_drop_worker() {
@@ -687,7 +691,7 @@ stage_prereqs_drop_worker() {
   grep -qxF "$path" "$f" 2>/dev/null || {
     generate_error "stage prerequisites $kind drop: not listed: $path"; return 0; }
   printf '%s\n' "grep -vxF '$path' '$f' > '$f.new'; mv '$f.new' '$f'"
-  printf '%s\n' "printf '# prerequisites %s of %s: - %s\\n' '$kind' '$name' '$path' >&2"
+  emit_note "prerequisites $kind of $name: - $path"
 }
 
 #@help _stage_prerequisites_exist_drop2
@@ -695,14 +699,18 @@ stage_prereqs_drop_worker() {
 # @summary Remove one path from the stage's EXIST prerequisites
 # @group   stage
 #@end
-_stage_prerequisites_exist_drop2() { stage_prereqs_drop_worker exist "$1" "$2"; }
+_stage_prerequisites_exist_drop2() {
+  stage_prereqs_drop_worker exist "$1" "$2"
+}
 
 #@help _stage_prerequisites_verify_drop2
 # @command stage prerequisites verify drop <stage> <path>
 # @summary Remove one path from the stage's VERIFY prerequisites
 # @group   stage
 #@end
-_stage_prerequisites_verify_drop2() { stage_prereqs_drop_worker verify "$1" "$2"; }
+_stage_prerequisites_verify_drop2() {
+  stage_prereqs_drop_worker verify "$1" "$2"
+}
 
 # shared show worker (display)
 stage_prereqs_show_worker() {
@@ -723,14 +731,18 @@ stage_prereqs_show_worker() {
 # @summary Show the stage's EXIST prerequisites list
 # @group   stage
 #@end
-_stage_prerequisites_exist_show1() { stage_prereqs_show_worker exist "$1"; }
+_stage_prerequisites_exist_show1() {
+  stage_prereqs_show_worker exist "$1"
+}
 
 #@help _stage_prerequisites_verify_show1
 # @command stage prerequisites verify show <stage>
 # @summary Show the stage's VERIFY prerequisites list
 # @group   stage
 #@end
-_stage_prerequisites_verify_show1() { stage_prereqs_show_worker verify "$1"; }
+_stage_prerequisites_verify_show1() {
+  stage_prereqs_show_worker verify "$1"
+}
 
 # `prereqs` — the SHORT form, one alias combinator per verb (exactly ONE
 # re-invocation: one truth, spelled twice). NOTE: the stdin form `add -`
@@ -777,6 +789,7 @@ __stage_prereqs_verify_show1() {
 # @command stage build kernel <stage>
 # @summary Build the kernel from the stage's checkout (KERNCONF from ELEBAKE_KERNCONF, no implicit default; isolated per-stage obj) — the source delivers EVERYTHING, the filter selects
 # @group   stage
+# @env     ELEBAKE_KERNCONF  the kernel configuration to build (e.g. GENERIC); the guarding kernel is a decision
 # @example elebake stage build kernel smoke1
 # @see     stage install kernel
 #@end
@@ -800,6 +813,7 @@ _stage_build_kernel1() {
 # @command stage install kernel <stage>
 # @summary Unprivileged installkernel into the stage's destdir — destdir/boot/kernel becomes selectable by the filter
 # @group   stage
+# @env     ELEBAKE_KERNCONF  the kernel configuration to install (must match the build)
 # @example elebake stage install kernel smoke1
 # @see     stage filter add
 #@end
@@ -908,14 +922,6 @@ _stage_filter_show2() {
   stage_filter_show_worker "$1" "$2" "$2"
 }
 
-#@help _stage_filter_add2
-# @command stage filter add <stage> <rel>
-# @summary Curate one destdir/boot-relative path into the boot/ list (idempotent append)
-# @group   stage
-# @example elebake stage filter add smoke1 loader.efi
-# @see     stage include
-# @see     stage filter drop
-#@end
 stage_filter_add_emit() {
   local flt="$1" name="$2" rel="$3"
   printf '%s\n' "grep -qxF '$rel' '$flt' 2>/dev/null || echo '$rel' >> '$flt'"
@@ -930,6 +936,14 @@ stage_filter_rel_ok() {
   return 0
 }
 
+#@help _stage_filter_add2
+# @command stage filter add <stage> <rel|->
+# @summary Curate one destdir/boot-relative path into the boot/ list (idempotent append); '-' reads a FROZEN snapshot from stdin, one path per line
+# @group   stage
+# @example elebake stage filter add smoke1 loader.efi
+# @see     stage include
+# @see     stage filter drop
+#@end
 _stage_filter_add2() {
   local name="$1" rel="$2" base="$ELEBAKE_BASE" line
   local stageid
@@ -974,14 +988,6 @@ _stage_filter_drop2() {
   printf '%s\n' "printf '# filter of %s: - %s\\n' '$name' '$rel' >&2"
 }
 
-# _stage_include1 <stage> — work the include manifest off dumbly. Every entry
-# is validated against destdir/boot at generation time: fail early, by name.
-#@help _stage_include1
-# @command stage include <stage>
-# @summary Work the filter off dumbly: copy every listed path destdir/boot -> boot/
-# @group   stage
-# @see     stage filter
-#@end
 # stage_include_worker <stage> <srcdir-label> <srcdir> — the shared body:
 # the SAME curated filter list, a selectable SOURCE. Default source is the
 # stage's own build (destdir/boot, variant a); any binary directory such as
@@ -1019,6 +1025,10 @@ stage_include_worker() {
   printf '%s\n' "printf '# Included %s filter entries into boot/ of stage %s (source: %s)\\n' \"\$(grep -c . '$inc')\" '$name' '$srclabel' >&2"
 }
 
+#@help _stage_include1
+# @internal 1-arg sibling of 'stage include': the default source is the
+# stage's own destdir/boot (variant a)
+#@end
 _stage_include1() {
   local base="$ELEBAKE_BASE" stageid
   stageid=$(resolve_item stage "$1" strict) || {
@@ -1051,7 +1061,7 @@ _stage_include2() {
 # @param                 import is CONFINED to /dev/gpt/<label> -- no device scan
 # @param   pool/dataset  ZFS dataset carrying the boot/ tree (e.g. zkey/boot-illyria)
 # @example elebake stage adopt smoke1 b sdcard-zkey zkey/boot-illyria
-# @see     stage filter
+# @see     stage filter add
 #@end
 _stage_adopt4() {
   local name="$1" medium="$2" label="$3" ds="$4" base="$ELEBAKE_BASE"

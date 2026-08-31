@@ -76,3 +76,4 @@ test: archtest unittest inttest
 .PHONY: man-html
 man-html:
 	mandoc -T html -O style=man.css docs/elebake.8 > docs/elebake.html
+	cp docs/elebake.html docs/index.html
