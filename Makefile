@@ -70,3 +70,9 @@ inttest:
 	sh elebake-integration-test.sh --maxprocs 3
 
 test: archtest unittest inttest
+
+# GitHub Pages: the man page as HTML (docs/ is the Pages source on the
+# public repo). Regenerate after editing docs/elebake.8, commit the result.
+.PHONY: man-html
+man-html:
+	mandoc -T html -O style=man.css docs/elebake.8 > docs/elebake.html

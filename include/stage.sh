@@ -329,9 +329,15 @@ _stage_detachsign1() {
   keyid=$(head -n1 "$slot/keyid")
   [ -f "$slot/gnupghome" ] && gpgenv="GNUPGHOME='$(head -n1 "$slot/gnupghome")' "
   emit_note "elebake stage attest '$name' (armored detached signature -> boot/manifest.asc)"
-  printf '%s\n' "${gpgenv}gpg --yes --openpgp -a --detach-sign --local-user '$keyid' -o '$d/boot/manifest.asc' '$d/boot/manifest'"
-  printf '%s\n' "chown '$(id -un 2>>"$LOG_FILE")' '$d/boot/manifest.asc' 2>/dev/null || true"
-  printf '%s\n' "printf '# manifest attested for stage %s\n' '$name' >&2"
+  # Card signature needs a pinentry: the isolated environment carries no
+  # GPG_TTY and the interpreter's stdin is a pipe — the EMISSION determines
+  # its terminal itself and points the agent at it (same cure as trust
+  # anchor). rm -f first: a failed earlier run must not leave a stale or
+  # foreign-owned manifest.asc behind. No false green: failure stops here.
+  printf '%s\n' "rm -f '$d/boot/manifest.asc'"
+  printf '%s\n' "GPG_TTY=\$(tty </dev/tty 2>/dev/null); export GPG_TTY; ${gpgenv}gpg-connect-agent updatestartuptty /bye >/dev/null 2>&1 || true"
+  printf '%s\n' "${gpgenv}gpg --yes --openpgp -a --detach-sign --local-user '$keyid' -o '$d/boot/manifest.asc' '$d/boot/manifest' || { rm -f '$d/boot/manifest.asc'; printf '# Error: manifest attestation failed for %s\\n' '$keyid' >&2; exit 1; }"
+  printf '%s\n' "printf '# manifest attested for stage %s\\n' '$name' >&2"
 }
 
 #-----------------------------------------------------------------------------

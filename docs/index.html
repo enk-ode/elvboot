@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta name="author" content="Dr. Johannes Brügmann"/>
+  <title>elvboot — elevated boot</title>
+  <link rel="stylesheet" href="man.css" type="text/css" media="all"/>
+</head>
+<body>
+  <h1>elvboot — elevated boot</h1>
+  <p><strong>elvboot</strong> is a FreeBSD verified-boot /
+  tamper-detection project for a machine's own boot path.
+  <strong>elebake</strong>, the tool this repository ships, compiles
+  the boot trust chain: decisions live in a database, artifacts are
+  generated, everything is inspectable and replayable.</p>
+  <ul>
+    <li><a href="elebake.html">elebake(8) — the manual page</a></li>
+    <li><a href="https://github.com/enk-ode/elvboot">Repository</a>
+        — README, design documents, the guided tutorial</li>
+  </ul>
+  <p>Detection, not enforcement: the design assumes the boot medium
+  can be tampered with and concentrates on <em>noticing</em>.</p>
+</body>
+</html>

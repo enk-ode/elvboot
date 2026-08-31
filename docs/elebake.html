@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <link rel="stylesheet" href="man.css" type="text/css" media="all"/>
+  <title>ELEBAKE(8)</title>
+</head>
+<!-- This is an automatically generated file.  Do not edit.
+   elebake.8 - manual page (mdoc)
+ -->
+<body>
+<div class="head" role="doc-pageheader" aria-label="Manual header
+  line"><span class="head-ltitle">ELEBAKE(8)</span>
+  <span class="head-vol">FreeBSD System Manager's Manual</span>
+  <span class="head-rtitle">ELEBAKE(8)</span></div>
+<main class="manual-text">
+<section class="Sh">
+<h2 class="Sh" id="NAME"><a class="permalink" href="#NAME">NAME</a></h2>
+<p class="Pp"><code class="Nm">elebake</code> &#x2014;
+    <span class="Nd" role="doc-subtitle">compiler for a verified-boot trust
+    chain (build, sign, deploy, attest)</span></p>
+</section>
+<section class="Sh">
+<h2 class="Sh" id="SYNOPSIS"><a class="permalink" href="#SYNOPSIS">SYNOPSIS</a></h2>
+<table class="Nm">
+  <tr>
+    <td><code class="Nm">elebake</code></td>
+    <td><var class="Ar">command</var> [<var class="Ar">args ...</var>]</td>
+  </tr>
+</table>
+</section>
+<section class="Sh">
+<h2 class="Sh" id="DESCRIPTION"><a class="permalink" href="#DESCRIPTION">DESCRIPTION</a></h2>
+<p class="Pp"><code class="Nm">elebake</code> maintains the trust chain of a
+    locally built FreeBSD boot loader: checked-out source, measured
+    expectations, Authenticode signature, OpenPGP-attested manifest, deployment
+    to removable boot media, and tamper witnesses read back at boot.</p>
+<p class="Pp" id="generator">Every <code class="Nm">elebake</code> command is a
+    <a class="permalink" href="#generator"><i class="Em">generator</i></a>: it
+    emits shell text describing an action. Whether that text is displayed,
+    piped, or executed is decided by an
+    <a class="permalink" href="#interpreter"><i class="Em" id="interpreter">interpreter</i></a>
+    the operator controls per function (see
+    <a class="Sx" href="#ENVIRONMENT">ENVIRONMENT</a>). The shipped default
+    displays (&#x2018;<code class="Li">cat</code>&#x2019;): inspect first, then
+    pin an executing interpreter. Batch commands emit an unconditional sequence
+    of further <code class="Nm">elebake</code> commands; checking is itself a
+    command in the sequence, and the batch machinery stops at the first
+  failure.</p>
+</section>
+<section class="Sh">
+<h2 class="Sh" id="COMMANDS"><a class="permalink" href="#COMMANDS">COMMANDS</a></h2>
+<p class="Pp">The authoritative, always current command reference is built into
+    the tool:</p>
+<div class="Bd Pp Bd-indent Li">
+<pre>elebake help              # grouped command overview
+elebake help &lt;command&gt;    # one command, parameters, examples
+elebake help env [&lt;VAR&gt;]   # documented environment variables
+elebake help intp &lt;fn&gt;     # interpreter resolution for a function</pre>
+</div>
+<p class="Pp">The command families, briefly:</p>
+<dl class="Bl-tag">
+  <dt id="bootstrap"><a class="permalink" href="#bootstrap"><code class="Cm">bootstrap</code></a>,
+    <code class="Cm">init</code>, <code class="Cm">environment</code></dt>
+  <dd>Create a database (<code class="Cm">bootstrap</code> <var class="Ar">name
+      profile</var>), install a variable profile (<code class="Cm">environment
+      init</code>), manage the layered variable store
+      (<code class="Cm">setenv</code>, <code class="Cm">getenv</code>,
+      <code class="Cm">unsetenv</code>, <code class="Cm">printenv</code>) and
+      the environment cache.</dd>
+  <dt id="pem"><a class="permalink" href="#pem"><code class="Cm">pem</code></a>,
+    <code class="Cm">openpgp</code>, <code class="Cm">pkcs11</code></dt>
+  <dd>Key backends. Records hold paths and URIs only (material stays where it
+      lives); <code class="Cm">add</code> registers,
+      <code class="Cm">dump</code> emits the replay,
+      <code class="Cm">import</code> reproduces one extra record file,
+      <code class="Cm">prerequisites</code> checks the toolchain
+    functionally.</dd>
+  <dt id="stage"><a class="permalink" href="#stage"><code class="Cm">stage</code></a></dt>
+  <dd>The staging object: a named workspace for one boot tree.
+      <code class="Cm">add</code>, <code class="Cm">checkout</code>,
+      <code class="Cm">build</code>, <code class="Cm">install</code>,
+      <code class="Cm">include</code>, <code class="Cm">sign</code>,
+      <code class="Cm">make</code> form the build pipeline;
+      <code class="Cm">sign-key</code>, <code class="Cm">attest-key</code>,
+      <code class="Cm">filter</code>, <code class="Cm">device</code>,
+      <code class="Cm">boot tree</code> bind records;
+      <code class="Cm">manifest</code>, <code class="Cm">attest</code>,
+      <code class="Cm">verify</code>, <code class="Cm">tree sync</code>,
+      <code class="Cm">deploy</code>, <code class="Cm">push</code> publish to a
+      medium; <code class="Cm">marker</code>, <code class="Cm">site mk</code>,
+      <code class="Cm">trust anchor</code>, <code class="Cm">trust mk</code>
+      provision the measured expectations; <code class="Cm">dump</code>,
+      <code class="Cm">import</code>, <code class="Cm">check stage</code>
+      migrate whole stages between databases; <code class="Cm">status</code>,
+      <code class="Cm">list</code> derive state from the artifacts.</dd>
+  <dt id="dump"><a class="permalink" href="#dump"><code class="Cm">dump</code></a>,
+    <code class="Cm">restore</code>, <code class="Cm">batch</code></dt>
+  <dd>Whole-database export as a replayable script
+      (<a class="Sx" href="#FILES">FILES</a>), and its replay. The dump
+      describes everything that is stored; the restore replays it idempotently
+      (keep-going), build artifacts are regenerated, never moved.</dd>
+  <dt id="help"><a class="permalink" href="#help"><code class="Cm">help</code></a>,
+    <code class="Cm">help env</code>, <code class="Cm">help intp</code>,
+    <code class="Cm">last</code>, <code class="Cm">log</code>,
+    <code class="Cm">error</code></dt>
+  <dd>Documentation, trace inspection (<code class="Cm">last</code>) and
+      logging.</dd>
+</dl>
+</section>
+<section class="Sh">
+<h2 class="Sh" id="ENVIRONMENT"><a class="permalink" href="#ENVIRONMENT">ENVIRONMENT</a></h2>
+<p class="Pp">All configuration lives in <code class="Ev">ELEBAKE_*</code>
+    variables, layered as <span class="Pa">.env/local</span> (override),
+    <span class="Pa">.env/default</span> (installed profile) and shipped
+    templates. Key variables:</p>
+<dl class="Bl-tag">
+  <dt id="ELEBAKE_BASE"><a class="permalink" href="#ELEBAKE_BASE"><code class="Ev">ELEBAKE_BASE</code></a></dt>
+  <dd>The active database (default <span class="Pa">~/.elebake/db</span>).</dd>
+  <dt id="ELEBAKE_TERMINAL_INTERPRETER"><a class="permalink" href="#ELEBAKE_TERMINAL_INTERPRETER"><code class="Ev">ELEBAKE_TERMINAL_INTERPRETER</code></a></dt>
+  <dd>What runs the emitted shell of terminals; default
+      &#x2018;<code class="Li">cat</code>&#x2019; (display). Pin
+      &#x2018;<code class="Li">sh</code>&#x2019; to execute.</dd>
+  <dt id="ELEBAKE_INTERPRETER__fn_"><a class="permalink" href="#ELEBAKE_INTERPRETER__fn_"><code class="Ev">ELEBAKE_INTERPRETER_&lt;fn&gt;</code></a></dt>
+  <dd>Per-function override, arity-specific
+      (&#x2018;<code class="Li">..._stage_import4</code>&#x2019;) before
+      arity-agnostic. An agnostic pin covers the whole family and is only legal
+      when the family is homogeneous.</dd>
+  <dt id="ELEBAKE_FREEBSD_SRC"><a class="permalink" href="#ELEBAKE_FREEBSD_SRC"><code class="Ev">ELEBAKE_FREEBSD_SRC</code></a>,
+    <code class="Ev">ELEBAKE_STAND_BUILD_SUBDIRS</code></dt>
+  <dd>Source repository and the curated stand/ component lists for the
+    build.</dd>
+</dl>
+<p class="Pp">Every variable is documented in place:
+    &#x2018;<code class="Li">elebake help env &lt;VAR&gt;</code>&#x2019;.</p>
+</section>
+<section class="Sh">
+<h2 class="Sh" id="FILES"><a class="permalink" href="#FILES">FILES</a></h2>
+<dl class="Bl-tag Bl-compact">
+  <dt><span class="Pa">~/.elebake/db</span></dt>
+  <dd>active database (symlink)</dd>
+  <dt><span class="Pa">~/.elebake/current/.log/</span></dt>
+  <dd>per-invocation traces - the debugging ground truth</dd>
+  <dt><span class="Pa">~/.elebake/worktree/</span></dt>
+  <dd>git worktrees of the FreeBSD source; build trees live outside the
+    database</dd>
+</dl>
+</section>
+<section class="Sh">
+<h2 class="Sh" id="EXAMPLES"><a class="permalink" href="#EXAMPLES">EXAMPLES</a></h2>
+<p class="Pp">Create a database, register keys, build and publish a stage:</p>
+<div class="Bd Pp Bd-indent Li">
+<pre>./elebake.sh bootstrap current minimal | sh
+./elebake.sh pkcs11 add db 'pkcs11:token=...;object=db' /root/sb/db.crt
+./elebake.sh openpgp add manifest 0123456789ABCDEF /root/sb/.gnupg
+./elebake.sh stage add smoke1
+./elebake.sh stage sign key smoke1 pkcs11 db
+./elebake.sh stage attest key smoke1 openpgp manifest
+./elebake.sh stage checkout smoke1 mybranch | sh
+./elebake.sh stage make smoke1
+./elebake.sh stage push smoke1 b</pre>
+</div>
+<p class="Pp">Migrate a database:</p>
+<div class="Bd Pp Bd-indent Li">
+<pre>env ELEBAKE_BASE=$HOME/.old/current ./elebake.sh dump &gt; mig.sh
+./elebake.sh bootstrap current minimal | sh
+./elebake.sh restore mig.sh</pre>
+</div>
+<p class="Pp">Inspect instead of act (any command): run it while the terminal
+    default is &#x2018;<code class="Li">cat</code>&#x2019;, read the emitted
+    shell, then re-run under an executing pin.</p>
+</section>
+<section class="Sh">
+<h2 class="Sh" id="SEE_ALSO"><a class="permalink" href="#SEE_ALSO">SEE
+  ALSO</a></h2>
+<p class="Pp"><a class="Xr" aria-label="uefisign, section 8">uefisign(8)</a>,
+    <a class="Xr" aria-label="uefisign, section 8">uefisign(8)</a>,
+    <a class="Xr" aria-label="veriexec, section 8">veriexec(8)</a></p>
+<p class="Pp"><span class="Pa">docs/ARCHITECTURE.md</span>,
+    <span class="Pa">docs/QUICKSTART.md</span> in the source tree.</p>
+</section>
+<section class="Sh">
+<h2 class="Sh" id="AUTHORS"><a class="permalink" href="#AUTHORS">AUTHORS</a></h2>
+<p class="Pp"><span class="An">Dr. Johannes Bruegmann</span></p>
+</section>
+</main>
+<div class="foot" role="doc-pagefooter" aria-label="Manual footer
+  line"><span class="foot-left">FreeBSD 15.1-RELEASE-p2</span>
+  <span class="foot-date">August 29, 2026</span>
+  <span class="foot-right">ELEBAKE(8)</span></div>
+</body>
+</html>
