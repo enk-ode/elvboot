@@ -1,4 +1,18 @@
-# elebake
+# elvboot — elevated boot
+
+**elvboot** is the project: a FreeBSD verified-boot / tamper-detection
+effort for a machine's own boot path. The family, by name:
+
+- **elebake** — the tool this repository ships today: the compiler of
+  the boot trust chain (everything below).
+- **elvbootd** — the planned runtime side: hardened hook scripts in
+  the OS's native mechanisms (devd/periodic/resume) that watch the
+  runtime threat windows; design stage, see
+  `docs/DESIGN_STAGE_FOUNDATION.md`.
+- **elvboot** — tentatively reserved as the CLI companion to elvbootd;
+  not settled yet.
+
+## elebake
 
 **elebake** compiles a boot trust chain: a build → sign → attest →
 deploy pipeline for FreeBSD verified boot, built around one goal —
