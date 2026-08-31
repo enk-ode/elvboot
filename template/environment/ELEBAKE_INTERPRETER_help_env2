@@ -1,0 +1,5 @@
+cat
+# ARITY-SPECIFIC display pin for _help_env2 (heterogeneous family: __help_env1
+# is a combinator -- never pin the bare help env name). Documentation output
+# must stay visible even when the user pins the terminal default to sh;
+# found by elebake-unit-test test_help_env_cascade.

@@ -1,0 +1,3 @@
+sh
+# Act terminal 'gate claim add' (append and insert-at-position) -- sh
+# so the reference lands in the gate's ordered claims list.

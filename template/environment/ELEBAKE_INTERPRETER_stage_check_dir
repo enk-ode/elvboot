@@ -1,0 +1,5 @@
+sh
+# Check terminal of 'stage import <stage> <reldir>'; pinned to sh so a
+# failed check EXECUTES its error (non-zero exit) and the batch machinery
+# stops before the importdir acts. Under cat the check would only display
+# and the batch would run on. Success emits a comment (no-op under sh).

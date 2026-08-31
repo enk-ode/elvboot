@@ -1,0 +1,3 @@
+sh
+# Act terminal 'stage trust mk' -- writes site.trust.mk into the
+# worktree (brj-owned); no elevation needed.

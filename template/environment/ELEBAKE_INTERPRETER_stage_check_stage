@@ -1,0 +1,5 @@
+sh
+# Check terminal 'stage check stage <stage>' (does the stage exist?) --
+# first line of every import sequence; pinned to sh so a failed check
+# EXECUTES its error (non-zero exit) and the batch machinery stops
+# before anything acts. Success emits a comment (no-op under sh).

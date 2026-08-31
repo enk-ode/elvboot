@@ -1,0 +1,4 @@
+/usr/local/lib/opensc-pkcs11.so
+# PKCS#11 module (OpenSC) exposing the token, passed to osslsigncode via
+# -pkcs11module. Present at this path on corsica (verified in the build env).
+# Override per host: elebake setenv ELEBAKE_PKCS11_MODULE <path>

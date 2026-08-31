@@ -1,0 +1,4 @@
+sh
+# Interpreter override for the 'unknown_command' terminal (_unknown_command1),
+# pinned to 'sh' so the misuse error is actually printed and the non-zero exit
+# takes effect — regardless of the safe-by-default TERMINAL_INTERPRETER=cat.

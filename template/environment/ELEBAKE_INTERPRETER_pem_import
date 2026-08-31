@@ -1,0 +1,3 @@
+sh
+# Terminal 'pem import <name> <absfile>' (extra record file as dump/restore
+# base element); pinned to sh so a restore's replay takes effect directly.

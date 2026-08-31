@@ -1,0 +1,5 @@
+sh
+# Act terminal 'environment init' -- the idempotent post-update ritual
+# (sync template variables into .env/default). Bookkeeping acts directly;
+# without this pin it fell to the cat default and silently only displayed
+# (tutorial find #17).

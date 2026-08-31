@@ -1,0 +1,2 @@
+cat
+# ARITY-SPECIFIC display pin: _stage_status2 renders ONE aspect; ___stage_status1 (batch) keeps its executing default. Found by the unit suite's pin audit.

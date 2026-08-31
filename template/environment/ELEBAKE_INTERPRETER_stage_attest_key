@@ -1,0 +1,4 @@
+sh
+# Interpreter override for the 'stage_attest_key' terminal, pinned to 'sh'.
+# `stage attest key` is DB bookkeeping (write the attest-key slot symlink) and
+# should take effect, like setenv — not stay display-only under the cat default.

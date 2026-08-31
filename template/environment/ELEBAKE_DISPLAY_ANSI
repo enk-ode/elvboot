@@ -1,0 +1,4 @@
+0
+# Enable ANSI color output in messages (display() function).
+#   0 - plain text (default)
+#   1 - colored (errors=red, warnings=yellow, ...)

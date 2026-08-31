@@ -1,0 +1,4 @@
+sh
+# Interpreter override for the 'openpgp_add' terminal, pinned to 'sh'.
+# `openpgp add` is DB bookkeeping (write the key record) and should take effect,
+# like setenv — not stay display-only under the safe-by-default cat interpreter.

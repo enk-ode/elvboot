@@ -1,0 +1,4 @@
+sh
+# Stage-local file copy (external loader -> boot/loader.efi); pinned to sh so
+# it acts directly, like install/include. Inspect first via cat if wanted.
+# Homogeneous family (only _stage_loader2) -- arity-agnostic pin is safe.

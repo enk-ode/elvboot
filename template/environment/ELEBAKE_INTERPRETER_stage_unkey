@@ -1,0 +1,7 @@
+sh
+# Interpreter override for 'stage unkey' (_stage_unkey1/_stage_unkey2), pinned
+# to 'sh' so the binding removal takes effect, regardless of the safe-by-default
+# TERMINAL_INTERPRETER=cat.
+#
+# NOTE: 'stage sign' has deliberately NO pin — it stays inspect-by-default (cat)
+# and fails closed via the producer exit channel.

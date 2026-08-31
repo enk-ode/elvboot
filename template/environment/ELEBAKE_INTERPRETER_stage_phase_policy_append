@@ -1,0 +1,3 @@
+sh
+# Act terminal 'stage phase policy append' -- the check-free,
+# idempotent binding write (dump replays call it directly); sh so it acts.

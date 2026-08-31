@@ -1,0 +1,3 @@
+sh
+# Act terminal 'stage foundation make' -- writes the GENERATED-ONLY
+# foundation.c into the worktree; sh so it acts. Inspect first under cat.

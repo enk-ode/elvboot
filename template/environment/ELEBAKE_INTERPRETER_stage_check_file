@@ -1,0 +1,4 @@
+sh
+# Check terminal of 'stage import <stage> <subdir> <absfile>'; pinned to sh
+# so a failed check EXECUTES its error (non-zero exit) and the batch
+# machinery stops before the importfile acts. Success emits a comment.

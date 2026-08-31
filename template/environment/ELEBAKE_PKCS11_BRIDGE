@@ -1,0 +1,9 @@
+engine
+# OpenSSL <-> PKCS#11 bridge used by `stage sign` (Authenticode via
+# osslsigncode).
+#   engine   = libp11 engine (ELEBAKE_PKCS11_ENGINE) -- the clean path on
+#              FreeBSD: osslsigncode links against BASE OpenSSL, which only
+#              searches /usr/lib/ossl-modules for providers.
+#   provider = OpenSSL 3 provider (ELEBAKE_PKCS11_PROVIDER, pkg
+#              openssl-pkcs11provider); needs OPENSSL_MODULES pointing at the
+#              port's module dir, which then HIDES the base legacy provider.

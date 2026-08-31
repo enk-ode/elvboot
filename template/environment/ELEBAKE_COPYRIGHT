@@ -1,0 +1,4 @@
+
+# Copyright line for GENERATED files, rendered as 'Copyright (c) <value>'.
+# Empty (default): no line. Example:
+#   elebake setenv ELEBAKE_COPYRIGHT '2026 Johannes Bruegmann'

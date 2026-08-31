@@ -1,0 +1,4 @@
+cat
+# Display terminal 'stage phase show' (phase catalog from the worktree
+# headers + the BOUND policies per phase); cat so the catalog survives an
+# executing terminal default.

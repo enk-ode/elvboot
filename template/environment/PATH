@@ -1,0 +1,7 @@
+/sbin:/bin:/usr/sbin:/usr/bin:/usr/local/sbin:/usr/local/bin
+# PATH for elebake command execution (colon-separated).
+# Includes the sbin directories ON PURPOSE: unlike vpn-switch's read-only
+# management PATH, elebake's pipeline runs system tooling -- uefisign lives
+# in /usr/sbin, efivar/osslsigncode under /usr/local. The batch machinery
+# executes every command in a CLEANED environment, so this PATH is the only
+# one that counts there; a login shell's PATH never reaches it.

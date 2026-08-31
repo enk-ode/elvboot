@@ -1,0 +1,6 @@
+sh
+# Check terminal 'stage check policy <stage> <phase> <policy>' -- the
+# BINDING is the contract: validates the transitive chain against the
+# checkout's catalog at generation time; pinned to sh so a failure EXECUTES
+# its error (non-zero exit) and the batch stops before the append acts.
+# Success emits nothing (silent check).

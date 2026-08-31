@@ -1,0 +1,4 @@
+sh
+# Act terminal 'expectation add' -- pinned to sh so the arsenal record
+# lands in the DB regardless of the safe-by-default TERMINAL_INTERPRETER=cat.
+# Inspect first by running under cat.

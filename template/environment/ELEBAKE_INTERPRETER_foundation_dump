@@ -1,0 +1,4 @@
+cat
+# Display building block 'foundation dump' -- the arsenal as CLI
+# replays (dependency order); cat like the other dump building blocks, the
+# restore interpreter executes the replayed lines.

@@ -1,0 +1,3 @@
+sh
+# Act terminal 'policy trigger add' (append and insert-at-position) --
+# sh so the FIRE reference lands in the policy's ordered trigger list.

@@ -1,0 +1,5 @@
+sh
+# Interpreter override for 'pem add' (_pem_add3), pinned to 'sh' so the
+# registration (record dir, path files) takes effect — regardless of the
+# safe-by-default TERMINAL_INTERPRETER=cat. Inspect first by running it under
+# cat if you want to see the commands before they execute.

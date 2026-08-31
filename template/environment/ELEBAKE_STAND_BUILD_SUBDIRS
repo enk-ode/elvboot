@@ -1,0 +1,6 @@
+libsa ficl liblua forth lua defaults fonts images man efi
+# Curated stand/ components `stage build` compiles, in SUBDIR_DEPEND order
+# (secboot.sh build_stand recipe). CURATED policy, not derived from the
+# worktree on purpose: a plain `make -C stand` would also build subdirs the
+# loader path never needs (libsa32 & friends). The sh list is worked off
+# front to back -- order is significant.

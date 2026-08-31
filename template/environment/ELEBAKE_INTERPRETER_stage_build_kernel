@@ -1,0 +1,3 @@
+sh
+# Act terminal 'stage build kernel' -- long-running buildkernel in the
+# stage's isolated obj tree; sh so it acts (inspect under cat first).

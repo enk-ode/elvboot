@@ -1,0 +1,4 @@
+sh
+# Terminal behind 'stage import <stage> <subdir> <absfile>' (file/symlink
+# copy); pinned to sh so a restore's replay takes effect directly. The
+# validating combinators (___stage_import2/3) keep their batch type default.

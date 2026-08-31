@@ -1,0 +1,3 @@
+cat
+# Display terminal 'macro show' -- the #ifdef baseline block that
+# WOULD be emitted; cat so the view survives an executing default.

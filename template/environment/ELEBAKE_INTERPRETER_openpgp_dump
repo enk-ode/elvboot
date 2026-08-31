@@ -1,0 +1,4 @@
+cat
+# Interpreter for ___openpgp_dump0 - openpgp portion of a database dump.
+# Emits 'openpgp add' replay lines describing the current records. Default
+# cat: the lines are dump TEXT for capture; 'restore' replays them.

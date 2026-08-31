@@ -1,0 +1,173 @@
+.\" elebake.8 - manual page (mdoc)
+.Dd August 29, 2026
+.Dt ELEBAKE 8
+.Os
+.Sh NAME
+.Nm elebake
+.Nd compiler for a verified-boot trust chain (build, sign, deploy, attest)
+.Sh SYNOPSIS
+.Nm
+.Ar command
+.Op Ar args ...
+.Sh DESCRIPTION
+.Nm
+maintains the trust chain of a locally built FreeBSD boot loader:
+checked-out source, measured expectations, Authenticode signature,
+OpenPGP-attested manifest, deployment to removable boot media, and
+tamper witnesses read back at boot.
+.Pp
+Every
+.Nm
+command is a
+.Em generator :
+it emits shell text describing an action.
+Whether that text is displayed, piped, or executed is decided by an
+.Em interpreter
+the operator controls per function
+.Pq see Sx ENVIRONMENT .
+The shipped default displays
+.Pq Ql cat :
+inspect first, then pin an executing interpreter.
+Batch commands emit an unconditional sequence of further
+.Nm
+commands; checking is itself a command in the sequence, and the batch
+machinery stops at the first failure.
+.Sh COMMANDS
+The authoritative, always current command reference is built into the
+tool:
+.Bd -literal -offset indent
+elebake help              # grouped command overview
+elebake help <command>    # one command, parameters, examples
+elebake help env [<VAR>]   # documented environment variables
+elebake help intp <fn>     # interpreter resolution for a function
+.Ed
+.Pp
+The command families, briefly:
+.Bl -tag -width "environment"
+.It Cm bootstrap , init , environment
+Create a database
+.Pq Cm bootstrap Ar name profile ,
+install a variable profile
+.Pq Cm environment init ,
+manage the layered variable store
+.Pq Cm setenv , getenv , unsetenv , printenv
+and the environment cache.
+.It Cm pem , openpgp , pkcs11
+Key backends.
+Records hold paths and URIs only
+.Pq material stays where it lives ;
+.Cm add
+registers,
+.Cm dump
+emits the replay,
+.Cm import
+reproduces one extra record file,
+.Cm prerequisites
+checks the toolchain functionally.
+.It Cm stage
+The staging object: a named workspace for one boot tree.
+.Cm add , checkout , build , install , include , sign , make
+form the build pipeline;
+.Cm sign-key , attest-key , filter , device , boot tree
+bind records;
+.Cm manifest , attest , verify , tree sync , deploy , push
+publish to a medium;
+.Cm marker , site mk , trust anchor , trust mk
+provision the measured expectations;
+.Cm dump , import , check stage
+migrate whole stages between databases;
+.Cm status , list
+derive state from the artifacts.
+.It Cm dump , restore , batch
+Whole-database export as a replayable script
+.Pq Sx FILES ,
+and its replay.
+The dump describes everything that is stored; the restore replays it
+idempotently
+.Pq keep-going ,
+build artifacts are regenerated, never moved.
+.It Cm help , help env , help intp , last , log , error
+Documentation, trace inspection
+.Pq Cm last
+and logging.
+.El
+.Sh ENVIRONMENT
+All configuration lives in
+.Ev ELEBAKE_*
+variables, layered as
+.Pa .env/local
+.Pq override ,
+.Pa .env/default
+.Pq installed profile
+and shipped templates.
+Key variables:
+.Bl -tag -width "ELEBAKE_INTERPRETER_<fn>"
+.It Ev ELEBAKE_BASE
+The active database
+.Pq default Pa ~/.elebake/db .
+.It Ev ELEBAKE_TERMINAL_INTERPRETER
+What runs the emitted shell of terminals; default
+.Ql cat
+.Pq display .
+Pin
+.Ql sh
+to execute.
+.It Ev ELEBAKE_INTERPRETER_<fn>
+Per-function override, arity-specific
+.Pq Ql ..._stage_import4
+before arity-agnostic.
+An agnostic pin covers the whole family and is only legal when the
+family is homogeneous.
+.It Ev ELEBAKE_FREEBSD_SRC , ELEBAKE_STAND_BUILD_SUBDIRS
+Source repository and the curated stand/ component lists for the build.
+.El
+.Pp
+Every variable is documented in place:
+.Ql elebake help env <VAR> .
+.Sh FILES
+.Bl -tag -width "~/.elebake/current/.log/" -compact
+.It Pa ~/.elebake/db
+active database
+.Pq symlink
+.It Pa ~/.elebake/current/.log/
+per-invocation traces - the debugging ground truth
+.It Pa ~/.elebake/worktree/
+git worktrees of the FreeBSD source; build trees live outside the
+database
+.El
+.Sh EXAMPLES
+Create a database, register keys, build and publish a stage:
+.Bd -literal -offset indent
+\&./elebake.sh bootstrap current minimal | sh
+\&./elebake.sh pkcs11 add db 'pkcs11:token=...;object=db' /root/sb/db.crt
+\&./elebake.sh openpgp add manifest 0123456789ABCDEF /root/sb/.gnupg
+\&./elebake.sh stage add smoke1
+\&./elebake.sh stage sign key smoke1 pkcs11 db
+\&./elebake.sh stage attest key smoke1 openpgp manifest
+\&./elebake.sh stage checkout smoke1 mybranch | sh
+\&./elebake.sh stage make smoke1
+\&./elebake.sh stage push smoke1 b
+.Ed
+.Pp
+Migrate a database:
+.Bd -literal -offset indent
+env ELEBAKE_BASE=$HOME/.old/current ./elebake.sh dump > mig.sh
+\&./elebake.sh bootstrap current minimal | sh
+\&./elebake.sh restore mig.sh
+.Ed
+.Pp
+Inspect instead of act
+.Pq any command :
+run it while the terminal default is
+.Ql cat ,
+read the emitted shell, then re-run under an executing pin.
+.Sh SEE ALSO
+.Xr uefisign 8 ,
+.Xr uefisign 8 ,
+.Xr veriexec 8
+.Pp
+.Pa docs/ARCHITECTURE.md ,
+.Pa docs/QUICKSTART.md
+in the source tree.
+.Sh AUTHORS
+.An Dr. Johannes Bruegmann

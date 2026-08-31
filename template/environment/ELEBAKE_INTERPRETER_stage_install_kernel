@@ -1,0 +1,3 @@
+sh
+# Act terminal 'stage install kernel' -- unprivileged installkernel into
+# the stage's destdir (install -U); sh so it acts.

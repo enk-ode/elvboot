@@ -1,0 +1,5 @@
+# publish-sync.sh sweep: one extended regex per line; hits abort the sync.
+# Core patterns (private IPv4 ranges, private key blocks) are built in.
+# Add machine-specific identifiers here as they appear, e.g.:
+#   [0-9A-F]{4} ?F9E67735        # a card serial
+illyria-works

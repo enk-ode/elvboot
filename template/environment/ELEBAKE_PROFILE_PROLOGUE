@@ -1,0 +1,18 @@
+PATH ELEBAKE_TERMINAL_INTERPRETER ELEBAKE_COMBINATOR_INTERPRETER ELEBAKE_BATCH_COMBINATOR_INTERPRETER ELEBAKE_DISPLAY_ANSI ELEBAKE_RETENTION_DAYS_LOG ELEBAKE_RETENTION_DAYS_TRACE ELEBAKE_PKCS11_ENGINE ELEBAKE_PKCS11_MODULE ELEBAKE_PKCS11_BRIDGE ELEBAKE_PKCS11_PROVIDER ELEBAKE_FREEBSD_SRC ELEBAKE_STAND_BUILD_SUBDIRS ELEBAKE_STAND_INSTALL_SUBDIRS ELEBAKE_FREEBSD_PREREQUISITES ELEBAKE_INCLUDES
+# Prologue profile: safe minimal set for dump/restore (dump phase 1).
+#
+# Line 1 lists which .env/local/ OVERRIDES of the SOURCE are transferred at
+# the very TOP of a dump, before any replayed command executes. The restore
+# runs against the state bootstrap created (structure + init profile in
+# .env/default/), so only source overrides need transferring -- and only
+# those the restore itself depends on:
+#
+#   - base interpreters (global execution control; a source may have pinned
+#     them, and the replay must run under the SAME model)
+#   - build/deploy configuration (STAND_*_SUBDIRS, PKCS11_*, prerequisites)
+#     that the emitted rebuild commands consume
+#
+# DELIBERATELY EXCLUDED: every function-specific ELEBAKE_INTERPRETER_<fn>
+# override. Restoring one early could DEACTIVATE a replayed command (e.g. a
+# cat pin on pem add would turn the key registration into a display) -- they
+# are restored at the very END by the EPILOGUE, when the replay is done.

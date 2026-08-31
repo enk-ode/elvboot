@@ -1,0 +1,4 @@
+cat
+# Interpreter override for the 'batch2' function, pinned to 'cat'.
+# Batch machinery: individual/nested batch commands are displayed, not
+# re-cut, to keep output intact.

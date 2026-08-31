@@ -1,0 +1,2 @@
+sh
+# Act terminal 'trigger add' -- sh so the arsenal record lands in the DB.

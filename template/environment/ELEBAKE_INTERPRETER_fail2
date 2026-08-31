@@ -1,0 +1,4 @@
+sh
+# Interpreter override for the 'fail2' function, pinned to 'sh'.
+# These commands must take effect (write .env/local, read a value, log)
+# regardless of the safe-by-default TERMINAL_INTERPRETER=cat.

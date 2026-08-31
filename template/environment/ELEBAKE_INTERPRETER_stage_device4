@@ -1,0 +1,5 @@
+sh
+# Interpreter override for 'stage device' (_stage_device4; arity-specific ON PURPOSE:
+# the arity-2 sibling is a combinator and must keep the combinator default), pinned to 'sh'
+# so the device-record bookkeeping takes effect regardless of the
+# safe-by-default TERMINAL_INTERPRETER=cat. Arity-agnostic: covers both forms.

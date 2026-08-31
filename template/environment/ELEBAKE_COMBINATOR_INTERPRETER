@@ -1,0 +1,9 @@
+head -n1 | xargs sh -c '[ "$0" = "--" ] || set -- "$0" "$@"; eval "p=$1"; shift; exec "$p" "$@"' --
+# Default interpreter for combinator functions (double underscore prefix: __).
+#
+# Combinator functions emit exactly ONE re-invocation command line (including
+# the script path via "$ELEBAKE_CONTEXT_SCRIPT"). This interpreter takes that
+# single line and re-invokes it (descends one layer). Portable across FreeBSD
+# sh and Debian dash (the [ "$0" = "--" ] guard).
+#
+# For dry-run/inspection, override with 'cat'.

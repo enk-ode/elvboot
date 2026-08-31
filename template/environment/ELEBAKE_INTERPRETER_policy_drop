@@ -1,0 +1,2 @@
+sh
+# Act terminal 'policy drop' -- sh so the removal executes.

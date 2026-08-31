@@ -1,0 +1,5 @@
+
+# SPDX license identifier for GENERATED files (foundation.c, later
+# emitters). Empty (default): no license header is emitted -- licensing
+# is an authorship decision, never an implicit default. Example:
+#   elebake setenv ELEBAKE_SPDX BSD-2-Clause

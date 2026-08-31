@@ -1,0 +1,4 @@
+sh
+# Interpreter override for 'stage add' (_stage_add1), pinned to 'sh' so the
+# stage record + named symlink are actually created, regardless of the
+# safe-by-default TERMINAL_INTERPRETER=cat.

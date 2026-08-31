@@ -1,0 +1,4 @@
+
+# Kernel configuration for 'stage build kernel' / 'stage install kernel'
+# (KERNCONF). NO implicit default -- the kernel that guards a machine is
+# a decision:  elebake setenv ELEBAKE_KERNCONF GENERIC

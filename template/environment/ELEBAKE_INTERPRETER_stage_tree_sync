@@ -1,0 +1,3 @@
+sudo sh
+# Needs root (rw ZFS import of the medium's boot dataset). Snapshots before
+# touching anything, verifies the manifest in place, rolls back on failure.

@@ -1,0 +1,9 @@
+env ELEBAKE_BATCH_KEEP_GOING=1 xargs sh -c 'eval exec "$0" "$@"' --
+# Interpreter for __restore1 - the combinator's usual executing interpreter,
+# WRAPPED so the spawned batch inherits keep-going mode: a restore must
+# survive failing lines (e.g. a re-run's 'stage add' on an existing stage)
+# and replay everything else. The variable lives HERE because an export
+# inside the function would be lost -- the interpreter is the function's
+# PIPELINE PEER and inherits the environment from before it ran.
+# (vpn-switch had the analogous VPN_SWITCH_INTERPRETER_restore; the port
+# had lost it.) Set to cat for a dry-run of a restore.
