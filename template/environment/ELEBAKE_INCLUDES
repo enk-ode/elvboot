@@ -1,4 +1,4 @@
-database.sh pkcs11.sh openpgp.sh pem.sh freebsd.sh prerequisites.sh stage.sh foundation.sh intp.sh helpenv.sh help.sh inspect.sh
+database.sh attest.sh manifest.sh provenance.sh pkcs11.sh openpgp.sh pem.sh freebsd.sh prerequisites.sh stage.sh foundation.sh intp.sh helpenv.sh help.sh inspect.sh
 # @summary Modules preloaded at startup (engine.sh is always loaded first)
 # With a bootstrapped DB the full list is preloaded (behaviour as before).
 # Without a DB the built-in minimal default applies (database.sh help.sh --

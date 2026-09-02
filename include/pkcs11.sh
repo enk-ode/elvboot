@@ -143,3 +143,31 @@ _pkcs11_import2() {
     generate_error "pkcs11 import: unknown key '$name' (pkcs11 add first)"; return 0; }
   printf '%s\n' "rm -f '$base/pkcs11/$name/$(basename "$src")' && cp -Pp '$src' '$base/pkcs11/$name/' || { printf '# Error: pkcs11 import failed\\n' >&2; exit 1; }"
 }
+
+#@help _pkcs11_collect0
+# @command pkcs11 collect [<key>]
+# @summary List the files of the pkcs11 key records that belong into an archive -- public material only; private key material stays a path promise into the world
+# @group   keys
+# @see     collect
+#@end
+_pkcs11_collect0() {
+  local base="$ELEBAKE_BASE" r n
+  for r in "$base"/pkcs11/*/; do
+    [ -d "$r" ] || continue
+    n=$(basename "$r")
+    printf '# pkcs11 %s\n' "$n"
+    collect_tree "$r"
+  done
+  return 0
+}
+
+#@help _pkcs11_collect1
+# @internal 1-arg sibling: one key record
+#@end
+_pkcs11_collect1() {
+  local base="$ELEBAKE_BASE"
+  [ -d "$base/pkcs11/$1" ] || {
+    generate_error "pkcs11 collect: no such key '$1'"; return 0; }
+  printf '# pkcs11 %s\n' "$1"
+  collect_tree "$base/pkcs11/$1"
+}

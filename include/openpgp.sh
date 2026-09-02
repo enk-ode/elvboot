@@ -125,3 +125,31 @@ _openpgp_import2() {
     generate_error "openpgp import: unknown key '$name' (openpgp add first)"; return 0; }
   printf '%s\n' "rm -f '$base/openpgp/$name/$(basename "$src")' && cp -Pp '$src' '$base/openpgp/$name/' || { printf '# Error: openpgp import failed\\n' >&2; exit 1; }"
 }
+
+#@help _openpgp_collect0
+# @command openpgp collect [<key>]
+# @summary List the files of the openpgp key records that belong into an archive -- public material only; private key material stays a path promise into the world
+# @group   keys
+# @see     collect
+#@end
+_openpgp_collect0() {
+  local base="$ELEBAKE_BASE" r n
+  for r in "$base"/openpgp/*/; do
+    [ -d "$r" ] || continue
+    n=$(basename "$r")
+    printf '# openpgp %s\n' "$n"
+    collect_tree "$r"
+  done
+  return 0
+}
+
+#@help _openpgp_collect1
+# @internal 1-arg sibling: one key record
+#@end
+_openpgp_collect1() {
+  local base="$ELEBAKE_BASE"
+  [ -d "$base/openpgp/$1" ] || {
+    generate_error "openpgp collect: no such key '$1'"; return 0; }
+  printf '# openpgp %s\n' "$1"
+  collect_tree "$base/openpgp/$1"
+}

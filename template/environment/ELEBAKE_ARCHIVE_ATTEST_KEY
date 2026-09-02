@@ -1,0 +1,12 @@
+
+# @summary The openpgp record that signs what this database exports -- and the signer a receiver expects
+# Empty by default and required by export, import and restore. One attest
+# identity per database: the dump and the bundle's MANIFEST are signed with
+# it, and on the receiving side the SAME setting names the record whose
+# fingerprint an incoming dump and MANIFEST must carry (pinned; expired,
+# revoked or foreign keys are refused). Pinning is the trust decision, made
+# once and explicitly -- a fresh database imports nothing until its owner
+# has registered the sender's key and named it here.
+#   elebake openpgp add manifest-attest 4E1F0A2B7C9D8E6F5A4B3C2D1E0F9A8B7C6D5E4F
+#   elebake setenv ELEBAKE_ARCHIVE_ATTEST_KEY manifest-attest
+# @see ELEBAKE_INTERPRETER_attest

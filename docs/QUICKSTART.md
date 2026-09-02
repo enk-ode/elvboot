@@ -13,6 +13,16 @@ usual suspects already).
 ./elebake.sh environment init minimal | sh    # after upgrades: refresh pins
 ```
 
+## 0b. The FreeBSD sources -- the tree with the platform-trust-gates series
+
+Without it the catalogs are empty and no foundation can be built:
+
+```sh
+git clone -b platform-trust-gates-15.1 https://github.com/johannes-bruegmann/freebsd-src.git ~/git/freebsd-src
+./elebake.sh setenv ELEBAKE_FREEBSD_SRC ~/git/freebsd-src
+./elebake.sh freebsd prerequisites          # git, make, clang, and the repo
+```
+
 ## 1. Keys (records hold paths/URIs only — material stays in place)
 
 ```sh
@@ -27,7 +37,7 @@ usual suspects already).
 ./elebake.sh stage add smoke1
 ./elebake.sh stage sign key smoke1 pkcs11 db
 ./elebake.sh stage attest key smoke1 openpgp manifest
-./elebake.sh stage checkout smoke1 mybranch | sh    # git worktree, outside the DB
+./elebake.sh stage checkout smoke1 platform-trust-gates-15.1^0 | sh   # git worktree, outside the DB
 ./elebake.sh stage filter smoke1 +loader.efi.signed # curate what boot/ carries
 ```
 
@@ -63,16 +73,77 @@ Reboot from the medium; the loader's gates report into
 
 ## 5. Migration / backup
 
+A migration is an export/import pair like any other transfer (see below):
+`full` from the old database, then in the new one register the attest key,
+pin it, import.
+
 ```sh
-env ELEBAKE_BASE=$HOME/.old/current ./elebake.sh dump > mig.sh
+env ELEBAKE_BASE=$HOME/.old/current ./elebake.sh export ~/mig.sh ~/mig.tar.gz full
 ./elebake.sh bootstrap current minimal | sh
-./elebake.sh restore mig.sh              # idempotent; artifacts rebuild, not move
+./elebake.sh openpgp add manifest-attest <fingerprint>
+./elebake.sh setenv ELEBAKE_ARCHIVE_ATTEST_KEY manifest-attest
+./elebake.sh import ~/mig.sh ~/mig.tar.gz  # idempotent; artifacts rebuild, not move
 ```
 
 ## 6. Tests
 
 ```sh
-sh elebake-architecture-test.sh --maxprocs $(sysctl -n hw.ncpu)
-sh elebake-unit-test.sh          --maxprocs $(sysctl -n hw.ncpu)
-sh elebake-integration-test.sh   --maxprocs 3
+./elebake-architecture-test.sh --maxprocs $(sysctl -n hw.ncpu)
+./elebake-unit-test.sh          --maxprocs $(sysctl -n hw.ncpu)
+./elebake-integration-test.sh   --maxprocs 3
 ```
+
+## Taking a database elsewhere, and taking it away
+
+Two artifacts travel separately: the DUMP is the versioned description
+(commit it), the BUNDLE is the payload (store it, named after the
+commit). Neither contains the other; the dump names the bundle by hash.
+
+```
+elebake export dump.sh ~/.elebake/bundle/a1b2c3d.tar.gz redacted
+elebake import dump.sh ~/.elebake/bundle/a1b2c3d.tar.gz
+```
+
+One key signs everything that leaves — the bundle's `MANIFEST` (the same
+pair `/boot` carries) and the dump itself — and the SAME setting on the
+receiving side pins the signer an incoming pair must carry. Name it once,
+with the full fingerprint:
+
+```
+elebake openpgp add manifest-attest 4E1F0A2B7C9D8E6F5A4B3C2D1E0F9A8B7C6D5E4F
+elebake setenv ELEBAKE_ARCHIVE_ATTEST_KEY manifest-attest
+```
+
+`import` checks the dump's signature, the seal, then every hash of the
+bundle before `restore` replays a single line; an edited dump, a foreign
+bundle, a changed file, a signer other than the pinned one or an older
+serial (downgrade) stops the chain and names what is wrong. A successful
+import files a receipt: `elebake provenance list`.
+
+`redacted` leaves machine secrets at home — marker values, site.mk
+baselines, backups — and says so in both artifacts. `full` is for your
+own recovery and migration. `minimized` is the rescue pair: loaders,
+kernel and modules, loader.conf, media and every backup record, nothing
+to build with — small enough for the rescue system, and its import back
+merges (see `docs/DESIGN_DUMP_ARCHIVE.md`). The packer is yours to
+choose: `ELEBAKE_ARCHIVER` is a template with `$a` (archive) and `$b`
+(base).
+
+Backups are records with a label and a description:
+
+```
+elebake stage backup smoke1 a known-good-p2 'booted silently on 25.08.'
+elebake stage backup list smoke1 a
+elebake stage rollback smoke1 a known-good-p2   # saves the suspect loader first
+```
+
+When a database has served its purpose:
+
+```
+elebake destroy current
+```
+
+Naming the database is the confirmation. It removes the records, the
+worktrees (including their registration in the source repo), the
+bundle handover area and the active-DB symlink — irrecoverably. Copy
+anything you still need out of `bundle/` first.

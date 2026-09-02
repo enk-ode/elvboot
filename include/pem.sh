@@ -96,3 +96,31 @@ _pem_import2() {
     generate_error "pem import: unknown key '$name' (pem add first)"; return 0; }
   printf '%s\n' "rm -f '$base/pem/$name/$(basename "$src")' && cp -Pp '$src' '$base/pem/$name/' || { printf '# Error: pem import failed\\n' >&2; exit 1; }"
 }
+
+#@help _pem_collect0
+# @command pem collect [<key>]
+# @summary List the files of the pem key records that belong into an archive -- public material only; private key material stays a path promise into the world
+# @group   keys
+# @see     collect
+#@end
+_pem_collect0() {
+  local base="$ELEBAKE_BASE" r n
+  for r in "$base"/pem/*/; do
+    [ -d "$r" ] || continue
+    n=$(basename "$r")
+    printf '# pem %s\n' "$n"
+    collect_tree "$r"
+  done
+  return 0
+}
+
+#@help _pem_collect1
+# @internal 1-arg sibling: one key record
+#@end
+_pem_collect1() {
+  local base="$ELEBAKE_BASE"
+  [ -d "$base/pem/$1" ] || {
+    generate_error "pem collect: no such key '$1'"; return 0; }
+  printf '# pem %s\n' "$1"
+  collect_tree "$base/pem/$1"
+}

@@ -1,0 +1,7 @@
+tar --uid 0 --gid 0 --uname root --gname wheel -cf - -C "$b" -T - | gzip -n > "$a"
+# The packing template for 'bundle'. $a is the archive, $b the base
+# directory; the file list arrives on stdin, already sorted by collect.
+# Byte-stable by construction: no ownership, no gzip timestamp (-n), and
+# the member order comes from the collection. Alternatives:
+#   (cd "$b" && zip -q -X "$a" -@)
+#   (cd "$b" && cpio -o -H ustar) > "$a"

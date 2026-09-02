@@ -1,0 +1,7 @@
+sh
+# @summary Interpreter for `manifest verify` -- signature and hashes
+# Verification happens at generation time; the emission only reports. sh
+# nonetheless, and deliberately: a finding emits `exit 1`, and that exit is
+# what stops `import` before restore replays anything. Under cat the findings
+# are readable but toothless.
+# @see ELEBAKE_INTERPRETER_manifest

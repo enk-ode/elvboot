@@ -12,6 +12,25 @@ effort for a machine's own boot path. The family, by name:
 - **elvboot** — tentatively reserved as the CLI companion to elvbootd;
   not settled yet.
 
+## The FreeBSD sources -- read this first
+
+elebake is nothing without the loader it compiles for. The
+measurement/claim/gate/policy engine that reads the compiled decisions
+at boot is a FreeBSD patch series, *platform trust gates*, and the
+catalogs elebake offers are parsed from the headers of that series.
+Against a stock FreeBSD tree the catalogs are empty and nothing
+measures anything.
+
+```
+git clone -b platform-trust-gates-15.1 \
+    https://github.com/johannes-bruegmann/freebsd-src.git ~/git/freebsd-src
+./elebake.sh setenv ELEBAKE_FREEBSD_SRC ~/git/freebsd-src
+```
+
+Branch `platform-trust-gates-15.1` is based on releng/15.1; the
+loader-side engine lives under `stand/efi/loader/local/` and its README
+points back here. Parts of the series are on their way upstream.
+
 ## elebake
 
 **elebake** compiles a boot trust chain: a build → sign → attest →
@@ -56,13 +75,17 @@ against a hand-written original), dump/restore with migration-proof
 round trips, and three test suites (architecture scanners, unit,
 integration stories).
 
-Design stage (documented, not yet built): the `archive` exchange
-bundle, the earlboot/elvbootd runtime containers, loaderconf
-generation. See `docs/DESIGN_*.md`.
+Also working: the signed exchange pair (`export`/`import` -- dump and
+bundle bound by seal and one OpenPGP signature, pinned on arrival,
+receipts and a serial against downgrade), backup records with label and
+description, a rollback that saves the suspect loader first, and the
+`minimized` rescue pair (`docs/DESIGN_DUMP_ARCHIVE.md`).
 
-A companion FreeBSD patch series provides the loader-side trust gates
-(measurement/claim/gate/policy engine); its publication is pending —
-the generated `foundation.c` in this repo's docs shows the interface.
+Design stage (documented, not yet built): the earlboot/elvbootd runtime
+containers, loaderconf generation. See `docs/DESIGN_*.md`.
+
+The companion FreeBSD patch series (the loader-side trust gates) is
+published: see *The FreeBSD sources* above.
 
 ## Getting started
 
@@ -71,7 +94,8 @@ the generated `foundation.c` in this repo's docs shows the interface.
   hardware, including the seventeen findings that walk fixed.
 - `docs/ARCHITECTURE.md` — the combinator model (`_` terminals emit
   shell, `__` combinators re-invoke once, `___` batches sequence).
-- `elebake help` — fully generated, cannot erode.
+- `elebake help` — fully generated, cannot erode; `docs/elebake.8` is
+  rendered from the same corpus (`make man`).
 
 Requirements: FreeBSD (base system tools; `uefisign`, `gpg` and a
 PKCS#11 stack where the respective backends are used).

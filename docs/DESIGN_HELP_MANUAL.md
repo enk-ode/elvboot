@@ -1,6 +1,7 @@
 # Design: help as the single documentation emitter (`help manual`)
 
-Status: AGREED (JB 2026-08-29), implementation pending. Kills the
+Status: AGREED (JB 2026-08-29), IMPLEMENTED 2026-09-02 (`help manual`,
+`make man`, prose in `template/manual/`). Kills the
 two-truths problem (hand-written manpage vs. help corpus): the help
 family emits **Pandoc-Markdown as an intermediate format**, and the
 interpreter (or a plain pipe) decides the target.

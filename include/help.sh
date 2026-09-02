@@ -292,5 +292,52 @@ EOF
 # @internal arity-2 sibling of 'help' (detail for two-word command paths)
 #@end
 _help2() {
-  help_render query "$1 $2"
+  case "$1 $2" in
+    "help manual") _help_manual0 ;;
+    *) help_render query "$1 $2" ;;
+  esac
+}
+
+# help_manual_env — the ENVIRONMENT section from the shipped templates: one
+# definition-list entry per variable, its @summary line as the body. The
+# templates are the corpus (help env reads the same files); nothing here is
+# written twice.
+help_manual_env() {
+  local f v s
+  printf '%s\n' "# ENVIRONMENT" ""
+  printf '%s\n' "All configuration lives in \`ELEBAKE_*\` variables, layered as \`.env/local\` (override, written by \`setenv\`), \`.env/default\` (the installed profile) and the shipped templates. Interpreter pins \`ELEBAKE_INTERPRETER_<function>\` decide per function whether emitted shell is displayed or executed: arity-specific before arity-agnostic before the class default (\`ELEBAKE_TERMINAL_INTERPRETER\`, default \`cat\`). Every variable answers \`elebake help env <VAR>\`." ""
+  for f in "$ELEBAKE_TEMPLATE_DIR"/environment/ELEBAKE_*; do
+    [ -f "$f" ] || continue
+    v=$(basename "$f")
+    case "$v" in ELEBAKE_PROFILE_*) continue ;; esac
+    s=$(sed -n 's/^#[ \t]*@summary[ \t]*//p' "$f" | head -n1)
+    [ -n "$s" ] || continue
+    printf '%s\n' "**$v**" ":   $(printf '%s' "$s" | sed 's/[<>|]/\\&/g')" ""
+  done
+}
+
+#@help _help_manual0
+# @command help manual
+# @summary Emit the complete manual as Pandoc Markdown: prose building blocks from template/manual/, the COMMANDS reference from the help corpus, ENVIRONMENT from the variable templates -- one truth per content kind (make man renders elebake.8 from it)
+# @group   setup
+# @env     ELEBAKE_TEMPLATE_DIR  the shipped templates: prose under manual/, variables under environment/
+# @returns Pandoc Markdown on stdout (no database required)
+# @example elebake help manual | pandoc -s -f markdown -t man -o docs/elebake.8
+# @example elebake help manual | lowdown -sTterm | less -R
+# @see     help
+#@end
+_help_manual0() {
+  local m="$ELEBAKE_TEMPLATE_DIR/manual" part
+  printf '%s\n' "% ELEBAKE(8) elebake | System Manager's Manual" "% Dr. Johannes Brügmann" "% $(date '+%B') $(date '+%e' | tr -d ' '), $(date '+%Y')" ""
+  for part in name synopsis description sources; do
+    [ -f "$m/$part.md" ] || { printf '# Error: template/manual/%s.md missing\n' "$part" >&2; return 1; }
+    cat "$m/$part.md"; printf '\n'
+  done
+  printf '%s\n' "# COMMANDS" "" "Every command, grouped as \`elebake help\` groups it. \`elebake help <command>\` shows parameters, environment and examples." ""
+  help_render manpage
+  help_manual_env
+  for part in files examples see-also authors; do
+    [ -f "$m/$part.md" ] || { printf '# Error: template/manual/%s.md missing\n' "$part" >&2; return 1; }
+    cat "$m/$part.md"; printf '\n'
+  done
 }

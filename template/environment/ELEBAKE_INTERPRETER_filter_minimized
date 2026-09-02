@@ -1,0 +1,6 @@
+sh
+# @summary Interpreter for `filter minimized` -- writes the rescue collection
+# Act terminal; sh so it acts. The agnostic pin ELEBAKE_INTERPRETER_filter does
+# NOT cover this name (pin lookup strips underscores and arity, so
+# _filter_minimized2 resolves to filter_minimized).
+# @see ELEBAKE_INTERPRETER_filter_redacted

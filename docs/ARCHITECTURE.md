@@ -73,6 +73,8 @@ $ELEBAKE_ROOT/                  (~/.elebake)
     .tmp/ .log/                 spool, traces (the debugging ground truth)
     pem/ openpgp/ pkcs11/       key records: PATHS/URIs only, plus any
                                 extra files a record accumulated
+    provenance/<serial>-<hash>/ receipts of every import (lineage)
+    export/                     collection, MANIFEST pair, serial
     stage/<name> -> ../.staging/<id>
     .staging/<id>/              the stage record (see below)
   worktree/<id>/                git worktree of FreeBSD src — build trees
@@ -84,8 +86,9 @@ into the worktree), `sign-key`/`attest-key` (RELATIVE links into the
 backends — the `stage/<name>` symlink IS the resolution, terminals build
 paths through it), `media/<m>/` records, `marker/` records (files only;
 the NVRAM effect lives exclusively in the `stage marker` command),
-`boot/` (the built tree), `backup/`, and the build artifacts `obj/`,
-`destdir/`.
+`boot/` (the built tree), `backup/<medium>/<label>/` records (loader.efi
+plus description, sha256, created, source, by), and the build artifacts
+`obj/`, `destdir/`.
 
 ## 5. dump & restore
 
@@ -109,12 +112,17 @@ The dump text is framed by `dump env prologue` (the restore-safe minimal
 variable set — deliberately WITHOUT function-specific interpreter pins,
 which could deactivate replayed commands) and `dump env epilogue` (the
 complete local override set, restored after the replay is done).
-`# Version: 1` in the header names the dump format.
-`restore` = `batch` under `ELEBAKE_INTERPRETER_restore`, which wraps the
-combinator default with `ELEBAKE_BATCH_KEEP_GOING=1`: a re-run's
-`stage add` conflicts are skipped, everything else replays. Replays are
-fully idempotent (stable stage ids, no `.staging` orphans, `rm -f`
-before every file copy).
+`# Version: 2` in the header names the dump format; `# Serial:` the
+lineage counter, `# Strategy:` the vocabulary (complete | minimized),
+`# Bundle:` the seal. `restore` refuses at generation time whatever is
+not admissible — unsigned, signed by anyone but the pinned attest key,
+a serial below the signer's floor — and otherwise is `batch` under
+`ELEBAKE_INTERPRETER_restore`, which wraps the executing default with
+`ELEBAKE_BATCH_KEEP_GOING=1`: a re-run's `stage add` conflicts are
+skipped, everything else replays. Replays are fully idempotent (stable
+stage ids, no `.staging` orphans, `rm -f` before every file copy). The
+whole transfer — seal, signatures, receipts, the rescue pair — is
+`docs/DESIGN_DUMP_ARCHIVE.md`.
 
 Known property: batch children inherit the bootstrapped environment of
 the outermost call, so a `setenv` inside a replay is effective from the

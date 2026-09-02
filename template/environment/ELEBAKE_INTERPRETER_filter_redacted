@@ -1,0 +1,5 @@
+sh
+# Act terminal 'filter redacted' -- writes the filtered collection; sh so it
+# acts. The agnostic pin ELEBAKE_INTERPRETER_filter does NOT cover this
+# name: pin lookup strips underscores and arity, so _filter_redacted2 resolves to
+# filter_redacted, never to filter.

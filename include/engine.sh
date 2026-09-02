@@ -1174,7 +1174,32 @@ ensure_interpreter_var() {
 # process_arguments + main (generic orchestration, moved from the monolith)
 #-----------------------------------------------------------------------------
 
+COMMAND_ALIASES="env:environment"
+
+#@help apply_command_alias
+# @internal expand a short command word to its full form (first word only)
+#@end
+apply_command_alias() {
+  local pair
+  for pair in $COMMAND_ALIASES; do
+    case "$pair" in
+      "$1":*)
+        printf '%s' "${pair#*:}"
+        return 0
+        ;;
+    esac
+  done
+  printf '%s' "$1"
+}
+
 process_arguments() {
+  if [ $# -gt 0 ]; then
+    local first_word
+    first_word=$(apply_command_alias "$1")
+    shift
+    set -- "$first_word" "$@"
+  fi
+
   # Resolve function call first (needed for module loading and execution)
   local resolved_call=$(to_function_call "$ANCHOR_FUNCTIONS" "$@")
   export ELEBAKE_CONTEXT_CALL="$resolved_call"
@@ -1593,6 +1618,13 @@ line_insert_emit() {
   printf '%s\n' "{ head -n $(($2 - 1)) '$1'; printf '%s\\n' '$3'; tail -n +$2 '$1'; } > '$1.new' && mv '$1.new' '$1'"
 }
 
+
+# sq <text> — <text> as ONE single-quoted shell word (a quote inside becomes
+# '\''), for values that travel inside an emitted line: labels, descriptions,
+# error reasons that may contain quotes or parentheses
+sq() {
+  printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"
+}
 
 # emit_note <text> — emit a runtime stderr note from a terminal: visible
 # under an executing interpreter (sh) AND under cat. A bare "# ..." line in

@@ -1,0 +1,5 @@
+sh
+# @summary Interpreter for `seal verify` -- dump names THIS bundle?
+# Generation-time check; sh so a finding's `exit 1` stops `import` before
+# anything is extracted.
+# @see ELEBAKE_INTERPRETER_seal

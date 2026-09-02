@@ -1,9 +1,14 @@
-env ELEBAKE_BATCH_KEEP_GOING=1 xargs sh -c 'eval exec "$0" "$@"' --
-# Interpreter for __restore1 - the combinator's usual executing interpreter,
+env ELEBAKE_BATCH_KEEP_GOING=1 xargs sh -c '[ "$0" = "--" ] || set -- "$0" "$@"; lit=$(printf "\044ELEBAKE_CONTEXT_SCRIPT"); n=$#; while [ $n -gt 0 ]; do a=$1; shift; [ "$a" = "$lit" ] && a=$ELEBAKE_CONTEXT_SCRIPT; set -- "$@" "$a"; n=$((n-1)); done; exec "$@"' --
+# Interpreter for 'restore' - the combinator's usual executing interpreter,
 # WRAPPED so the spawned batch inherits keep-going mode: a restore must
 # survive failing lines (e.g. a re-run's 'stage add' on an existing stage)
 # and replay everything else. The variable lives HERE because an export
 # inside the function would be lost -- the interpreter is the function's
 # PIPELINE PEER and inherits the environment from before it ran.
-# (vpn-switch had the analogous VPN_SWITCH_INTERPRETER_restore; the port
-# had lost it.) Set to cat for a dry-run of a restore.
+#
+# The words are exec'd as xargs split them, NOT eval'd -- an eval would
+# re-split a quoted error reason into many arguments. Only the one word
+# that is the literal $ELEBAKE_CONTEXT_SCRIPT (printf \044 spells the
+# dollar sign without putting one into this template) is mapped to the
+# script path, wherever it stands: restore's line starts with env, so the
+# combinator default (expand $1) cannot serve it. Set to cat for a dry-run.

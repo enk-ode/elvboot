@@ -1,0 +1,4 @@
+sh
+# @summary Interpreter for `seal` -- appends the bundle hash to the dump
+# Act terminal: one append. Inspect first by running it under cat.
+# @see ELEBAKE_INTERPRETER_seal_verify

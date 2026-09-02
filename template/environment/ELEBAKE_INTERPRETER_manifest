@@ -1,0 +1,6 @@
+sh
+# @summary Interpreter for `manifest` -- writes the MANIFEST file
+# Act family: the whole manifest is computed at generation time, so what
+# reaches this interpreter is one concrete heredoc write. Inspect it first by
+# running the command under cat.
+# @see ELEBAKE_INTERPRETER_manifest_attest

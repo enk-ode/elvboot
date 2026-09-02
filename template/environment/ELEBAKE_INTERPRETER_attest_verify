@@ -1,0 +1,6 @@
+sh
+# @summary Interpreter for `attest verify` -- the pinned signature check
+# Verification happens at generation time; the emission only reports. sh
+# nonetheless, and deliberately: a finding emits `exit 1`, and that exit is
+# what stops a batch. Under cat the finding is readable but toothless.
+# @see ELEBAKE_INTERPRETER_attest

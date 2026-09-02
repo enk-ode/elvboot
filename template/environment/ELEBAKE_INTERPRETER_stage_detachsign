@@ -1,5 +1,4 @@
-sh
-# Act terminal 'stage attest' (detached manifest signature) -- runs as
-# the CALLING user: boot/ is theirs and gpg needs their agent, pinentry
-# and card. The former sudo pin CAUSED the root-gpg mismatch (tutorial
-# find #18, the trust-anchor lesson repeated).
+sudo sh
+# Act terminal 'stage attest' -- the manifest attest key lives in root's
+# keyring (/root/.gnupg); the emission runs elevated and sets GNUPGHOME
+# from the key record.

@@ -1,0 +1,6 @@
+sh
+# @summary Interpreter for `attest` -- produces <file>.asc
+# Signing acts, so sh. Use `| sudo sh` instead when the openpgp record names a
+# keyring only root can read; the emission finds its own terminal for the
+# pinentry either way.
+# @see ELEBAKE_INTERPRETER_attest_verify

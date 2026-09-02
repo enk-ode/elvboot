@@ -785,3 +785,18 @@ ___foundation_dump0() {
   done
   return 0
 }
+
+#@help _foundation_collect0
+# @command foundation collect
+# @summary List the arsenal record files (macros, expectations, claims, triggers, gates, policies) that belong into an archive
+# @group   foundation
+# @see     collect
+#@end
+_foundation_collect0() {
+  local base="$ELEBAKE_BASE" fam
+  printf '# foundation\n'
+  for fam in macros expectations claims triggers gates policies; do
+    collect_tree "$base/foundation/$fam"
+  done
+  return 0
+}

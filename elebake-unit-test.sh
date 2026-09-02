@@ -29,7 +29,21 @@ while [ $# -gt 0 ]; do
   esac
 done
 
+# After the option loop the first positional is the PROFILE. Naming a test
+# function there instead used to bootstrap every sandbox with a profile that
+# does not exist -- an empty .env, and a run drowning in failures that have
+# nothing to do with the tests named. Rejected here, by name.
+case "${1:-}" in
+  -*) echo "unknown option: $1" >&2
+      echo "usage: $0 [--maxprocs N] [<profile>] [keep] [<test names...>]" >&2
+      exit 2 ;;
+esac
 TEST_PROFILE="${1:-minimal}"
+if [ ! -f "$(dirname "$0")/template/environment/ELEBAKE_PROFILE_$(echo "$TEST_PROFILE" | tr '[:lower:]' '[:upper:]')" ]; then
+  echo "unknown profile: $TEST_PROFILE" >&2
+  echo "available: $(ls "$(dirname "$0")"/template/environment/ELEBAKE_PROFILE_* | sed 's|.*PROFILE_||' | tr '[:upper:]' '[:lower:]' | tr '\n' ' ')" >&2
+  exit 2
+fi
 KEEP_DATABASES="${2:-false}"
 [ $# -ge 1 ] && shift
 [ $# -ge 1 ] && shift
@@ -85,6 +99,30 @@ test_setup() {
 }
 
 run_elebake() { ELEBAKE_BASE="$TEST_DIR" "$TEST_SCRIPT" "$@" 2>&1; }
+# unit_attest_key <record> -- generate a throwaway OpenPGP key in a home
+# short enough for gpg-agent's socket, register it in the test database and
+# pin it as the archive attest key. Sets UNIT_GNUPGHOME and UNIT_FPR.
+# Returns 1 (and passes with a note) when gpg is absent.
+unit_attest_key() {
+  command -v gpg > /dev/null 2>&1 || { pass "gpg absent -- signing checks skipped"; return 1; }
+  UNIT_GNUPGHOME="$TEST_BASE_DIR/gh-$TESTS_RUN"
+  mkdir -p "$UNIT_GNUPGHOME" && chmod 700 "$UNIT_GNUPGHOME"
+  GNUPGHOME="$UNIT_GNUPGHOME" gpg --batch --passphrase '' --pinentry-mode loopback \
+    --quick-generate-key "Unit $TESTS_RUN <unit@example.invalid>" rsa2048 sign never > /dev/null 2>&1
+  UNIT_FPR=$(GNUPGHOME="$UNIT_GNUPGHOME" gpg --list-secret-keys --with-colons 2>/dev/null | awk -F: '/^fpr:/{print $10; exit}')
+  [ -n "$UNIT_FPR" ] || { fail "could not create a test key (gpg-agent socket path too long? TMPDIR=$TEST_BASE_DIR)"; return 1; }
+  run_elebake openpgp add "$1" "$UNIT_FPR" "$UNIT_GNUPGHOME" > /dev/null 2>&1
+  run_elebake setenv ELEBAKE_ARCHIVE_ATTEST_KEY "$1" > /dev/null
+  return 0
+}
+# unit_signed_dump <file> <body...> -- write a Version-2 dump with the given
+# body lines and attest it with the pinned key (unit_attest_key first)
+unit_signed_dump() {
+  local f="$1"; shift
+  { printf '# elebake database dump\n# Version: 2\n# Serial: %s\n# Strategy: complete\n' "${UNIT_SERIAL:-1}"
+    for l; do printf '%s\n' "$l"; done; } > "$f"
+  run_elebake attest "$f" "$(head -1 "$TEST_DIR/.env/local/ELEBAKE_ARCHIVE_ATTEST_KEY")" > /dev/null 2>&1
+}
 
 test_summary() {
   local total=$((TESTS_PASSED + TESTS_FAILED))
@@ -350,10 +388,20 @@ test_dump_version_header() {
   test_header "database dump carries the format version"
   test_setup
   local out; out=$(run_elebake dump)
-  if printf '%s\n' "$out" | grep -q "^# Version: 1\$"; then
-    pass "dump header has '# Version: 1'"
+  if printf '%s\n' "$out" | grep -q "^# Version: 2\$"; then
+    pass "dump header has '# Version: 2'"
   else
     fail "version line missing"
+  fi
+  if printf '%s\n' "$out" | grep -q "^# Serial: 0\$" && printf '%s\n' "$out" | grep -q "^# Strategy: complete\$"; then
+    pass "a never-exported database dumps serial 0, strategy complete"
+  else
+    fail "serial/strategy header missing"
+  fi
+  if printf '%s\n' "$out" | grep -q "(no receipts to dump)"; then
+    pass "the receipts are part of the description"
+  else
+    fail "provenance section missing"
   fi
   if printf '%s\n' "$out" | grep -q "(no stages to dump)"; then
     pass "empty database dumps an empty stage section"
@@ -365,11 +413,11 @@ test_dump_version_header() {
 test_restore_keep_going() {
   test_header "restore survives a failing line (keep-going pin)"
   test_setup
-  cat > "$TEST_BASE_DIR/unit-restore.sh" <<'EOF'
-"$ELEBAKE_CONTEXT_SCRIPT" setenv ELEBAKE_UNIT_A one
-"$ELEBAKE_CONTEXT_SCRIPT" stage filter add ghost x
-"$ELEBAKE_CONTEXT_SCRIPT" setenv ELEBAKE_UNIT_B two
-EOF
+  unit_attest_key unit-attest || return 0
+  unit_signed_dump "$TEST_BASE_DIR/unit-restore.sh" \
+    '"$ELEBAKE_CONTEXT_SCRIPT" setenv ELEBAKE_UNIT_A one' \
+    '"$ELEBAKE_CONTEXT_SCRIPT" stage filter add ghost x' \
+    '"$ELEBAKE_CONTEXT_SCRIPT" setenv ELEBAKE_UNIT_B two'
   run_elebake restore "$TEST_BASE_DIR/unit-restore.sh" > /dev/null 2>&1
   if [ "$(head -1 "$TEST_DIR/.env/local/ELEBAKE_UNIT_A" 2>/dev/null)" = "one" ] \
      && [ "$(head -1 "$TEST_DIR/.env/local/ELEBAKE_UNIT_B" 2>/dev/null)" = "two" ]; then
@@ -1199,6 +1247,470 @@ test_stage_kernel_build_emissions() {
   fi
 }
 
+test_collect_speaks_archive_base() {
+  test_header "collect: real record paths, name symlink last, base as a variable"
+  test_setup
+  run_elebake stage add c1 > /dev/null 2>&1
+  mkdir -p "$TEST_DIR/stage/c1/boot" "$TEST_DIR/stage/c1/marker"
+  printf 'E\n' > "$TEST_DIR/stage/c1/boot/loader.efi"
+  printf 'B\n' > "$TEST_DIR/stage/c1/marker/bootvar"
+  local out; out=$(run_elebake stage collect c1)
+  if printf '%s\n' "$out" | grep -q '"\$ELEBAKE_ARCHIVE_BASE"/\.staging/.*/boot/loader\.efi'; then
+    pass "records are listed by their REAL path, against the base variable"
+  else
+    fail "collect path wrong: $out"
+  fi
+  if printf '%s\n' "$out" | grep -q 'stage/c1$' \
+     && [ "$(printf '%s\n' "$out" | grep -c 'ELEBAKE_ARCHIVE_BASE')" -ge 3 ]; then
+    pass "the name symlink is listed"
+  else
+    fail "symlink entry missing"
+  fi
+  if [ "$(printf '%s\n' "$out" | tail -1)" = '"$ELEBAKE_ARCHIVE_BASE"/stage/c1' ]; then
+    pass "the symlink comes LAST -- a link target must exist before the link"
+  else
+    fail "symlink not last: $(printf '%s\n' "$out" | tail -1)"
+  fi
+  if run_elebake collect | grep -q "# foundation" && run_elebake collect | grep -q "# stage c1"; then
+    pass "the top-level collect fans out to every class"
+  else
+    fail "fan-out missing"
+  fi
+}
+
+test_filter_strategies() {
+  test_header "filter: redacted drops machine secrets, full keeps them, both audit"
+  test_setup
+  local coll="$TEST_BASE_DIR/coll-$TESTS_RUN"
+  cat > "$coll" <<'FEOF'
+# stage x
+"$ELEBAKE_ARCHIVE_BASE"/.staging/stage-x/boot/loader.efi
+"$ELEBAKE_ARCHIVE_BASE"/.staging/stage-x/marker/bootvar
+"$ELEBAKE_ARCHIVE_BASE"/.staging/stage-x/backup/a/old.efi
+"$ELEBAKE_ARCHIVE_BASE"/.staging/stage-x/work/stand/efi/loader/local/site.mk
+FEOF
+  run_elebake filter redacted "$coll" "$coll.red" > /dev/null 2>&1
+  if grep -q 'boot/loader.efi' "$coll.red" \
+     && grep -q '# dropped (redacted).*marker/bootvar' "$coll.red" \
+     && grep -q '# dropped (redacted).*backup' "$coll.red" \
+     && grep -q '# dropped (redacted).*site.mk' "$coll.red"; then
+    pass "redacted drops marker, backup and site.mk -- as auditable comments"
+  else
+    fail "redaction wrong: $(cat "$coll.red" 2>&1)"
+  fi
+  run_elebake filter full "$coll" "$coll.full" > /dev/null 2>&1
+  if grep -q 'marker/bootvar' "$coll.full" && ! grep -q 'dropped (redacted)' "$coll.full"; then
+    pass "full keeps what redacted drops"
+  else
+    fail "full strategy wrong"
+  fi
+  run_elebake filter "$coll" "$coll.def" > /dev/null 2>&1
+  if [ -f "$coll.def" ] && cmp -s "$coll.def" "$coll.red"; then
+    pass "the bare form delegates through default to redacted"
+  else
+    fail "default delegation wrong: $(cat "$coll.def" 2>&1 | head -3)"
+  fi
+  cat > "$coll.m" <<'FEOF'
+"$ELEBAKE_ARCHIVE_BASE"/.staging/stage-x/boot/loader.efi
+"$ELEBAKE_ARCHIVE_BASE"/.staging/stage-x/boot/loader.efi.signed
+"$ELEBAKE_ARCHIVE_BASE"/.staging/stage-x/boot/loader.conf
+"$ELEBAKE_ARCHIVE_BASE"/.staging/stage-x/boot/kernel/kernel
+"$ELEBAKE_ARCHIVE_BASE"/.staging/stage-x/boot/kernel/if_x.ko
+"$ELEBAKE_ARCHIVE_BASE"/.staging/stage-x/boot/lua/loader.lua
+"$ELEBAKE_ARCHIVE_BASE"/.staging/stage-x/boot/defaults/loader.conf
+"$ELEBAKE_ARCHIVE_BASE"/.staging/stage-x/marker/bootvar
+"$ELEBAKE_ARCHIVE_BASE"/.staging/stage-x/backup/a/known-good/loader.efi
+"$ELEBAKE_ARCHIVE_BASE"/.staging/stage-x/media/a/node
+"$ELEBAKE_ARCHIVE_BASE"/.staging/stage-x/metadata
+"$ELEBAKE_ARCHIVE_BASE"/.staging/stage-x/phases/loaderconf
+"$ELEBAKE_ARCHIVE_BASE"/stage/x
+"$ELEBAKE_ARCHIVE_BASE"/foundation/gates/g1
+"$ELEBAKE_ARCHIVE_BASE"/openpgp/att/keyid
+"$ELEBAKE_ARCHIVE_BASE"/provenance/000001-abc/serial
+FEOF
+  run_elebake filter minimized "$coll.m" "$coll.min" > /dev/null 2>&1
+  local keep drop ok=1
+  for keep in boot/loader.efi boot/loader.efi.signed boot/loader.conf boot/kernel/kernel boot/kernel/if_x.ko backup/a/known-good media/a/node stage-x/metadata '^"$ELEBAKE_ARCHIVE_BASE"/stage/x' openpgp/att provenance/000001; do
+    grep -q "$keep" "$coll.min" && ! grep -q "dropped.*$keep" "$coll.min" || { ok=0; fail "minimized dropped: $keep"; }
+  done
+  for drop in lua/loader.lua defaults/loader.conf marker/bootvar phases/loaderconf foundation/gates; do
+    grep -q "# dropped (minimized).*$drop" "$coll.min" || { ok=0; fail "minimized kept: $drop"; }
+  done
+  [ "$ok" -eq 1 ] && pass "minimized keeps binary management (loader, loader.conf, kernel/, backups, media, keys, receipts) and drops the rest, audited"
+}
+
+test_manifest_covers_what_travels() {
+  test_header "manifest: hashes files, records symlink targets, refuses a short list"
+  test_setup
+  run_elebake stage add m1 > /dev/null 2>&1
+  mkdir -p "$TEST_DIR/stage/m1/boot"
+  printf 'E\n' > "$TEST_DIR/stage/m1/boot/loader.efi"
+  local coll="$TEST_BASE_DIR/mcoll-$TESTS_RUN"
+  run_elebake stage collect m1 > "$coll"
+  local man="$TEST_BASE_DIR/mdir-$TESTS_RUN/MANIFEST"
+  mkdir -p "$(dirname "$man")"
+  run_elebake manifest "$coll" "$man" > /dev/null 2>&1
+  if grep -q 'boot/loader.efi sha256=[0-9a-f][0-9a-f]*$' "$man"; then
+    pass "regular files carry their sha256, boot-manifest format"
+  else
+    fail "hash line missing: $(cat "$man" 2>&1)"
+  fi
+  if grep -q '^stage/m1 symlink=\.\./\.staging/' "$man"; then
+    pass "a name symlink travels as its TARGET -- retargeting a stage is detectable"
+  else
+    fail "symlink line missing: $(cat "$man" 2>&1)"
+  fi
+  if ! grep -q 'MANIFEST' "$man"; then
+    pass "the manifest never lists itself or its signature"
+  else
+    fail "manifest lists itself"
+  fi
+  if run_elebake manifest "$coll" "$TEST_BASE_DIR/wrongname" 2>&1 | grep -q "must be named MANIFEST"; then
+    pass "the name is fixed -- import looks for it by name"
+  else
+    fail "wrong name accepted"
+  fi
+  printf '"$ELEBAKE_ARCHIVE_BASE"/ghost/file\n' >> "$coll"
+  if run_elebake manifest "$coll" "$man" 2>&1 | grep -q "neither file nor symlink"; then
+    pass "an unreadable entry fails the manifest instead of shortening it"
+  else
+    fail "short manifest accepted"
+  fi
+}
+
+test_manifest_verify_and_bundle_pairing() {
+  test_header "manifest verify: signature and tree, both at generation time"
+  test_setup
+  command -v gpg > /dev/null 2>&1 || { pass "gpg absent -- signing checks skipped"; return 0; }
+  run_elebake stage add m2 > /dev/null 2>&1
+  mkdir -p "$TEST_DIR/stage/m2/boot"
+  printf 'E\n' > "$TEST_DIR/stage/m2/boot/loader.efi"
+  local coll="$TEST_DIR/export/collection"
+  mkdir -p "$TEST_DIR/export"
+  run_elebake stage collect m2 > "$coll"
+  local man="$TEST_DIR/export/MANIFEST"
+  run_elebake manifest "$coll" "$man" > /dev/null 2>&1
+
+  unit_attest_key unit-attest || return 0
+  local out; out=$(run_elebake manifest verify "$man" "$TEST_DIR" unit-attest 2>&1)
+  if printf '%s\n' "$out" | grep -q "unsigned"; then
+    pass "an unsigned manifest is refused -- it proves nothing about its origin"
+  else
+    fail "unsigned manifest accepted: $out"
+  fi
+
+  run_elebake manifest attest "$coll" unit-attest > /dev/null 2>&1
+  if [ -f "$man.asc" ]; then
+    pass "manifest attest writes the manifest and its detached signature beside the collection"
+  else
+    fail "no signature produced"
+  fi
+
+  if run_elebake manifest verify "$man" "$TEST_DIR" unit-attest 2>&1 | grep -q "signed by $UNIT_FPR, tree matches"; then
+    pass "a good pair verifies against the PINNED signer"
+  else
+    fail "good pair rejected: $(run_elebake manifest verify "$man" "$TEST_DIR" unit-attest 2>&1)"
+  fi
+
+  run_elebake openpgp add stranger 0123456789ABCDEF0123456789ABCDEF01234567 "$UNIT_GNUPGHOME" > /dev/null 2>&1
+  out=$(run_elebake manifest verify "$man" "$TEST_DIR" stranger 2>&1)
+  if printf '%s\n' "$out" | grep -q "DIFFERENT key"; then
+    pass "a good signature by a key other than the pinned one is refused"
+  else
+    fail "foreign signer accepted: $out"
+  fi
+  run_elebake openpgp add shortpin DEADBEEF "$UNIT_GNUPGHOME" > /dev/null 2>&1
+  if run_elebake manifest verify "$man" "$TEST_DIR" shortpin 2>&1 | grep -q "too short"; then
+    pass "a short key id is refused as a pin"
+  else
+    fail "short pin accepted"
+  fi
+
+  printf 'EVIL\n' > "$TEST_DIR/stage/m2/boot/loader.efi"
+  out=$(run_elebake manifest verify "$man" "$TEST_DIR" unit-attest 2>&1)
+  local vrc; ELEBAKE_BASE="$TEST_DIR" "$TEST_SCRIPT" manifest verify "$man" "$TEST_DIR" unit-attest > /dev/null 2>&1; vrc=$?
+  if printf '%s\n' "$out" | grep -q "CHANGED.*loader.efi" && [ "$vrc" -ne 0 ]; then
+    pass "a changed payload file is named AND ends the command -- that is what stops import"
+  else
+    fail "tampering not detected (rc=$vrc): $out"
+  fi
+  printf 'E\n' > "$TEST_DIR/stage/m2/boot/loader.efi"
+
+  run_elebake setenv ELEBAKE_INTERPRETER_bundle cat > /dev/null
+  out=$(run_elebake bundle "$coll" "$TEST_BASE_DIR/bundle/m2.tar.gz" 2>&1)
+  if printf '%s\n' "$out" | grep -q '^export/MANIFEST$' \
+     && printf '%s\n' "$out" | grep -q '^export/MANIFEST.asc$'; then
+    pass "bundle packs the pair alongside the payload"
+  else
+    fail "manifest pair not bundled: $out"
+  fi
+  rm -f "$man.asc"
+  if run_elebake bundle "$coll" "$TEST_BASE_DIR/bundle/m2.tar.gz" 2>&1 | grep -q "no MANIFEST + MANIFEST.asc"; then
+    pass "a bundle without tamper detection is not produced"
+  else
+    fail "unsigned bundle produced"
+  fi
+}
+
+test_seal_attest_restore_admissibility() {
+  test_header "seal/attest/restore: pinned signer, sealed pair, serial floor"
+  test_setup
+  unit_attest_key unit-attest || return 0
+  local d="$TEST_BASE_DIR/adm-$TESTS_RUN.sh" b="$TEST_BASE_DIR/adm-$TESTS_RUN.tar.gz"
+  printf 'PAYLOAD\n' > "$b"
+  { printf '# elebake database dump\n# Version: 2\n# Serial: 3\n# Strategy: complete\n'
+    printf '%s\n' '"$ELEBAKE_CONTEXT_SCRIPT" setenv ELEBAKE_UNIT_ADM yes'; } > "$d"
+  local out
+  out=$(run_elebake restore "$d" 2>&1)
+  if printf '%s\n' "$out" | grep -q "unsigned"; then
+    pass "restore refuses an unsigned dump"
+  else
+    fail "unsigned dump replayed: $out"
+  fi
+  run_elebake seal "$d" "$b" > /dev/null 2>&1
+  if grep -q "^# Bundle: sha256=$(sha256 -q "$b") bytes=8$" "$d"; then
+    pass "seal appends the bundle's sha256 and size to the dump"
+  else
+    fail "seal line wrong: $(grep Bundle "$d")"
+  fi
+  if run_elebake seal "$d" "$b" 2>&1 | grep -q "already sealed"; then
+    pass "a dump names ONE bundle"
+  else
+    fail "double seal accepted"
+  fi
+  run_elebake attest "$d" unit-attest > /dev/null 2>&1
+  [ -f "$d.asc" ] && pass "attest signs the dump" || fail "no dump signature"
+  local late="$TEST_BASE_DIR/late-$TESTS_RUN.sh"
+  printf '# elebake database dump\n# Version: 2\n# Serial: 1\n' > "$late"
+  run_elebake attest "$late" unit-attest > /dev/null 2>&1
+  if run_elebake seal "$late" "$b" 2>&1 | grep -q "already attested"; then
+    pass "sealing after signing is refused (it would invalidate the signature)"
+  else
+    fail "seal after attest accepted"
+  fi
+  if run_elebake attest verify "$d" unit-attest 2>&1 | grep -q "signed by $UNIT_FPR"; then
+    pass "attest verify names the pinned signer"
+  else
+    fail "attest verify failed: $(run_elebake attest verify "$d" unit-attest 2>&1)"
+  fi
+  if run_elebake seal verify "$d" "$b" 2>&1 | grep -q "is the bundle"; then
+    pass "seal verify accepts the sealed bundle"
+  else
+    fail "seal verify rejected the right bundle"
+  fi
+  printf 'x' >> "$b"
+  if run_elebake seal verify "$d" "$b" 2>&1 | grep -q "MISMATCHED PAIR"; then
+    pass "seal verify refuses a bundle the dump does not name"
+  else
+    fail "foreign bundle accepted"
+  fi
+  run_elebake restore "$d" > /dev/null 2>&1
+  if [ "$(head -1 "$TEST_DIR/.env/local/ELEBAKE_UNIT_ADM" 2>/dev/null)" = "yes" ]; then
+    pass "a signed, pinned dump replays"
+  else
+    fail "signed dump did not replay"
+  fi
+  run_elebake provenance add "$d" - > /dev/null 2>&1
+  local rec; rec=$(ls "$TEST_DIR/provenance" 2>/dev/null | head -1)
+  if [ -n "$rec" ] && [ "$(cat "$TEST_DIR/provenance/$rec/serial")" = 3 ] \
+     && [ "$(cat "$TEST_DIR/provenance/$rec/signer")" = "$UNIT_FPR" ] \
+     && [ "$(cat "$TEST_DIR/provenance/$rec/bundle")" = "-" ]; then
+    pass "provenance add files the receipt (serial, pinned signer, no bundle)"
+  else
+    fail "receipt wrong: $rec $(cat "$TEST_DIR/provenance/$rec"/* 2>/dev/null | tr '\n' ' ')"
+  fi
+  if [ "$(cat "$TEST_DIR/export/serial" 2>/dev/null)" = 3 ]; then
+    pass "the import raised the export serial to the imported one (lineage continues)"
+  else
+    fail "export serial not raised: $(cat "$TEST_DIR/export/serial" 2>/dev/null)"
+  fi
+  if run_elebake provenance list 2>&1 | grep -q "^#  *3  .*$(printf '%s' "$UNIT_FPR" | cut -c25-)"; then
+    pass "provenance list shows the receipt"
+  else
+    fail "provenance list wrong: $(run_elebake provenance list 2>&1)"
+  fi
+  local old="$TEST_BASE_DIR/old-$TESTS_RUN.sh"
+  UNIT_SERIAL=2 unit_signed_dump "$old" '"$ELEBAKE_CONTEXT_SCRIPT" setenv ELEBAKE_UNIT_OLD yes'
+  out=$(run_elebake restore "$old" 2>&1)
+  if printf '%s\n' "$out" | grep -q "DOWNGRADE" && [ ! -f "$TEST_DIR/.env/local/ELEBAKE_UNIT_OLD" ]; then
+    pass "a validly signed OLDER dump is refused (serial below the signer's floor)"
+  else
+    fail "downgrade replayed: $out"
+  fi
+  UNIT_SERIAL=3 unit_signed_dump "$old" '"$ELEBAKE_CONTEXT_SCRIPT" setenv ELEBAKE_UNIT_SAME yes'
+  run_elebake restore "$old" > /dev/null 2>&1
+  if [ -f "$TEST_DIR/.env/local/ELEBAKE_UNIT_SAME" ]; then
+    pass "the same serial replays again (idempotent re-restore)"
+  else
+    fail "equal serial refused"
+  fi
+  local v1="$TEST_BASE_DIR/v1-$TESTS_RUN.sh"
+  printf '# elebake database dump\n# Version: 1\n' > "$v1"
+  run_elebake attest "$v1" unit-attest > /dev/null 2>&1
+  if run_elebake restore "$v1" 2>&1 | grep -q "format 1 not admissible"; then
+    pass "a Version-1 dump is refused (no serial, no seal -- re-export)"
+  else
+    fail "legacy dump accepted"
+  fi
+}
+
+test_backup_records_and_rollback() {
+  test_header "stage backup: records with label/description; rollback saves the suspect first"
+  test_setup
+  run_elebake stage add unitb > /dev/null 2>&1
+  run_elebake stage device unitb a /dev/nonexistent99 /mnt > /dev/null 2>&1
+  local d="$TEST_DIR/stage/unitb"
+  mkdir -p "$d/backup/a/known-good" "$d/backup/a/older"
+  printf 'GOOD\n' > "$d/backup/a/known-good/loader.efi"; sha256 -q "$d/backup/a/known-good/loader.efi" > "$d/backup/a/known-good/sha256"
+  printf '2026-08-25T10:00:00Z\n' > "$d/backup/a/known-good/created"; printf 'booted silently\n' > "$d/backup/a/known-good/description"
+  printf 'OLD\n' > "$d/backup/a/older/loader.efi"; sha256 -q "$d/backup/a/older/loader.efi" > "$d/backup/a/older/sha256"
+  printf '2026-01-01T00:00:00Z\n' > "$d/backup/a/older/created"; printf 'first deploy\n' > "$d/backup/a/older/description"
+  local out; out=$(run_elebake stage backup list unitb a)
+  if printf '%s\n' "$out" | grep -n "older\|known-good" | grep -q "^[0-9]*:.*older" \
+     && printf '%s\n' "$out" | grep "known-good" | grep -q "booted silently"; then
+    pass "backup list shows label, created, hash and description, oldest first"
+  else
+    fail "backup list wrong: $out"
+  fi
+  run_elebake setenv ELEBAKE_INTERPRETER_stage_backup4 cat > /dev/null
+  run_elebake setenv ELEBAKE_INTERPRETER_stage_backup2 cat > /dev/null
+  run_elebake setenv ELEBAKE_INTERPRETER_stage_backup3 cat > /dev/null
+  out=$(run_elebake stage backup unitb a)
+  if printf '%s\n' "$out" | grep -q "stage backup 'unitb' 'a' '[0-9]*T[0-9]*Z'$"; then
+    pass "the 2-arg form delegates with the UTC stamp as label"
+  else
+    fail "2-arg delegation wrong: $out"
+  fi
+  out=$(run_elebake stage backup unitb a mylabel)
+  if printf '%s\n' "$out" | grep -q "stage backup 'unitb' 'a' 'mylabel' 'loader found on medium a of stage unitb"; then
+    pass "the 3-arg form delegates with a speaking default description"
+  else
+    fail "3-arg delegation wrong: $out"
+  fi
+  out=$(run_elebake stage backup unitb a mylabel "it's the one before the p3 kernel")
+  if printf '%s\n' "$out" | grep -q "backup/a/mylabel/description" \
+     && printf '%s\n' "$out" | grep -q "backup/a/mylabel/sha256" \
+     && printf '%s\n' "$out" | grep -q "s the one before the p3 kernel"; then
+    pass "the full form emits the record write (loader.efi, description with quote, sha256, created, source, by)"
+  else
+    fail "record emission wrong: $out"
+  fi
+  if run_elebake stage backup unitb a known-good 'again' 2>&1 | grep -q "exists (immutable"; then
+    pass "a label is unique per medium -- immutable"
+  else
+    fail "duplicate label accepted"
+  fi
+  if run_elebake stage backup unitb a 'bad label' 'x' 2>&1 | grep -q "invalid label"; then
+    pass "a label is a record name"
+  else
+    fail "bad label accepted"
+  fi
+  run_elebake setenv ELEBAKE_INTERPRETER_stage_rollback3 cat > /dev/null
+  out=$(run_elebake stage rollback unitb a)
+  if printf '%s\n' "$out" | grep -q "stage backup 'unitb' 'a' 'suspect-[0-9T]*Z' 'loader found on medium a before rollback to " \
+     && printf '%s\n' "$out" | grep -q "stage rollback apply 'unitb' 'a' 'known-good'"; then
+    pass "rollback resolves the NEWEST record and saves the suspect BEFORE applying"
+  else
+    fail "rollback batch wrong: $out"
+  fi
+  run_elebake setenv ELEBAKE_INTERPRETER_stage_rollback_apply cat > /dev/null
+  out=$(run_elebake stage rollback apply unitb a older)
+  if printf '%s\n' "$out" | grep -q "backup/a/older/loader.efi" && printf '%s\n' "$out" | grep -q "first deploy"; then
+    pass "rollback apply writes the named record's loader and shows its description"
+  else
+    fail "rollback apply wrong: $out"
+  fi
+  printf 'TAMPERED\n' > "$d/backup/a/older/loader.efi"
+  if run_elebake stage rollback apply unitb a older 2>&1 | grep -q "CORRUPT"; then
+    pass "a record whose loader no longer matches its sha256 is never put on a medium"
+  else
+    fail "corrupt record accepted"
+  fi
+}
+
+test_stage_dump_minimized() {
+  test_header "stage dump minimized: binary management only"
+  test_setup
+  run_elebake stage add unitm > /dev/null 2>&1
+  local d="$TEST_DIR/stage/unitm"
+  mkdir -p "$d/boot/kernel" "$d/boot/lua" "$d/marker" "$d/backup/a/x" "$d/phases"
+  printf 'L' > "$d/boot/loader.efi"; printf 'K' > "$d/boot/kernel/kernel"; printf 'M' > "$d/boot/kernel/if_x.ko"
+  printf 'lua' > "$d/boot/lua/loader.lua"; printf 'c' > "$d/boot/loader.conf"; printf 'Boot0001' > "$d/marker/bootvar"
+  printf 'B' > "$d/backup/a/x/loader.efi"; printf 'p1' > "$d/phases/loaderconf"
+  local out; out=$(run_elebake stage dump unitm minimized)
+  if printf '%s\n' "$out" | grep -q "boot/kernel/if_x.ko" && printf '%s\n' "$out" | grep -q "boot/loader.conf" \
+     && printf '%s\n' "$out" | grep -q "'backup/a/x' " && ! printf '%s\n' "$out" | grep -q "lua" \
+     && ! printf '%s\n' "$out" | grep -q "marker" && ! printf '%s\n' "$out" | grep -q "phase policy" \
+     && ! printf '%s\n' "$out" | grep -q "stage build"; then
+    pass "minimized: loader, loader.conf, kernel/, backups -- no lua, marker, phases, rebuild"
+  else
+    fail "minimized dump wrong: $out"
+  fi
+  local dl fl
+  dl=$(printf '%s\n' "$out" | grep -n "stage import 'unitm' 'boot/kernel'$" | head -1 | cut -d: -f1)
+  fl=$(printf '%s\n' "$out" | grep -n "stage import 'unitm' 'boot/kernel' " | head -1 | cut -d: -f1)
+  if [ -n "$dl" ] && [ -n "$fl" ] && [ "$dl" -lt "$fl" ]; then
+    pass "minimized declares boot/kernel before its files"
+  else
+    fail "minimized structure order wrong (d=$dl f=$fl)"
+  fi
+  out=$(run_elebake dump minimized)
+  if printf '%s\n' "$out" | grep -q "^# Strategy: minimized$" && printf '%s\n' "$out" | grep -q "stage 'unitm' (minimized)" \
+     && ! printf '%s\n' "$out" | grep -q "foundation arsenal"; then
+    pass "dump minimized: strategy in the header, no foundation"
+  else
+    fail "dump minimized wrong"
+  fi
+  if run_elebake dump bogus 2>&1 | grep -q "unknown strategy"; then
+    pass "an unknown dump strategy fails early"
+  else
+    fail "bogus strategy accepted"
+  fi
+}
+
+test_destroy_removes_everything() {
+  test_header "destroy: named confirmation, worktree deregistration, nothing left"
+  test_setup
+  if run_elebake destroy wrongname 2>&1 | grep -q "does not match this database"; then
+    pass "a wrong name is refused -- naming the database IS the confirmation"
+  else
+    fail "wrong name accepted"
+  fi
+  local src="$TEST_BASE_DIR/destroy-src-$TESTS_RUN"
+  mkdir -p "$src"
+  (cd "$src" && git init -q . && git config user.email t@t && git config user.name t \
+     && echo x > f && git add f && git commit -qm init) > /dev/null 2>&1
+  run_elebake setenv ELEBAKE_FREEBSD_SRC "$src" > /dev/null
+  run_elebake stage add dstage > /dev/null 2>&1
+  run_elebake stage checkout dstage HEAD 2>/dev/null | sh > /dev/null 2>&1
+  local wt; wt=$(readlink "$TEST_DIR/.staging"/*/work 2>/dev/null)
+  if [ -n "$wt" ] && [ -d "$wt" ] && git -C "$src" worktree list | grep -q "$wt"; then
+    pass "fixture has a registered worktree"
+  else
+    fail "worktree fixture failed: $wt"
+  fi
+  mkdir -p "$TEST_BASE_DIR/bundle" && : > "$TEST_BASE_DIR/bundle/handover.tar.gz"
+  local out; out=$(run_elebake destroy "test-$TESTS_RUN" 2>&1)
+  if printf '%s\n' "$out" | grep -q "gone for good" \
+     && printf '%s\n' "$out" | grep -q "worktree remove --force" \
+     && printf '%s\n' "$out" | grep -q "rm -rf '$TEST_BASE_DIR/bundle'"; then
+    pass "emission warns and covers records, worktrees and the bundle handover area"
+  else
+    fail "destroy emission incomplete: $out"
+  fi
+  printf '%s\n' "$out" | sh > /dev/null 2>&1
+  if [ ! -d "$TEST_DIR" ] && [ ! -d "$TEST_BASE_DIR/bundle" ] && [ ! -d "$wt" ]; then
+    pass "database, bundle area and worktree are gone"
+  else
+    fail "leftovers: $(ls -A "$TEST_BASE_DIR" 2>&1 | tr '\n' ' ')"
+  fi
+  if ! git -C "$src" worktree list | grep -q "$wt"; then
+    pass "the source repo no longer registers the worktree"
+  else
+    fail "stale worktree registration survives"
+  fi
+}
+
 test_stage_prerequisites_lists() {
   test_header "per-stage prerequisites lists: add/drop/show, stdin, alias, dump"
   test_setup
@@ -1395,6 +1907,14 @@ main() {
   should_run_test test_foundation_macro_crud
   should_run_test test_stage_foundation_emitter
   should_run_test test_stage_kernel_build_emissions
+  should_run_test test_destroy_removes_everything
+  should_run_test test_collect_speaks_archive_base
+  should_run_test test_filter_strategies
+  should_run_test test_manifest_covers_what_travels
+  should_run_test test_manifest_verify_and_bundle_pairing
+  should_run_test test_seal_attest_restore_admissibility
+  should_run_test test_backup_records_and_rollback
+  should_run_test test_stage_dump_minimized
   should_run_test test_stage_prerequisites_lists
   should_run_test test_filter_stdin_and_include_source
   should_run_test test_foundation_prereqs_arrays

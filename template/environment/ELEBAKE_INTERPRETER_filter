@@ -1,0 +1,3 @@
+sh
+# Act family 'filter' -- writes files (a collection, an archive, an unpacked
+# tree); sh so it acts. Inspect first by running it under cat.

@@ -1,0 +1,7 @@
+sudo sh
+# @summary Interpreter for `stage backup` (the arity-4 act terminal ONLY)
+# Needs root (the mounted medium). Arity-specific ON PURPOSE: the arity-2 and
+# arity-3 siblings are combinators (label/description defaults) and must keep
+# the combinator default -- an agnostic pin here would hand `sudo sh` a
+# re-invocation line. Inspect first by running the command under cat.
+# @see ELEBAKE_INTERPRETER_stage_backup_list

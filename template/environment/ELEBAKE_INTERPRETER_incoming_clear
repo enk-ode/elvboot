@@ -1,0 +1,5 @@
+sh
+# @summary Interpreter for `incoming clear` -- empties import's scratch directory
+# Act terminal confined to $ELEBAKE_ROOT/incoming/; sh so a re-import finds
+# an empty unpacking area. Inspect first by running it under cat.
+# @see ELEBAKE_INTERPRETER_extract

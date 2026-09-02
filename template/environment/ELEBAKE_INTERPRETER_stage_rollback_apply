@@ -1,0 +1,6 @@
+sudo sh
+# @summary Interpreter for `stage rollback apply` -- the write onto the medium
+# Needs root (the mounted medium). `stage rollback` itself is a batch (save
+# the suspect, then apply) and keeps the batch default; the two act lines
+# run under their own pins. Inspect first by running the command under cat.
+# @see ELEBAKE_INTERPRETER_stage_backup4

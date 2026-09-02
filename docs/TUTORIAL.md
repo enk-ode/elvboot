@@ -207,6 +207,11 @@ equivalence: hyphens in command words normalize to spaces.)
 
 ## 6. Connecting the source, checking out — and the first real find
 
+The source is the FreeBSD tree that carries the platform-trust-gates
+series -- `https://github.com/johannes-bruegmann/freebsd-src`, branch
+`platform-trust-gates-15.1` (based on releng/15.1). A stock tree has no
+catalogs to offer, and everything from chapter 7 on would be empty.
+
 Deliberately run WITHOUT the variable first — fail early is worth
 seeing once:
 
@@ -686,3 +691,74 @@ keeps the pipe).
 > of acting (ELEBAKE_TERMINAL_INTERPRETER=cat). Experienced users flip
 > it once: `elebake setenv ELEBAKE_TERMINAL_INTERPRETER sh` — and
 > inspect single commands via `setintp <family> cat` when wanted.
+
+## 14. One to one: the stick becomes the card
+
+The goal was never a new, minimal boot tree — it was the SAME tree the
+production card carries, produced by an empty database. That is a
+measurable claim, so it is measured: the stage's `boot/` must be
+diff-identical to the production stage's `boot/`, except for the four
+files an empty database has to produce itself — `loader.efi`,
+`loader.efi.signed`, `manifest`, `manifest.asc`.
+
+The curation is therefore not invented, it is read off the reference:
+
+```
+$ ls ~/.elebake/current/stage/smoke1/boot \
+    | grep -vE '^(loader\.efi|loader\.efi\.signed|manifest|manifest\.asc)$' \
+    | ./elebake.sh stage filter add illyria-boot -
+$ ./elebake.sh stage include illyria-boot ~/.elebake/current/stage/smoke1/boot
+# Included 72 filter entries into boot/ of stage illyria-boot
+$ diff -rq ~/.elebake/current/stage/smoke1/boot \
+           ~/.elebake/tutorial/stage/illyria-boot/boot | grep -vE 'loader\.efi|manifest'
+```
+
+Empty output. Every .4th file, dtb/, firmware/, keys/, the curated
+loader.conf with its password control, loader.ve.strict, the kernel —
+identical. The two-argument form of `stage include` made this a normal
+operation rather than a special case: the same curated filter list,
+applied to a chosen source.
+
+## 15. The RSA lesson: libsecureboot verifies OpenPGP RSA only
+
+The first boot of the stick failed, and the log read like a chain of
+dominoes:
+
+```
+Unverified ta_ASC: Testing verify OpenPGP signature: Failed
+Unverified /boot/manifest
+*** loaderlock: verification failed [PrereqsVerify] ***
+ERROR: cannot open /boot/lua/loader.lua
+OK (LoaderPrompt)
+```
+
+The root cause is one sentence in the sources
+(`lib/libsecureboot/openpgp/opgp_sig.c`): *"We only support RSA"*. The
+attest key that had been bound was the ed25519 key on the smartcard —
+so the loader could not even verify its own compiled-in trust anchor.
+Everything downstream follows: manifest unverified, loader.conf
+unverified, `password_sha256` never set, the Lua chain never loaded,
+and an UNPROTECTED loader prompt.
+
+Two things to take away:
+
+1. **The attest key must be RSA.** The production card had always used
+   a separate RSA software key for exactly this reason; it lives in
+   root's keyring (`/root/.gnupg`), and the key record carries that
+   location: `openpgp add manifest <keyid> /root/.gnupg`. The
+   `trust anchor` and `attest` families run under `sudo sh` because
+   the key does.
+2. **The prompt protection is fail-open today.** It lives in
+   loader.conf, which is itself subject to verification — when
+   verification fails, the protection falls with it. The fix belongs
+   in the design's follow-up package: the prompt hash as a site.mk
+   slot compiled into the SIGNED loader, the same philosophy the gate
+   secrets already follow.
+
+After rebuilding with the RSA anchor (the anchor is compiled in, so a
+rebuild is mandatory), signing, and pushing again, the stick booted:
+anchor self-test passed, manifest verified, Lua loaded, the prompt
+protected. bootlock did fire — the stick carries no boot marker, so
+the BootMarker claim falls short and the gate asks for the bootlock
+password. That is not a defect; it is the detection system doing its
+work on its first encounter with a new medium.

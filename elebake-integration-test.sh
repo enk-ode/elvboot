@@ -59,6 +59,24 @@ should_run_story() {
 # eb <base> <args...> — run elebake against one of the story databases
 eb() { local base="$1"; shift; ELEBAKE_BASE="$base" "$TEST_SCRIPT" "$@" 2>&1; }
 
+# story_key <root> -- one throwaway OpenPGP key per story, in a home short
+# enough for gpg-agent's socket. Sets STORY_GNUPGHOME and STORY_FPR.
+story_key() {
+  STORY_GNUPGHOME="$1/gh"
+  mkdir -p "$STORY_GNUPGHOME" && chmod 700 "$STORY_GNUPGHOME"
+  GNUPGHOME="$STORY_GNUPGHOME" gpg --batch --passphrase '' --pinentry-mode loopback \
+    --quick-generate-key "Story <story@example.invalid>" rsa2048 sign never > /dev/null 2>&1
+  STORY_FPR=$(GNUPGHOME="$STORY_GNUPGHOME" gpg --list-secret-keys --with-colons 2>/dev/null | awk -F: '/^fpr:/{print $10; exit}')
+  [ -n "$STORY_FPR" ]
+}
+# story_pin <db> <record> -- register the story key in a database and name
+# it as the archive attest key: the sender signs with it, the receiver
+# pins it (one identity, one setting)
+story_pin() {
+  eb "$1" openpgp add "$2" "$STORY_FPR" "$STORY_GNUPGHOME" > /dev/null 2>&1
+  eb "$1" setenv ELEBAKE_ARCHIVE_ATTEST_KEY "$2" > /dev/null
+}
+
 # make_source_db <root> — bootstrap a source DB and populate it with the
 # canonical COMFORTABLE fixture: three key records (one with an extra file
 # and a DB-internal path), one stage with filter/binding/device/boot tree
@@ -109,10 +127,16 @@ make_source_db() {
 # restore; echoes the target base path.
 migrate() {
   local srcbase="$1" dstroot="$2" dumpfile="$3" dstbase="$2/db"
-  eb "$srcbase" dump > "$dumpfile" 2>/dev/null
+  # A migration is an export/import pair like any other transfer: the dump
+  # is sealed to its bundle and signed, the receiver pins the signer. 'full'
+  # so the machine secrets (marker, backups) travel to one's own new home.
+  story_key "$dstroot" || return 1
+  story_pin "$srcbase" attest-story
+  eb "$srcbase" export "$dumpfile" "$dstroot/bundle.tar.gz" full > "$dstroot/export.log" 2>&1
   ELEBAKE_ROOT="$dstroot" ELEBAKE_BASE="$dstbase" "$TEST_SCRIPT" bootstrap current minimal > "$dstroot/bootstrap.log" 2>&1 || return 1
   eb "$dstbase" setenv ELEBAKE_TERMINAL_INTERPRETER sh > /dev/null
-  eb "$dstbase" restore "$dumpfile" > "$dstroot/restore.log" 2>&1
+  story_pin "$dstbase" attest-story
+  ELEBAKE_ROOT="$dstroot" eb "$dstbase" import "$dumpfile" "$dstroot/bundle.tar.gz" > "$dstroot/restore.log" 2>&1
   printf '%s\n' "$dstbase"
 }
 
@@ -325,16 +349,261 @@ ACC_EXPECTED
   story_close 4
 }
 
+# Story 5: the archive pipeline -- two artifacts in two places. The dump
+# goes where git would take it, the bundle where a backup would; neither
+# contains the other, and an import into a FRESH database reproduces the
+# stage while the redaction strategy keeps machine secrets at home.
+user_story_5_export_import() {
+  story_header 5 "export/import: dump and bundle travel apart, import rebuilds"
+  local root="$TEST_BASE_DIR/s5" src="$TEST_BASE_DIR/s5/src" fresh="$TEST_BASE_DIR/s5/fresh"
+  mkdir -p "$root"
+  ELEBAKE_ROOT="$root" ELEBAKE_BASE="$src" "$TEST_SCRIPT" bootstrap src minimal > "$root/b.log" 2>&1 \
+    || { fail "bootstrap failed"; story_close 5; return 0; }
+  ELEBAKE_ROOT="$root" eb "$src" setenv ELEBAKE_TERMINAL_INTERPRETER sh > /dev/null
+  ELEBAKE_ROOT="$root" eb "$src" stage add s5stage > /dev/null 2>&1
+  mkdir -p "$src/stage/s5stage/boot" "$src/stage/s5stage/marker"
+  printf 'LOADER\n' > "$src/stage/s5stage/boot/loader.efi"
+  printf 'Boot0007\n' > "$src/stage/s5stage/marker/bootvar"
+  ELEBAKE_ROOT="$root" eb "$src" expectation add s5exp byte S 1 > /dev/null 2>&1
+
+  if ELEBAKE_ROOT="$root" eb "$src" export "$root/nokey.sh" "$root/bundle/nokey.tar.gz" redacted 2>&1 \
+     | grep -q "ELEBAKE_ARCHIVE_ATTEST_KEY not set"; then
+    pass "an export without an attest key is refused -- an unsigned archive is not evidence"
+  else
+    fail "unsigned export allowed"
+  fi
+
+  story_key "$root" || { fail "could not create a story key"; story_close 5; return 0; }
+  story_pin "$src" s5attest
+
+  ELEBAKE_ROOT="$root" eb "$src" export "$root/dump-for-git.sh" "$root/bundle/s5.tar.gz" redacted > /dev/null 2>&1
+  if [ -f "$root/bundle/s5.tar.gz" ] && [ -f "$root/dump-for-git.sh" ]; then
+    pass "export produced both artifacts: a dump to version, a bundle to store"
+  else
+    fail "export produced nothing"; story_close 5; return 0
+  fi
+
+  if grep -q 'ELEBAKE_ARCHIVE_BASE' "$root/dump-for-git.sh" \
+     && ! grep -q "$src/stage" "$root/dump-for-git.sh"; then
+    pass "the dump is portable: paths against the base variable, no machine paths"
+  else
+    fail "dump is not portable"
+  fi
+  if grep -q "^# Bundle: sha256=$(sha256 -q "$root/bundle/s5.tar.gz") " "$root/dump-for-git.sh" \
+     && [ -f "$root/dump-for-git.sh.asc" ]; then
+    pass "the dump is sealed to THIS bundle and signed after sealing"
+  else
+    fail "seal/signature missing"
+  fi
+
+  if tar -tzf "$root/bundle/s5.tar.gz" | grep -q 'export/MANIFEST.asc'; then
+    pass "the bundle carries its own tamper detection: MANIFEST and its signature"
+  else
+    fail "manifest pair missing from the bundle"
+  fi
+
+  if tar -tzf "$root/bundle/s5.tar.gz" | grep -q 'boot/loader.efi' \
+     && ! tar -tzf "$root/bundle/s5.tar.gz" | grep -q 'marker/bootvar'; then
+    pass "the bundle carries the payload and leaves the marker value at home"
+  else
+    fail "bundle content wrong: $(tar -tzf "$root/bundle/s5.tar.gz" | tr '\n' ' ')"
+  fi
+
+  ELEBAKE_ROOT="$root" ELEBAKE_BASE="$fresh" "$TEST_SCRIPT" bootstrap fresh minimal > "$root/f.log" 2>&1 \
+    || { fail "second bootstrap failed"; story_close 5; return 0; }
+  ELEBAKE_ROOT="$root" eb "$fresh" setenv ELEBAKE_TERMINAL_INTERPRETER sh > /dev/null
+  local out
+  out=$(ELEBAKE_ROOT="$root" eb "$fresh" import "$root/dump-for-git.sh" "$root/bundle/s5.tar.gz" 2>&1)
+  if printf '%s\n' "$out" | grep -q "ATTEST_KEY not set" && [ ! -e "$fresh/stage/s5stage" ]; then
+    pass "a fresh database imports nothing until its owner has pinned the sender's key"
+  else
+    fail "import without a pin: $out"
+  fi
+  ELEBAKE_ROOT="$root" eb "$fresh" openpgp add stranger 0123456789ABCDEF0123456789ABCDEF01234567 "$STORY_GNUPGHOME" > /dev/null 2>&1
+  ELEBAKE_ROOT="$root" eb "$fresh" setenv ELEBAKE_ARCHIVE_ATTEST_KEY stranger > /dev/null
+  out=$(ELEBAKE_ROOT="$root" eb "$fresh" import "$root/dump-for-git.sh" "$root/bundle/s5.tar.gz" 2>&1)
+  if printf '%s\n' "$out" | grep -q "DIFFERENT key" && [ ! -e "$fresh/stage/s5stage" ]; then
+    pass "a good signature by a key other than the pinned one is refused"
+  else
+    fail "foreign signer accepted: $out"
+  fi
+  story_pin "$fresh" s5attest
+
+  # Tamper detection, end to end. Three shapes, each refused before restore
+  # replays a line: an edited dump (its signature breaks), a foreign bundle
+  # (the seal does not name it), a changed payload file (the MANIFEST names
+  # it) -- the last one after extraction, the first two before.
+  cp "$root/dump-for-git.sh" "$root/edited.sh"; cp "$root/dump-for-git.sh.asc" "$root/edited.sh.asc"
+  printf '%s\n' '"$ELEBAKE_CONTEXT_SCRIPT" setenv ELEBAKE_EVIL yes' >> "$root/edited.sh"
+  out=$(ELEBAKE_ROOT="$root" eb "$fresh" import "$root/edited.sh" "$root/bundle/s5.tar.gz" 2>&1)
+  if printf '%s\n' "$out" | grep -q "BAD SIGNATURE" && [ ! -e "$fresh/stage/s5stage" ] && [ ! -d "$root/incoming/s5" ]; then
+    pass "an edited dump is refused before anything is extracted"
+  else
+    fail "edited dump: $out"
+  fi
+  cp "$root/bundle/s5.tar.gz" "$root/bundle/foreign.tar.gz"; printf 'x' >> "$root/bundle/foreign.tar.gz"
+  out=$(ELEBAKE_ROOT="$root" eb "$fresh" import "$root/dump-for-git.sh" "$root/bundle/foreign.tar.gz" 2>&1)
+  if printf '%s\n' "$out" | grep -q "MISMATCHED PAIR" && [ ! -e "$fresh/stage/s5stage" ]; then
+    pass "a genuine dump with a bundle it does not name is refused"
+  else
+    fail "foreign bundle: $out"
+  fi
+  local evil="$root/evil"
+  mkdir -p "$evil" && (cd "$evil" && tar -xzf "$root/bundle/s5.tar.gz")
+  local victim; victim=$(find "$evil/.staging" -name loader.efi -type f | head -1)
+  [ -n "$victim" ] || { fail "no payload file to tamper with"; story_close 5; return 0; }
+  printf 'TROJAN\n' > "$victim"
+  (cd "$evil" && tar -czf "$root/bundle/s5-tampered.tar.gz" .)
+  cp "$root/dump-for-git.sh" "$root/resealed.sh"
+  sed -i '' '/^# Bundle: sha256=/d' "$root/resealed.sh"
+  ELEBAKE_ROOT="$root" eb "$src" seal "$root/resealed.sh" "$root/bundle/s5-tampered.tar.gz" > /dev/null 2>&1
+  ELEBAKE_ROOT="$root" eb "$src" attest "$root/resealed.sh" s5attest > /dev/null 2>&1
+  out=$(ELEBAKE_ROOT="$root" eb "$fresh" import "$root/resealed.sh" "$root/bundle/s5-tampered.tar.gz" 2>&1)
+  if printf '%s\n' "$out" | grep -q "CHANGED" && [ ! -e "$fresh/stage/s5stage" ]; then
+    pass "a tampered payload file is named by the MANIFEST and refused BEFORE restore replays anything"
+  else
+    fail "tampering not caught: $out"
+  fi
+
+  ELEBAKE_ROOT="$root" eb "$fresh" import "$root/dump-for-git.sh" "$root/bundle/s5.tar.gz" > "$root/import.log" 2>&1
+
+  if [ "$(cat "$fresh/stage/s5stage/boot/loader.efi" 2>/dev/null)" = "LOADER" ]; then
+    pass "import rebuilt the stage in a FRESH database from the two artifacts"
+  else
+    fail "import did not restore the boot tree"
+  fi
+  if [ -f "$fresh/foundation/expectations/s5exp" ]; then
+    pass "the arsenal travelled too"
+  else
+    fail "arsenal missing after import"
+  fi
+  if [ -d "$fresh/stage/s5stage/marker" ] && [ ! -f "$fresh/stage/s5stage/marker/bootvar" ]; then
+    pass "the redacted marker is absent, its record directory intact"
+  else
+    fail "redaction not reflected in the restored database"
+  fi
+  if [ "$(cat "$fresh"/provenance/*/serial 2>/dev/null)" = 1 ] && [ "$(cat "$fresh"/provenance/*/signer 2>/dev/null)" = "$STORY_FPR" ] \
+     && [ "$(cat "$fresh/export/serial")" = 1 ]; then
+    pass "the import filed its receipt and continued the lineage (export serial 1)"
+  else
+    fail "receipt/serial wrong: $(ls "$fresh/provenance" 2>/dev/null) $(cat "$fresh/export/serial" 2>/dev/null)"
+  fi
+  ELEBAKE_ROOT="$root" eb "$src" export "$root/dump2.sh" "$root/bundle/s5-2.tar.gz" redacted > /dev/null 2>&1
+  ELEBAKE_ROOT="$root" eb "$fresh" import "$root/dump2.sh" "$root/bundle/s5-2.tar.gz" > /dev/null 2>&1
+  out=$(ELEBAKE_ROOT="$root" eb "$fresh" import "$root/dump-for-git.sh" "$root/bundle/s5.tar.gz" 2>&1)
+  if printf '%s\n' "$out" | grep -q "DOWNGRADE" && [ "$(cat "$fresh/export/serial")" = 2 ]; then
+    pass "after serial 2 the validly signed serial-1 pair is refused as a downgrade"
+  else
+    fail "downgrade accepted: $out"
+  fi
+  story_close 5
+}
+
+# Story 6: the rescue round trip. A minimized pair -- binary management
+# only -- goes to a rescue system; there the suspect loader is filed as a
+# backup record and loader.conf repaired; the rescue's export continues the
+# lineage and merges back into the big database without touching what
+# stayed home (lua/, markers, the arsenal).
+user_story_6_rescue_roundtrip() {
+  story_header 6 "rescue: minimized pair out, suspect record and repair back, merged"
+  local root="$TEST_BASE_DIR/s6" big="$TEST_BASE_DIR/s6/big" rescue="$TEST_BASE_DIR/s6/rescue"
+  mkdir -p "$root"
+  ELEBAKE_ROOT="$root" ELEBAKE_BASE="$big" "$TEST_SCRIPT" bootstrap big minimal > "$root/b.log" 2>&1 \
+    || { fail "bootstrap failed"; story_close 6; return 0; }
+  ELEBAKE_ROOT="$root" eb "$big" setenv ELEBAKE_TERMINAL_INTERPRETER sh > /dev/null
+  ELEBAKE_ROOT="$root" eb "$big" stage add card > /dev/null 2>&1
+  local d="$big/stage/card"
+  mkdir -p "$d/boot/kernel" "$d/boot/lua" "$d/marker" "$d/backup/a/known-good"
+  printf 'LOADER\n' > "$d/boot/loader.efi"; printf 'SIGNED\n' > "$d/boot/loader.efi.signed"; printf 'conf\n' > "$d/boot/loader.conf"
+  printf 'KERNEL\n' > "$d/boot/kernel/kernel"; printf 'KO\n' > "$d/boot/kernel/if_x.ko"; printf 'LUA\n' > "$d/boot/lua/loader.lua"
+  printf 'Boot0007\n' > "$d/marker/bootvar"
+  ELEBAKE_ROOT="$root" eb "$big" stage device card a /dev/nonexistent99 /mnt > /dev/null 2>&1
+  printf 'OLDLOADER\n' > "$d/backup/a/known-good/loader.efi"; sha256 -q "$d/backup/a/known-good/loader.efi" > "$d/backup/a/known-good/sha256"
+  printf '2026-08-25T10:00:00Z\n' > "$d/backup/a/known-good/created"; printf 'booted silently 25.08.\n' > "$d/backup/a/known-good/description"
+  ELEBAKE_ROOT="$root" eb "$big" expectation add s6exp byte S 1 > /dev/null 2>&1
+  story_key "$root" || { fail "story key"; story_close 6; return 0; }
+  story_pin "$big" attest-story
+
+  ELEBAKE_ROOT="$root" eb "$big" export "$root/out.sh" "$root/bundle/out.tar.gz" minimized > "$root/export.log" 2>&1
+  if tar -tzf "$root/bundle/out.tar.gz" | grep -q "boot/kernel/if_x.ko" && tar -tzf "$root/bundle/out.tar.gz" | grep -q "backup/a/known-good/loader.efi" \
+     && ! tar -tzf "$root/bundle/out.tar.gz" | grep -q "lua" && ! tar -tzf "$root/bundle/out.tar.gz" | grep -q "marker" \
+     && grep -q "^# Strategy: minimized$" "$root/out.sh" && ! grep -q "lua" "$root/out.sh"; then
+    pass "the minimized pair carries loaders, modules, loader.conf and backups -- no lua, no marker, and the dump says so"
+  else
+    fail "minimized pair wrong: $(tar -tzf "$root/bundle/out.tar.gz" | tr '\n' ' ')"
+  fi
+
+  ELEBAKE_ROOT="$root" ELEBAKE_BASE="$rescue" "$TEST_SCRIPT" bootstrap rescue minimal > "$root/r.log" 2>&1 \
+    || { fail "rescue bootstrap failed"; story_close 6; return 0; }
+  ELEBAKE_ROOT="$root" eb "$rescue" setenv ELEBAKE_TERMINAL_INTERPRETER sh > /dev/null
+  story_pin "$rescue" attest-story
+  ELEBAKE_ROOT="$root" eb "$rescue" import "$root/out.sh" "$root/bundle/out.tar.gz" > "$root/import.log" 2>&1
+  if [ "$(cat "$rescue/stage/card/boot/loader.efi" 2>/dev/null)" = LOADER ] && [ -f "$rescue/stage/card/boot/kernel/if_x.ko" ] \
+     && [ -f "$rescue/stage/card/backup/a/known-good/description" ] && [ ! -e "$rescue/stage/card/boot/lua" ] \
+     && [ ! -f "$rescue/foundation/expectations/s6exp" ]; then
+    pass "the rescue database holds exactly binary management: loaders, modules, backups with their context"
+  else
+    fail "rescue import incomplete: $(grep -i error "$root/import.log" | head -3)"
+  fi
+  if ELEBAKE_ROOT="$root" eb "$rescue" stage backup list card a | grep "known-good" | grep -q "booted silently"; then
+    pass "on the road, 'stage backup list' shows the labelled backups with their descriptions"
+  else
+    fail "backup list on the rescue wrong"
+  fi
+  ELEBAKE_ROOT="$root" eb "$rescue" setenv ELEBAKE_INTERPRETER_stage_rollback3 cat > /dev/null
+  if ELEBAKE_ROOT="$root" eb "$rescue" stage rollback card a | grep -q "stage backup 'card' 'a' 'suspect-"; then
+    pass "a rollback on the rescue saves the suspect loader first"
+  else
+    fail "rollback does not save the suspect"
+  fi
+
+  local r="$rescue/stage/card"
+  mkdir -p "$r/backup/a/suspect-20260902T160000Z"
+  printf 'EVILLOADER\n' > "$r/backup/a/suspect-20260902T160000Z/loader.efi"; sha256 -q "$r/backup/a/suspect-20260902T160000Z/loader.efi" > "$r/backup/a/suspect-20260902T160000Z/sha256"
+  printf '2026-09-02T16:00:00Z\n' > "$r/backup/a/suspect-20260902T160000Z/created"; printf 'loader found on medium a before rollback -- keep for analysis\n' > "$r/backup/a/suspect-20260902T160000Z/description"
+  printf 'repaired\n' > "$r/boot/loader.conf"
+  ELEBAKE_ROOT="$root" eb "$rescue" export "$root/back.sh" "$root/bundle/back.tar.gz" minimized > "$root/export2.log" 2>&1
+  if grep -q "^# Serial: 2$" "$root/back.sh"; then
+    pass "the rescue's export continues the lineage (serial 2, not 1)"
+  else
+    fail "rescue serial wrong: $(grep Serial "$root/back.sh")"
+  fi
+  ELEBAKE_ROOT="$root" eb "$big" import "$root/back.sh" "$root/bundle/back.tar.gz" > "$root/import2.log" 2>&1
+  if [ -f "$d/backup/a/suspect-20260902T160000Z/description" ] && [ "$(cat "$d/boot/loader.conf")" = repaired ]; then
+    pass "the suspect record and the repaired loader.conf merged into the big database"
+  else
+    fail "merge incomplete: $(grep -i error "$root/import2.log" | head -3)"
+  fi
+  if [ -f "$d/boot/lua/loader.lua" ] && [ -f "$d/marker/bootvar" ] && [ -f "$big/foundation/expectations/s6exp" ]; then
+    pass "what stayed home is untouched: lua/, marker, arsenal"
+  else
+    fail "merge damaged the big database"
+  fi
+  if [ "$(ls "$big/provenance" | wc -l | tr -d ' ')" = 2 ] && [ "$(cat "$big/export/serial")" = 2 ]; then
+    pass "the big database now carries both receipts (the rescue's and its own) and exports 3 next"
+  else
+    fail "receipt chain wrong: $(ls "$big/provenance" 2>/dev/null | tr '\n' ' ') serial $(cat "$big/export/serial")"
+  fi
+  story_close 6
+}
+
 user_story_1_migration_roundtrip() {
   story_header 1 "database migration: dump | bootstrap | restore -> identical"
   local src="$TEST_BASE_DIR/s1-src" dst="$TEST_BASE_DIR/s1-dst" dstbase
   mkdir -p "$src" "$dst"
   make_source_db "$src" || { fail "source fixture failed (see $src/bootstrap.log)"; story_close 1; return 0; }
   dstbase=$(migrate "$src/db" "$dst" "$TEST_BASE_DIR/s1-dump.sh") || { fail "migration failed"; story_close 1; return 0; }
-  if grep -q "^# Version: 1\$" "$TEST_BASE_DIR/s1-dump.sh"; then
-    pass "dump carries the format version"
+  if grep -q "^# Version: 2\$" "$TEST_BASE_DIR/s1-dump.sh" && grep -q "^# Serial: 1\$" "$TEST_BASE_DIR/s1-dump.sh" \
+     && grep -q "^# Bundle: sha256=" "$TEST_BASE_DIR/s1-dump.sh" && [ -f "$TEST_BASE_DIR/s1-dump.sh.asc" ]; then
+    pass "dump carries the format version, the serial, the seal and its signature"
   else
-    fail "dump version line missing"
+    fail "dump header/seal/signature incomplete: $(grep '^# ' "$TEST_BASE_DIR/s1-dump.sh" | head -6 | tr '\n' ' ')"
+  fi
+  if [ -d "$dstbase/provenance" ] && [ "$(ls "$dstbase/provenance" | wc -l | tr -d ' ')" = 1 ] \
+     && [ "$(cat "$dstbase"/provenance/*/serial)" = 1 ]; then
+    pass "the migration left a receipt (serial 1) in the new database"
+  else
+    fail "no receipt after migration"
   fi
   if diff -r --no-dereference --exclude=obj --exclude=destdir "$src/db/stage/story/" "$dstbase/stage/story/" > "$dst/diff.out" 2>&1; then
     pass "stage tree identical after migration (incl. empty skeleton dirs)"
@@ -366,7 +635,7 @@ user_story_2_replay_idempotence() {
   dstbase=$(migrate "$src/db" "$dst" "$TEST_BASE_DIR/s2-dump.sh") || { fail "migration failed"; story_close 2; return 0; }
   local id1 n1 id2 n2
   id1=$(readlink "$dstbase/stage/story"); n1=$(ls "$dstbase/.staging" | wc -l | tr -d ' ')
-  eb "$dstbase" restore "$TEST_BASE_DIR/s2-dump.sh" > "$dst/restore2.log" 2>&1
+  ELEBAKE_ROOT="$dst" eb "$dstbase" import "$TEST_BASE_DIR/s2-dump.sh" "$dst/bundle.tar.gz" > "$dst/restore2.log" 2>&1
   id2=$(readlink "$dstbase/stage/story"); n2=$(ls "$dstbase/.staging" | wc -l | tr -d ' ')
   if [ "$id1" = "$id2" ]; then
     pass "stage id stable across re-restore"
@@ -383,6 +652,11 @@ user_story_2_replay_idempotence() {
   else
     fail "tree drifted after re-restore"
   fi
+  if grep -q "already filed" "$dst/restore2.log" && [ "$(ls "$dstbase/provenance" | wc -l | tr -d ' ')" = 1 ]; then
+    pass "the same pair files no second receipt"
+  else
+    fail "receipt duplicated or missing: $(ls "$dstbase/provenance" 2>/dev/null | tr '\n' ' ')"
+  fi
   story_close 2
 }
 
@@ -392,11 +666,24 @@ user_story_3_unknown_stage_negative() {
   mkdir -p "$root"
   ELEBAKE_ROOT="$root" ELEBAKE_BASE="$base" "$TEST_SCRIPT" bootstrap current minimal > "$root/bootstrap.log" 2>&1 || { fail "bootstrap failed"; story_close 3; return 0; }
   eb "$base" setenv ELEBAKE_TERMINAL_INTERPRETER sh > /dev/null
+  story_key "$root" || { fail "story key"; story_close 3; return 0; }
+  story_pin "$base" attest-story
   cat > "$root/bad-dump.sh" <<'EOF'
+# elebake database dump
+# Version: 2
+# Serial: 1
+# Strategy: complete
 "$ELEBAKE_CONTEXT_SCRIPT" setenv ELEBAKE_INT_BEFORE yes
 "$ELEBAKE_CONTEXT_SCRIPT" stage import ghost boot/sub
 "$ELEBAKE_CONTEXT_SCRIPT" setenv ELEBAKE_INT_AFTER yes
 EOF
+  eb "$base" restore "$root/bad-dump.sh" > "$root/unsigned.log" 2>&1
+  if grep -q "unsigned" "$root/unsigned.log" && [ ! -f "$base/.env/local/ELEBAKE_INT_BEFORE" ]; then
+    pass "an unsigned dump is not replayed at all"
+  else
+    fail "unsigned dump replayed: $(cat "$root/unsigned.log")"
+  fi
+  eb "$base" attest "$root/bad-dump.sh" attest-story > /dev/null 2>&1
   eb "$base" restore "$root/bad-dump.sh" > "$root/restore.log" 2>&1
   if grep -q "unknown stage" "$root/restore.log"; then
     pass "check stage reported the unknown stage"
@@ -481,8 +768,10 @@ main() {
   mkdir -p "$TEST_BASE_DIR"
   should_run_story 1 && user_story_1_migration_roundtrip
   should_run_story 4 && user_story_4_foundation_acceptance
+  should_run_story 5 && user_story_5_export_import
   should_run_story 2 && user_story_2_replay_idempotence
   should_run_story 3 && user_story_3_unknown_stage_negative
+  should_run_story 6 && user_story_6_rescue_roundtrip
   summary
 }
 

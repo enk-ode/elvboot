@@ -335,7 +335,7 @@ _stage_detachsign1() {
   # anchor). rm -f first: a failed earlier run must not leave a stale or
   # foreign-owned manifest.asc behind. No false green: failure stops here.
   printf '%s\n' "rm -f '$d/boot/manifest.asc'"
-  printf '%s\n' "GPG_TTY=\$(tty </dev/tty 2>/dev/null); export GPG_TTY; ${gpgenv}gpg-connect-agent updatestartuptty /bye >/dev/null 2>&1 || true"
+  printf '%s\n' "GPG_TTY=\$( { tty </dev/tty; } 2>/dev/null ); export GPG_TTY; ${gpgenv}gpg-connect-agent updatestartuptty /bye >/dev/null 2>&1 || true"
   printf '%s\n' "${gpgenv}gpg --yes --openpgp -a --detach-sign --local-user '$keyid' -o '$d/boot/manifest.asc' '$d/boot/manifest' || { rm -f '$d/boot/manifest.asc'; printf '# Error: manifest attestation failed for %s\\n' '$keyid' >&2; exit 1; }"
   printf '%s\n' "printf '# manifest attested for stage %s\\n' '$name' >&2"
 }
@@ -1299,32 +1299,129 @@ _stage_device4() {
   printf '%s\n' "printf '# Registered medium %s: %s (mount %s) on stage %s\\n' '$medium' '$node' '$mnt' '$name' >&2"
 }
 
-#@help _stage_backup2
-# @command stage backup <stage> <medium>
-# @summary Save the loader currently ON that medium into backup/<medium>/ (timestamped)
-# @group   deploy
-# @example elebake stage backup smoke1 a
+#-----------------------------------------------------------------------------
+# backup records — backup/<medium>/<label>/
+#-----------------------------------------------------------------------------
+# A backup is a RECORD, not a timestamped file: the loader as found on the
+# medium (loader.efi) plus the context a person needs in a stress situation
+# -- description, sha256, created, source (node:path), by. The label is the
+# record name: unique per medium, immutable, and what 'stage rollback' puts
+# back by name. 'stage backup list' is the view.
+
+# backup_label_ok <label> — a record name
+backup_label_ok() {
+  case "$1" in ""|*/*|.|..|*[!A-Za-z0-9_.-]*) return 1 ;; esac
+  return 0
+}
+
+# backup_stamp — the default label: UTC, sortable, no separators
+backup_stamp() {
+  date -u '+%Y%m%dT%H%M%SZ' 2>>"$LOG_FILE"
+}
+
+# backup_record_emit <record> <mountpoint> <rel> <description> <node> <owner>
+# — the shell that writes one backup record from the MOUNTED medium (the
+# caller mounted it at <mountpoint> and checked <rel> is there). The hash is
+# computed at execution time, deliberately: the loader is on the medium, not
+# World the generator sees. Everything else is generation-time fact.
+backup_record_emit() {
+  local rec="$1" mnt="$2" rel="$3" desc="$4" node="$5" owner="$6" stamp src
+  src="$mnt/$rel"
+  stamp=$(date -u '+%Y-%m-%dT%H:%M:%SZ' 2>>"$LOG_FILE")
+  printf '%s\n' "$MODIFY_DIR_CREATE '$rec' && $MODIFY_FILE_PERMS 0700 '$rec'"
+  printf '%s\n' "cp -p '$src' '$rec/loader.efi' || { umount '$mnt' 2>/dev/null; printf '# Error: cannot copy %s into %s\\n' '$src' '$rec' >&2; exit 1; }"
+  printf '%s\n' "sha256 -q '$rec/loader.efi' > '$rec/sha256'"
+  printf '%s\n' "printf '%s\\n' $(sq "$desc") > '$rec/description'"
+  printf '%s\n' "printf '%s\\n' '$stamp' > '$rec/created'"
+  printf '%s\n' "printf '%s\\n' '$node:$rel' > '$rec/source'"
+  printf '%s\n' "printf '%s\\n' '$(id -un 2>>"$LOG_FILE")@$(hostname 2>>"$LOG_FILE")' > '$rec/by'"
+  printf '%s\n' "$MODIFY_FILE_PERMS 0600 '$rec'/*"
+  printf '%s\n' "chown -R '$owner' '$rec' 2>/dev/null || true"
+}
+
+#@help __stage_backup2
+# @internal arity-2 of 'stage backup': label and description defaulted --
+# the label is the UTC stamp; rewrites to the arity-3 form (never a direct
+# function call)
 #@end
-_stage_backup2() {
-  local name="$1" medium="$2" base="$ELEBAKE_BASE"
+__stage_backup2() {
+  printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage backup '$1' '$2' '$(backup_stamp)'"
+}
+
+#@help __stage_backup3
+# @internal arity-3 of 'stage backup': description defaulted -- names the
+# medium, the stage and who took it; rewrites to the full command
+#@end
+__stage_backup3() {
+  printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage backup '$1' '$2' '$3' $(sq "loader found on medium $2 of stage $1, backed up by $(id -un 2>>"$LOG_FILE")@$(hostname 2>>"$LOG_FILE")")"
+}
+
+#@help _stage_backup4
+# @command stage backup <stage> <medium> [<label> [<description>]]
+# @summary Save the loader currently ON that medium as a backup RECORD backup/<medium>/<label>/ -- loader.efi, description, sha256, created, source, by. Label defaults to the UTC stamp, description to medium/stage/user; a label is unique per medium and immutable
+# @group   deploy
+# @param   label        record name, [A-Za-z0-9_.-], unique per medium (e.g. before-kernel-update)
+# @param   description  free text a person needs later: WHY this backup exists
+# @example elebake stage backup smoke1 a
+# @example elebake stage backup smoke1 a known-good-p2 'loader that booted silently on 25.08. before the p3 kernel'
+# @see     stage backup list
+# @see     stage rollback
+#@end
+_stage_backup4() {
+  local name="$1" medium="$2" label="$3" desc="$4" base="$ELEBAKE_BASE"
   local stageid node mnt rel owner
   stageid=$(resolve_item stage "$name" strict) || {
     generate_error "stage backup: unknown stage '$name'"; return 0; }
   local d="$base/.staging/$stageid"
   stage_read_medium "$d" "$medium" || {
     generate_error "stage backup '$name': unknown medium '$medium' (stage device $name $medium /dev/<node>)"; return 0; }
+  backup_label_ok "$label" || {
+    generate_error "stage backup: invalid label '$label' ([A-Za-z0-9_.-])"; return 0; }
+  [ -n "$desc" ] || {
+    generate_error "stage backup: empty description (say why this backup exists)"; return 0; }
+  local rec="$d/backup/$medium/$label"
+  [ ! -e "$rec" ] || {
+    generate_error "stage backup '$name': backup '$label' of medium '$medium' exists (immutable; choose another label)" \
+      "(stage backup list $name $medium)"; return 0; }
   owner=$(id -un 2>>"$LOG_FILE")
-  local stamp; stamp=$(date -u '+%Y%m%dT%H%M%SZ' 2>>"$LOG_FILE")
-  local bdir="$d/backup/$medium" bak="$d/backup/$medium/$(basename "$rel").$stamp"
-  emit_note "elebake stage backup '$name' medium '$medium' ($node:$rel -> backup/$medium/)"
+  emit_note "elebake stage backup '$name' medium '$medium' label '$label' ($node:$rel -> backup/$medium/$label/)"
   printf '%s\n' "test -c '$node' || { printf '# Error: device not present: %s (insert medium %s)\\n' '$node' '$medium' >&2; exit 1; }"
-  printf '%s\n' "$MODIFY_DIR_CREATE '$bdir'"
+  printf '%s\n' "$MODIFY_DIR_CREATE '$d/backup/$medium'"
   printf '%s\n' "mount -r -t msdosfs '$node' '$mnt' || { printf '# Error: mount failed -- already mounted or device busy? (mount | grep %s)\\n' '$node' >&2; exit 1; }"
   printf '%s\n' "test -f '$mnt/$rel' || { umount '$mnt'; printf '# Error: no loader on medium %s: %s\\n' '$medium' '$rel' >&2; exit 1; }"
-  printf '%s\n' "cp -p '$mnt/$rel' '$bak'"
+  backup_record_emit "$rec" "$mnt" "$rel" "$desc" "$node" "$owner"
   printf '%s\n' "umount '$mnt'"
-  printf '%s\n' "chown '$owner' '$bdir' '$bak' 2>/dev/null || true"
-  printf '%s\n' "printf '# backed up %s (%s) -> %s\\n' '$rel' '$medium' '$bak' >&2"
+  printf '%s\n' "chown '$owner' '$d/backup/$medium' 2>/dev/null || true"
+  printf '%s\n' "printf '# backed up %s (%s) -> backup/%s/%s/ (sha256 %s)\\n' '$rel' '$medium' '$medium' '$label' \"\$(cat '$rec/sha256')\" >&2"
+}
+
+#@help _stage_backup_list2
+# @command stage backup list <stage> <medium>
+# @summary Show the backup records of that medium, oldest first: label, created, sha256, description -- the view for a rollback decision
+# @group   deploy
+# @example elebake stage backup list smoke1 a
+# @see     stage backup
+# @see     stage rollback
+#@end
+_stage_backup_list2() {
+  local name="$1" medium="$2" base="$ELEBAKE_BASE"
+  local stageid node mnt rel r n=0
+  stageid=$(resolve_item stage "$name" strict) || {
+    generate_error "stage backup list: unknown stage '$name'"; return 0; }
+  local d="$base/.staging/$stageid"
+  stage_read_medium "$d" "$medium" || {
+    generate_error "stage backup list '$name': unknown medium '$medium' (stage device $name $medium /dev/<node>)"; return 0; }
+  printf '# backups of medium %s (%s) on stage %s -- oldest first\n' "$medium" "$node" "$name"
+  printf '# %-24s %-20s %-12s %s\n' label created sha256 description
+  for r in "$d/backup/$medium"/*/; do
+    [ -f "$r/loader.efi" ] || continue
+    printf '%s\t%s\n' "$(head -n1 "$r/created" 2>/dev/null)" "$(basename "$r")"
+  done | sort | while IFS='	' read -r created label; do
+    n=$((n+1))
+    r="$d/backup/$medium/$label"
+    printf '#   %-24s %-20s %-12s %s\n' "$label" "$created" "$(head -n1 "$r/sha256" 2>/dev/null | cut -c1-12)" "$(head -n1 "$r/description" 2>/dev/null)"
+  done
+  [ -d "$d/backup/$medium" ] && [ -n "$(ls "$d/backup/$medium" 2>/dev/null)" ] || printf '#   (no backups -- stage backup %s %s, or stage deploy)\n' "$name" "$medium"
 }
 
 #@help _stage_deploy2
@@ -1347,8 +1444,8 @@ _stage_deploy2() {
   { [ -f "$src" ] && [ "$src" -nt "$d/boot/loader.efi" ]; } || {
     generate_error "stage deploy '$name': signed loader missing or stale (stage sign $name first)"; return 0; }
   owner=$(id -un 2>>"$LOG_FILE")
-  local stamp; stamp=$(date -u '+%Y%m%dT%H%M%SZ' 2>>"$LOG_FILE")
-  local bdir="$d/backup/$medium" bak="$d/backup/$medium/$(basename "$rel").$stamp"
+  local label="pre-deploy-$(backup_stamp)" bdir="$d/backup/$medium"
+  local rec="$bdir/$label"
   # the EXPECTED hash is local World -- computed now and baked in, so the
   # trace shows which loader is meant to land before anything runs
   local want
@@ -1358,59 +1455,95 @@ _stage_deploy2() {
   printf '%s\n' "test -c '$node' || { printf '# Error: device not present: %s (insert medium %s)\\n' '$node' '$medium' >&2; exit 1; }"
   printf '%s\n' "$MODIFY_DIR_CREATE '$bdir'"
   printf '%s\n' "mount -t msdosfs '$node' '$mnt' || { printf '# Error: mount failed -- already mounted or device busy? (mount | grep %s)\\n' '$node' >&2; exit 1; }"
-  printf '%s\n' "if [ -f '$mnt/$rel' ]; then cp -p '$mnt/$rel' '$bak'; printf '# backed up %s (%s) -> %s\\n' '$rel' '$medium' '$bak' >&2; else printf '# note: no existing loader on medium %s to back up\\n' '$medium' >&2; fi"
+  # what is on the medium now becomes a backup RECORD before it is
+  # overwritten -- the same record 'stage backup' writes, labelled by the
+  # act that displaced it
+  printf '%s\n' "if [ -f '$mnt/$rel' ]; then"
+  backup_record_emit "$rec" "$mnt" "$rel" "loader found on medium $medium before deploy of stage $name (incoming sha256 $want)" "$node" "$owner"
+  printf '%s\n' "printf '# backed up %s (%s) -> backup/%s/%s/\\n' '$rel' '$medium' '$medium' '$label' >&2"
+  printf '%s\n' "else printf '# note: no existing loader on medium %s to back up\\n' '$medium' >&2; fi"
   printf '%s\n' "cp '$src' '$mnt/$rel'"
   printf '%s\n' "[ \"\$(sha256 -q '$mnt/$rel')\" = '$want' ] || { printf '# Error: hash mismatch after deploy (medium left mounted at %s)\\n' '$mnt' >&2; exit 1; }"
   printf '%s\n' "umount '$mnt'"
   printf '%s\n' "sync"
-  printf '%s\n' "chown '$owner' '$bdir' '$bak' 2>/dev/null || true"
+  printf '%s\n' "chown '$owner' '$bdir' 2>/dev/null || true"
   printf '%s\n' "printf '# deployed signed loader to medium %s (%s:%s, sha256 $want)\\n' '$medium' '$node' '$rel' >&2"
 }
 
 #@help __stage_rollback2
 # @internal newest-backup sibling of 'stage rollback': resolves the newest
-# backup OF THAT MEDIUM at generation time and rewrites to the full command
+# backup RECORD of that medium (by its created field) at generation time and
+# rewrites to the full command
 #@end
 __stage_rollback2() {
   local name="$1" medium="$2" base="$ELEBAKE_BASE"
-  local stageid newest
+  local stageid newest r
   stageid=$(resolve_item stage "$name" strict) || {
     printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'stage rollback: unknown stage $name'"; return 0; }
-  newest=$(ls "$base/.staging/$stageid/backup/$medium" 2>/dev/null | sort | tail -n1)
+  newest=$(for r in "$base/.staging/$stageid/backup/$medium"/*/; do
+             [ -f "$r/loader.efi" ] || continue
+             printf '%s\t%s\n' "$(head -n1 "$r/created" 2>/dev/null)" "$(basename "$r")"
+           done | sort | tail -n1 | cut -f2)
   [ -n "$newest" ] || {
     printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'stage rollback $name: no backups for medium $medium (stage backup / stage deploy first)'"; return 0; }
   printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage rollback '$name' '$medium' '$newest'"
 }
 
-#@help _stage_rollback3
-# @command stage rollback <stage> <medium> [<backup>]
-# @summary Restore the newest (or a named) backup OF THAT MEDIUM to the medium
+#@help ___stage_rollback3
+# @command stage rollback <stage> <medium> [<label>]
+# @summary Put a backup back onto the medium -- but FIRST save what is on the medium now as record suspect-<stamp> (quietly: the loader about to be overwritten may be the evidence), then write the named (or newest) backup and verify its hash on the medium
 # @group   deploy
+# @param   label  a backup record of that medium (stage backup list); absent = the newest
 # @example elebake stage rollback smoke1 a
+# @example elebake stage rollback smoke1 a known-good-p2
+# @see     stage backup list
+# @see     stage backup
 #@end
-_stage_rollback3() {
-  local name="$1" medium="$2" file="$3" base="$ELEBAKE_BASE"
+___stage_rollback3() {
+  local name="$1" medium="$2" label="$3" stamp
+  stamp=$(backup_stamp)
+  printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage backup '$name' '$medium' 'suspect-$stamp' $(sq "loader found on medium $medium before rollback to '$label' -- keep for analysis")"
+  printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage rollback apply '$name' '$medium' '$label'"
+}
+
+#@help _stage_rollback_apply3
+# @internal act terminal of 'stage rollback': the write -- the named
+# record's loader.efi onto the medium, sha256 verified in place. The record
+# itself is verified at generation time (its sha256 field against its file):
+# a rollback must never put a corrupted reserve on the medium. The suspect
+# was saved by the preceding line of the batch.
+#@end
+_stage_rollback_apply3() {
+  local name="$1" medium="$2" label="$3" base="$ELEBAKE_BASE"
   local stageid node mnt rel
   stageid=$(resolve_item stage "$name" strict) || {
     generate_error "stage rollback: unknown stage '$name'"; return 0; }
   local d="$base/.staging/$stageid"
   stage_read_medium "$d" "$medium" || {
     generate_error "stage rollback '$name': unknown medium '$medium' (stage device $name $medium /dev/<node>)"; return 0; }
-  local bak="$d/backup/$medium/$file"
+  backup_label_ok "$label" || {
+    generate_error "stage rollback: invalid label '$label'"; return 0; }
+  local rec="$d/backup/$medium/$label" bak="$d/backup/$medium/$label/loader.efi"
   [ -f "$bak" ] || {
-    generate_error "stage rollback '$name': no such backup for medium '$medium': $file"; return 0; }
-  # expected hash is local World -- computed now, baked into the check
+    generate_error "stage rollback '$name': no such backup record for medium '$medium': $label" \
+      "(stage backup list $name $medium)"; return 0; }
+  # expected hash is local World -- computed now, baked into the check; and
+  # it must agree with what the record claims about itself
   local want
   want=$(sha256 -q "$bak" 2>>"$LOG_FILE") || {
     generate_error "stage rollback '$name': cannot hash $bak"; return 0; }
-  emit_note "elebake stage rollback '$name' medium '$medium' ($node:$rel <- backup/$medium/$file, sha256 $want)"
+  [ "$(head -n1 "$rec/sha256" 2>/dev/null)" = "$want" ] || {
+    generate_error "stage rollback '$name': backup record '$label' is CORRUPT -- its loader.efi does not match its recorded sha256" \
+      "(the reserve is not trustworthy; choose another backup)"; return 0; }
+  emit_note "elebake stage rollback '$name' medium '$medium' ($node:$rel <- backup/$medium/$label/loader.efi, sha256 $want)"
+  emit_note "  $(head -n1 "$rec/description" 2>/dev/null) (created $(head -n1 "$rec/created" 2>/dev/null))"
   printf '%s\n' "test -c '$node' || { printf '# Error: device not present: %s (insert medium %s)\\n' '$node' '$medium' >&2; exit 1; }"
   printf '%s\n' "mount -t msdosfs '$node' '$mnt' || { printf '# Error: mount failed -- already mounted or device busy? (mount | grep %s)\\n' '$node' >&2; exit 1; }"
   printf '%s\n' "cp '$bak' '$mnt/$rel'"
   printf '%s\n' "[ \"\$(sha256 -q '$mnt/$rel')\" = '$want' ] || { printf '# Error: hash mismatch after rollback (medium left mounted at %s)\\n' '$mnt' >&2; exit 1; }"
   printf '%s\n' "umount '$mnt'"
   printf '%s\n' "sync"
-  printf '%s\n' "printf '# rolled back medium %s (%s:%s) from backup/%s/%s\\n' '$medium' '$node' '$rel' '$medium' '$file' >&2"
+  printf '%s\n' "printf '# rolled back medium %s (%s:%s) from backup/%s/%s/ (sha256 %s)\\n' '$medium' '$node' '$rel' '$medium' '$label' '$want' >&2"
 }
 
 #=============================================================================
@@ -1454,7 +1587,7 @@ _stage_trust_anchor1() {
   # environment carries no GPG_TTY and the interpreter's stdin is a
   # pipe -- so the EMISSION determines its terminal itself, at run
   # time, and points the agent at it.
-  printf '%s\n' "GPG_TTY=\$(tty </dev/tty 2>/dev/null); export GPG_TTY; ${gpgenv}gpg-connect-agent updatestartuptty /bye >/dev/null 2>&1 || true"
+  printf '%s\n' "GPG_TTY=\$( { tty </dev/tty; } 2>/dev/null ); export GPG_TTY; ${gpgenv}gpg-connect-agent updatestartuptty /bye >/dev/null 2>&1 || true"
   printf '%s\n' "${gpgenv}gpg --yes --openpgp -a --detach-sign --local-user '$keyid' -o '$lsb/vc_openpgp.asc' '$lsb/ta_openpgp.asc' || { printf '# Error: self-test signature failed for %s\\n' '$keyid' >&2; exit 1; }"
   printf '%s\n' "printf '# trust anchor + self-test sig placed for stage %s\\n' '$name' >&2"
 }
@@ -1903,49 +2036,88 @@ _stage_site_mk_report2() {
 # Paths go through the stage/<name> symlink (the link IS the resolution);
 # stage existence is check stage's job — no inline resolve anywhere here.
 
-#@help ___stage_dump0
-# @command stage dump [<stage>]
-# @summary Emit the dump of all stages (or one) as replayable elebake commands — per stage: check stage, then the cat-pinned building blocks dump record/dump marker/dump backup/dump boot/dump rebuild
+#@help __stage_dump0
+# @command stage dump [<stage> [<strategy>]]
+# @summary Emit the dump of all stages (or one) as replayable elebake commands — per stage: check stage, then the cat-pinned building blocks dump record/dump marker/dump backup/dump boot/dump rebuild; 'minimized' narrows to binary management (no marker, no rebuild, boot/ subset)
 # @group   stage
-# @returns elebake commands; arities 0/1 unroll ON THE SOURCE, the building
-# @returns blocks are cat-pinned so their lines become dump TEXT for 'restore'
+# @param   strategy  complete (default) | minimized
+# @returns elebake commands; the building blocks are cat-pinned so their
+# @returns lines become dump TEXT for 'restore'
 # @example elebake dump > backup.sh
 # @example elebake stage dump smoke1
+# @example elebake stage dump smoke1 minimized
 # @see     stage import
 # @see     dump
 #@end
-___stage_dump0() {
-  local base="$ELEBAKE_BASE" l n=0
+__stage_dump0() {
+  printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage dump all complete"
+}
+
+#@help ___stage_dump_all1
+# @internal 'stage dump all <strategy>': every stage under ONE strategy
+# (complete | minimized) -- the fan-out the database dump calls
+#@end
+___stage_dump_all1() {
+  local base="$ELEBAKE_BASE" strategy="$1" l n=0
+  dump_strategy_ok "$strategy" || {
+    printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'stage dump: unknown strategy $strategy (complete | minimized)'"; return 0; }
   for l in "$base"/stage/*; do
     [ -L "$l" ] || continue
     n=$((n+1))
-    printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage dump '$(basename "$l")'"
+    printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage dump '$(basename "$l")' '$strategy'"
   done
   [ "$n" -gt 0 ] || printf '%s\n' "# (no stages to dump)"
 }
 
-#@help ___stage_dump1
-# @internal arity-1 of 'stage dump': the UNCONDITIONAL building-block
-# sequence — check stage, then every block; each block inspects its part of
-# the World itself and stays silent when absent
+#@help __stage_dump1
+# @internal arity-1 of 'stage dump': one stage, complete -- rewrites to the
+# arity-2 form
 #@end
-___stage_dump1() {
-  local name="$1"
+__stage_dump1() {
+  printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage dump '$1' complete"
+}
+
+#@help ___stage_dump2
+# @internal arity-2 of 'stage dump': the UNCONDITIONAL building-block
+# sequence for one stage under one strategy — check stage, then every
+# block; each block inspects its part of the World itself and stays silent
+# when absent. 'minimized' leaves out the marker (a machine secret) and the
+# rebuild lines (a rescue system swaps binaries, it does not build them),
+# and narrows record and boot/ to binary management.
+#@end
+___stage_dump2() {
+  local name="$1" strategy="$2"
+  dump_strategy_ok "$strategy" || {
+    printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'stage dump: unknown strategy $strategy (complete | minimized)'"; return 0; }
   printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage check stage '$name'"
-  printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage dump record '$name'"
-  printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage dump marker '$name'"
+  printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage dump record '$name' '$strategy'"
+  [ "$strategy" = "minimized" ] || \
+    printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage dump marker '$name'"
   printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage dump backup '$name'"
-  printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage dump boot '$name'"
-  printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage dump rebuild '$name'"
+  printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage dump boot '$name' '$strategy'"
+  [ "$strategy" = "minimized" ] || \
+    printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage dump rebuild '$name'"
 }
 
 # dump_import_line <stage> <subdir> <absfile> — generation-time helper: emit
 # one base-element import line of the dump text. The existence check lives
 # HERE (JB): callers state the element UNCONDITIONALLY, an absent source
 # simply emits nothing.
+# archive_rel <abspath> — a database-internal path as "$ELEBAKE_ARCHIVE_BASE/..."
+# so the emission is portable: who binds the variable decides which world
+# the sources come from (own database, an old one, an extracted bundle).
+# A path outside the database is left absolute -- it is a promise into the
+# world, not a base element.
+archive_rel() {
+  case "$1" in
+    "$ELEBAKE_BASE"/*) printf '"$ELEBAKE_ARCHIVE_BASE/%s"\n' "${1#"$ELEBAKE_BASE"/}" ;;
+    *) printf "'%s'\n" "$1" ;;
+  esac
+}
+
 dump_import_line() {
   { [ -f "$3" ] || [ -L "$3" ]; } || return 0
-  printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage import '$1' '$2' '$3'"
+  printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage import '$1' '$2' $(archive_rel "$3")"
 }
 
 # The record helpers follow the same pattern: called unconditionally, each
@@ -1992,8 +2164,10 @@ dump_media_lines() {
 dump_work_lines() {
   local name="$1" d="$2"
   [ -L "$d/work" ] || return 0
-  emit_note "work symlink still points into THIS source tree; re-anchor"
-  emit_note "later with: stage checkout $name \$(cat checkout) (new worktree)"
+  # dump TEXT: comment lines (a batch replays '#' lines as comments; a
+  # printf note here would be an invalid batch line)
+  printf '%s\n' "# work symlink still points into THIS source tree; re-anchor"
+  printf '%s\n' "# later with: stage checkout $name \$(cat checkout) (new worktree)"
   dump_import_line "$name" "." "$d/work"
 }
 
@@ -2041,20 +2215,51 @@ stage_dump_tree_lines() {
   done
 }
 
+# stage_dump_boot_lines_minimized <stage> — the boot/ walk narrowed by
+# minimized_keep (database.sh, ONE definition with 'filter minimized'). The
+# kept set lives in exactly two directories, boot/ and boot/kernel/, so
+# those are declared (when present) and then every kept file follows --
+# structure first, as above.
+stage_dump_boot_lines_minimized() {
+  local name="$1" d="$ELEBAKE_BASE/stage/$1" f rel dir
+  for dir in boot boot/kernel; do
+    [ -d "$d/$dir" ] && printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage import '$name' '$dir'"
+  done
+  find "$d/boot" \( -type f -o -type l \) 2>/dev/null | LC_ALL=C sort | while IFS= read -r f; do
+    rel=${f#"$d/"}
+    minimized_keep "$rel" || continue
+    dump_import_line "$name" "$(dirname "$rel")" "$f"
+  done
+  return 0
+}
+
 #@help ___stage_dump_record1
-# @internal building block of 'stage dump' (cat-pinned): the record part —
-# stage add + CLI replays (filter, key bindings, device/boot tree) + the
-# work/checkout base elements
+# @internal building block of 'stage dump' (cat-pinned): the record part,
+# complete -- rewrites to the arity-2 form
 #@end
 ___stage_dump_record1() {
-  local name="$1" d="$ELEBAKE_BASE/stage/$1"
-  printf '%s\n' "# stage '$name' <- $d"
+  ___stage_dump_record2 "$1" complete
+}
+
+#@help ___stage_dump_record2
+# @internal building block of 'stage dump' (cat-pinned): the record part —
+# stage add + CLI replays (filter, key bindings, device/boot tree) + the
+# checkout base element; 'complete' adds the work symlink, phase bindings
+# and prerequisites, 'minimized' does not (they belong to building, and
+# phase bindings would reference a foundation the minimized dump leaves out)
+#@end
+___stage_dump_record2() {
+  local name="$1" strategy="$2" d="$ELEBAKE_BASE/stage/$1"
+  dump_strategy_ok "$strategy" || {
+    printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'stage dump record: unknown strategy $strategy'"; return 0; }
+  printf '%s\n' "# stage '$name' ($strategy)"
   printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage add '$name'"
   dump_import_line     "$name" "." "$d/metadata"
   dump_filter_lines     "$name" "$d"
   dump_keybinding_lines "$name" "$d"
   dump_media_lines      "$name" "$d"
   dump_import_line     "$name" "." "$d/checkout"
+  [ "$strategy" = "minimized" ] && return 0
   dump_work_lines       "$name" "$d"
   dump_phase_lines      "$name" "$d"
   dump_prereqs_lines    "$name" "$d"
@@ -2088,6 +2293,21 @@ ___stage_dump_backup1() {
 #@end
 ___stage_dump_boot1() {
   stage_dump_tree_lines "$1" boot
+}
+
+#@help ___stage_dump_boot2
+# @internal building block of 'stage dump' (cat-pinned): the boot/ tree
+# under a strategy -- 'complete' is the whole tree, 'minimized' the binary
+# subset (loader, loader.conf, kernel/, manifest pair)
+#@end
+___stage_dump_boot2() {
+  dump_strategy_ok "$2" || {
+    printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'stage dump boot: unknown strategy $2'"; return 0; }
+  if [ "$2" = "minimized" ]; then
+    stage_dump_boot_lines_minimized "$1"
+  else
+    stage_dump_tree_lines "$1" boot
+  fi
 }
 
 #@help ___stage_dump_rebuild1
@@ -2216,11 +2436,25 @@ _stage_check_file3() {
 # resolution; checked by the preceding check stage/check file)
 #@end
 _stage_import_file3() {
-  local name="$1" subdir="$2" src="$3" base="$ELEBAKE_BASE"
+  local name="$1" subdir="$2" src="$3" base="$ELEBAKE_BASE" dst dir
+  # The record root is named '.', so build the destination without that
+  # component: '/./' in the middle would make the self-import comparison
+  # below miss exactly the metadata line that names the record itself.
+  dir="$base/stage/$name/$subdir"
+  case "$subdir" in .|./) dir="$base/stage/$name" ;; esac
+  dst="$dir/$(basename "$src")"
+  # Replaying a dump against its OWN database makes source and destination
+  # the same file. The rm below would then delete the very element the line
+  # claims to import, and the cp would find nothing -- a re-restore would
+  # eat the tree it describes. Nothing to do is the honest answer.
+  if [ "$src" = "$dst" ]; then
+    emit_note "stage import '$name' '$subdir': $(basename "$src") is already this element"
+    return 0
+  fi
   # IDEMPOTENT: rm -f first (a bare cp would write THROUGH an existing
   # symlink target instead of replacing the link). -P moves a symlink as a
   # link, -p preserves mode/time of a file.
-  printf '%s\n' "rm -f '$base/stage/$name/$subdir/$(basename "$src")' && cp -Pp '$src' '$base/stage/$name/$subdir/' || { printf '# Error: import of %s failed\\n' '$src' >&2; exit 1; }"
+  printf '%s\n' "rm -f '$dst' && cp -Pp '$src' '$dir/' || { printf '# Error: import of %s failed\\n' '$src' >&2; exit 1; }"
 }
 
 #-----------------------------------------------------------------------------
@@ -2746,4 +2980,44 @@ ___stage_foundation1() {
   printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage foundation check '$1'"
   printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage foundation make '$1'"
   printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage foundation report '$1'"
+}
+
+#@help _stage_collect0
+# @command stage collect [<stage>]
+# @summary List the files of every stage record that belong into an archive: metadata, filter, key bindings, marker/, backup/, boot/, phases/, prereqs/, conf/ -- plus the name symlink LAST, because a link target must exist before the link
+# @group   stage
+# @see     collect
+#@end
+_stage_collect0() {
+  local base="$ELEBAKE_BASE" l n
+  for l in "$base"/stage/*; do
+    [ -L "$l" ] || continue
+    n=$(basename "$l")
+    _stage_collect1 "$n"
+  done
+  return 0
+}
+
+#@help _stage_collect1
+# @internal 1-arg sibling of 'stage collect': one stage
+#@end
+_stage_collect1() {
+  local name="$1" base="$ELEBAKE_BASE" stageid d
+  stageid=$(resolve_item stage "$name" strict) || {
+    generate_error "stage collect: unknown stage '$name'"; return 0; }
+  d="$base/.staging/$stageid"
+  printf '# stage %s\n' "$name"
+  # The record's own files, by their REAL path: an archive is plain file
+  # storage, and unpacking through the name symlink is impossible.
+  # work/ is left out on purpose -- it points at a worktree outside the
+  # database, which 'stage checkout' re-creates.
+  local part
+  for part in metadata filter checkout sign-key attest-key; do
+    collect_line "$d/$part"
+  done
+  for part in marker backup boot phases prereqs conf media; do
+    collect_tree "$d/$part"
+  done
+  # The name symlink last: the target must exist before the link.
+  collect_line "$base/stage/$name"
 }

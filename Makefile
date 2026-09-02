@@ -71,9 +71,17 @@ inttest:
 
 test: archtest unittest inttest
 
-# GitHub Pages: the man page as HTML (docs/ is the Pages source on the
-# public repo). Regenerate after editing docs/elebake.8, commit the result.
-.PHONY: man-html
-man-html:
+# The manual: docs/elebake.8 is GENERATED from `help manual` (prose from
+# template/manual/, commands from the help corpus, environment from the
+# variable templates) -- pandoc is a contributor-only dependency, the
+# generated page is committed. GitHub Pages serves the HTML rendering
+# (docs/ is the Pages source on the public repo). Regenerate after
+# changing help blocks, templates or prose; commit the result.
+.PHONY: man man-html
+man:
+	./elebake.sh help manual | pandoc -s -f markdown -t man -o docs/elebake.8
+	@echo "man: docs/elebake.8 ($$(grep -c '^\.SS\|^\.SH' docs/elebake.8) sections)"
+
+man-html: man
 	mandoc -T html -O style=man.css docs/elebake.8 > docs/elebake.html
 	cp docs/elebake.html docs/index.html

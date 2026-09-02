@@ -1,0 +1,4 @@
+sh
+# @summary Interpreter for `provenance import` -- restore base element
+# Copies one receipt file during a replay; sh so the record lands.
+# @see ELEBAKE_INTERPRETER_provenance_dump

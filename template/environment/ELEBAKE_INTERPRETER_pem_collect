@@ -1,0 +1,3 @@
+cat
+# Display family 'pem collect' -- a collection is data (one path per
+# line, comments naming the origin), never commands to run.

@@ -1,5 +1,4 @@
-sh
-# Act terminal 'stage trust anchor' -- writes ONLY into the stage's
-# worktree (brj-owned) and runs gpg: as the calling user, with their
-# agent, pinentry and card. sudo here was a ported-over reflex that
-# CAUSED the root-gpg/keyring mismatch (tutorial find #9).
+sudo sh
+# Act terminal 'stage trust anchor' -- the manifest attest key lives in
+# root's keyring (/root/.gnupg); the emission runs elevated and sets
+# GNUPGHOME from the key record.
