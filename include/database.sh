@@ -1491,7 +1491,7 @@ export_lines() {
     return 0; }
   printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" provenance serial"
   printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" dump $dumpargs > '$dump'"
-  printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" collect$collectargs > '$work/collection.raw'"
+  printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" collect${collectargs:+ $collectargs} > '$work/collection.raw'"
   printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" filter '$strategy' '$work/collection.raw' '$work/collection'"
   printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" manifest attest '$work/collection' '$key'"
   printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" bundle '$work/collection' '$bundle'"
@@ -1520,7 +1520,7 @@ ___export3() {
 # @internal 4-arg sibling of 'export': narrow to one stage
 #@end
 ___export4() {
-  export_lines "$1" "$2" "$3" "$(export_dump_strategy "$3") '$4'" " '$4'"
+  export_lines "$1" "$2" "$3" "$(export_dump_strategy "$3") '$4'" "'$4'"
 }
 
 #@help ___import2
