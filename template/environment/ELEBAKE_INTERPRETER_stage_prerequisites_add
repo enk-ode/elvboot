@@ -1,0 +1,4 @@
+sh
+# @summary Interpreter for `stage prerequisites add` -- bookkeeping (idempotent append)
+# Acts directly; the exist/verify forms are combinators that rewrite to it.
+# @see ELEBAKE_INTERPRETER_stage_prerequisites_drop

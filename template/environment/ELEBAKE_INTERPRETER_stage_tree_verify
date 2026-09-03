@@ -1,0 +1,6 @@
+sh
+# @summary Interpreter for `stage tree verify` -- inspection at generation time
+# The findings are computed by the generator; the emission only reports.
+# sh nonetheless: a finding emits `exit 1`, and that exit is what stops the
+# fail-fast core of `stage tree sync`. Under cat the finding is toothless.
+# @see ELEBAKE_INTERPRETER_stage_tree_close

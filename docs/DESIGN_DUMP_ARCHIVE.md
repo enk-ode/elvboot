@@ -166,7 +166,7 @@ sha256. `stage backup list` is the view for the decision.
 | `filter <strategy> <in> <out>` | which of them may travel | sh |
 | `manifest <collection> <MANIFEST>` | hash every entry that travels | sh |
 | `manifest attest <collection> <key>` | manifest + attest, beside the collection | batch |
-| `manifest verify <MANIFEST> <base> <key>` | pinned signer, every hash | sh |
+| `manifest verify <MANIFEST> <base> <key>` | attest verify + manifest match (pinned signer, every hash) | batch |
 | `attest <file> <key>` / `attest verify <file> <key>` | detached signature / pinned check | sh |
 | `bundle <collection> <archive>` | pack (refuses without the manifest pair) | sh |
 | `seal <dump> <bundle>` / `seal verify` | the dump names its bundle | sh |

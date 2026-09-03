@@ -1,0 +1,5 @@
+sh
+# @summary Interpreter for `stage site mk install` -- site.mk.new -> site.mk
+# The completeness check runs at generation time; the emission is one mv +
+# chown. sh so the file lands (last act of the site mk batch).
+# @see ELEBAKE_INTERPRETER_stage_site_mk_header

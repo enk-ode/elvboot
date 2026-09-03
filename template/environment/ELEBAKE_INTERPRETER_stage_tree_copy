@@ -1,0 +1,6 @@
+sudo sh
+# @summary Interpreter for `stage tree copy` -- boot/ onto the mounted dataset
+# Needs root (the imported pool / the mounted medium). Inspect first by
+# running the command under cat. To protect this step (display instead of
+# execute), remove or override this pin.
+# @see ELEBAKE_INTERPRETER_stage_tree_verify

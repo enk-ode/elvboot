@@ -1,0 +1,6 @@
+cat
+# @summary Interpreter for `stage site mk report` (the arity-2 terminal)
+# Arity-specific ON PURPOSE: the 1-arg sibling is a combinator (worktree path
+# resolved at generation time) and must keep the combinator default.
+# Display terminal; cat so the text survives an executing terminal default.
+# @see ELEBAKE_INTERPRETER_stage_site_mk_install

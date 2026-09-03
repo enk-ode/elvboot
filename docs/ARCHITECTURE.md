@@ -40,6 +40,20 @@ creates (a mountpoint after an import, a medium after a cp). If a fact
 is missing at generation time, the generator fails early
 (`generate_error`) — no implicit defaults.
 
+**Effects that need closing.** A pool import is an effect, and the
+mountpoint exists only after it — so `stage tree sync` and `stage adopt`
+are batches of small terminals, each reading the World at ITS generation
+time (the batch generates line by line, when reached): `pool import`,
+then the fail-fast core (`tree work` = snapshot, copy, verify), then
+`tree close` (rollback when the tree on the medium is not the manifest,
+decided at generation time) and `pool export`. Close and export must run
+even when the core failed, so the enclosing batch is pinned to a
+`ELEBAKE_BATCH_KEEP_GOING=1` wrapper and the core's pin forces it back to
+`0` (children inherit the environment). The batch still reports the
+failure; a pool never stays imported. Device guards (`test -c`) are
+generation-time checks: the medium must be inserted when the command is
+generated.
+
 ## 3. Interpreters
 
 Every dispatched function resolves an interpreter:
@@ -135,7 +149,10 @@ restore or a manual `stage make`, by design until the engine decision
 Three suites, one framework (`--maxprocs N` runs test functions/stories
 as parallel worker processes; aggregated summary):
 - `elebake-architecture-test.sh` — conformance of every anchor against
-  the rules in §1–§3, help corpus, env documentation.
+  the rules in §1–§3, help corpus, env documentation, and ONE
+  responsibility per anchor: no `case` on an argument whose branches each
+  produce output (that is the dispatcher's job: one anchor per aspect, a
+  batch above them), no body above 40 code lines without a listed reason.
 - `elebake-unit-test.sh` — per-command behaviour in sandbox databases.
 - `elebake-integration-test.sh` — end-to-end stories (migration
   round-trip, replay idempotence, check stage negative).

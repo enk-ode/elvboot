@@ -1,0 +1,5 @@
+cat
+# @summary Interpreter for `destroy worktrees` -- the rm lines, DISPLAYED
+# cat on purpose: `destroy` is a batch of the three steps, its output is the
+# shell that removes things -- read it, then pipe it to sh.
+# @see ELEBAKE_INTERPRETER_destroy_records

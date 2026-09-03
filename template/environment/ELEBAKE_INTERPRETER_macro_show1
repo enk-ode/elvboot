@@ -1,0 +1,5 @@
+cat
+# Arity-specific ON PURPOSE: the 0-arg sibling is a batch (one re-invocation
+# per record) and must keep the batch default.
+# Display terminal 'macro show' -- the #ifdef baseline block that
+# WOULD be emitted; cat so the view survives an executing default.

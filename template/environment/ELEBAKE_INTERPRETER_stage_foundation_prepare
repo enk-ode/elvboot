@@ -1,0 +1,4 @@
+sh
+# @summary Interpreter for `stage foundation prepare` -- the foundation/ directory
+# Bookkeeping that must take effect (first line of the make batch), so sh.
+# @see ELEBAKE_INTERPRETER_stage_foundation_install

@@ -1,3 +1,0 @@
-cat
-# Display family 'openpgp collect' -- a collection is data (one path per
-# line, comments naming the origin), never commands to run.

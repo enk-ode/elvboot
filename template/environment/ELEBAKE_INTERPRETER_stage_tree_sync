@@ -1,3 +1,8 @@
-sudo sh
-# Needs root (rw ZFS import of the medium's boot dataset). Snapshots before
-# touching anything, verifies the manifest in place, rolls back on failure.
+env ELEBAKE_BATCH_KEEP_GOING=1 sh -c 'tmp=$(mktemp "$ELEBAKE_BASE/.tmp/batch.XXXXXX"); chmod 0600 "$tmp"; cat > "$tmp"; exec "$ELEBAKE_CONTEXT_SCRIPT" batch "$tmp" true'
+# @summary Interpreter for the batch `stage tree sync` -- KEEP-GOING wrapper
+# The sync is import / work / close / export. Close and export must run
+# even when the work failed (a pool must never stay imported, a medium
+# never half-written), so this batch keeps going; the fail-fast core is
+# `stage tree work`, whose own pin forces keep-going OFF again. The batch
+# still reports the failure. Set to cat for a dry-run.
+# @see ELEBAKE_INTERPRETER_stage_tree_work

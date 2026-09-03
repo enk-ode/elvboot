@@ -1,3 +1,0 @@
-cat
-# Display terminal 'expectation show' -- renders the C that WOULD be
-# emitted; cat so the view survives an executing terminal default.

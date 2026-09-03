@@ -242,55 +242,59 @@ __environment_cache0() {
   echo '"$ELEBAKE_CONTEXT_SCRIPT" environment cache status'
 }
 
-#@help _environment_cache1
-# @internal arity-1 sibling of 'environment cache' (on|off|status)
+#@help _environment_cache_on0
+# @command environment cache on
+# @summary Build the environment cache NOW (a fresh scan of .env/, written at generation time) so every later invocation skips the layered lookup
+# @group   configuration
+# @env     ELEBAKE_CACHE_ENV_ARGS  the cache file this command writes
+# @see     environment cache off
 #@end
-_environment_cache1() {
-  local cmd="$1"
+_environment_cache_on0() {
+  local cache_file="$ELEBAKE_BASE/.env/local/ELEBAKE_CACHE_ENV_ARGS" var_count
+  # Generation time: write the cache directly (ESSENCE). Force a fresh disk
+  # scan: build_env_args_full short-circuits on an in-memory
+  # ELEBAKE_CACHE_ENV_ARGS (inherited via env -), so without unsetting it
+  # here a rebuild would just rewrite the stale value it is meant to
+  # replace. Unset in a subshell so the scan reads .env/ afresh.
+  ( unset ELEBAKE_CACHE_ENV_ARGS; build_env_args_full ) > "$cache_file"
+  $MODIFY_FILE_PERMS 0600 "$cache_file"
+  var_count=$(wc -w < "$cache_file" | tr -d ' ')
+  echo "echo '# Environment cache ENABLED' >&2"
+  echo "echo '# Cached $var_count variables' >&2"
+}
+
+#@help _environment_cache_off0
+# @command environment cache off
+# @summary Remove the environment cache; later invocations read the layered store again
+# @group   configuration
+# @env     ELEBAKE_CACHE_ENV_ARGS  the cache file this command removes
+# @see     environment cache on
+#@end
+_environment_cache_off0() {
   local cache_file="$ELEBAKE_BASE/.env/local/ELEBAKE_CACHE_ENV_ARGS"
+  if [ -f "$cache_file" ]; then
+    echo "$MODIFY_FILE_REMOVE '$cache_file'"
+    echo "echo '# Environment cache DISABLED' >&2"
+  else
+    echo "echo '# Environment cache already disabled' >&2"
+  fi
+}
 
-  case "$cmd" in
-    on)
-      # Generation time: write cache directly (ESSENCE).
-      # Force a fresh disk scan: build_env_args_full short-circuits on an
-      # in-memory ELEBAKE_CACHE_ENV_ARGS (inherited via env -), so without
-      # unsetting it here a rebuild would just rewrite the stale value it is
-      # meant to replace. Unset in a subshell so the scan reads .env/ afresh.
-      ( unset ELEBAKE_CACHE_ENV_ARGS; build_env_args_full ) > "$cache_file"
-      $MODIFY_FILE_PERMS 0600 "$cache_file"
-      local var_count
-      var_count=$(wc -w < "$cache_file" | tr -d ' ')
-
-      echo "echo '# Environment cache ENABLED' >&2"
-      echo "echo '# Cached $var_count variables' >&2"
-      ;;
-
-    off)
-      # Generation time: check and act
-      if [ -f "$cache_file" ]; then
-        echo "$MODIFY_FILE_REMOVE '$cache_file'"
-        echo "echo '# Environment cache DISABLED' >&2"
-      else
-        echo "echo '# Environment cache already disabled' >&2"
-      fi
-      ;;
-
-    status|"")
-      # Generation time: examine and report
-      if [ -f "$cache_file" ]; then
-        local var_count
-        var_count=$(wc -w < "$cache_file" | tr -d ' ')
-        echo "echo '# Environment cache: ENABLED ($var_count vars)' >&2"
-      else
-        echo "echo '# Environment cache: DISABLED' >&2"
-      fi
-      ;;
-
-    *)
-      echo "echo '# Error: Unknown cache command: $cmd' >&2"
-      echo "exit 1"
-      ;;
-  esac
+#@help _environment_cache_status0
+# @command environment cache status
+# @summary Is the environment cache on, and how many variables does it hold?
+# @group   configuration
+# @env     ELEBAKE_CACHE_ENV_ARGS  the cache file this command examines
+# @see     environment cache on
+#@end
+_environment_cache_status0() {
+  local cache_file="$ELEBAKE_BASE/.env/local/ELEBAKE_CACHE_ENV_ARGS" var_count
+  if [ -f "$cache_file" ]; then
+    var_count=$(wc -w < "$cache_file" | tr -d ' ')
+    echo "echo '# Environment cache: ENABLED ($var_count vars)' >&2"
+  else
+    echo "echo '# Environment cache: DISABLED' >&2"
+  fi
 }
 
 #@help ___init1
@@ -470,87 +474,57 @@ _unsetenv1() {
   fi
 }
 
-#@help ___dump_env1
-# @internal environment portion of 'dump'
-
-# @env ELEBAKE_CACHE_ENV_ARGS  cache state noted in the dump
+#@help ___dump_env_prologue0
+# @command dump env prologue
+# @summary Emit the prologue of a dump: the SOURCE's .env/local overrides that the restore itself depends on (the PROLOGUE profile's list -- deliberately WITHOUT function-specific interpreter pins, which could deactivate replayed commands), plus the cache switch when the source had it on
+# @group   database
+# @env     ELEBAKE_TEMPLATE_DIR  the shipped templates, where the PROLOGUE profile lives
+# @env     ELEBAKE_PROFILE_PROLOGUE  the profile listing the variables that travel in the prologue
+# @env     ELEBAKE_CACHE_ENV_ARGS  the cache switch of the source; its presence emits 'environment cache on'
+# @see     dump env epilogue
+# @see     dump
 #@end
-___dump_env1() {
-  local profile_name="$1"
-  local base="$ELEBAKE_BASE"
-  local profile_var="ELEBAKE_PROFILE_$(echo "$profile_name" | tr '[:lower:]' '[:upper:]')"
-  local profile_file="$ELEBAKE_TEMPLATE_DIR/environment/$profile_var"
-  local cache_file="$base/.env/local/ELEBAKE_CACHE_ENV_ARGS"
-
-  # Validate profile exists (PROLOGUE and EPILOGUE are dedicated dump
-  # profiles, distinct from the init profiles MINIMAL/ALL — see their
-  # templates for the reasoning)
-  if [ ! -f "$profile_file" ]; then
-    echo "\"\$ELEBAKE_CONTEXT_SCRIPT\" error \"Profile not found: $profile_var at $profile_file\""
-    return 0
+___dump_env_prologue0() {
+  local base="$ELEBAKE_BASE" profile_file="$ELEBAKE_TEMPLATE_DIR/environment/ELEBAKE_PROFILE_PROLOGUE" varname value
+  [ -f "$profile_file" ] || {
+    echo "\"\$ELEBAKE_CONTEXT_SCRIPT\" error \"Profile not found: ELEBAKE_PROFILE_PROLOGUE at $profile_file\""; return 0; }
+  for varname in $(head -n 1 "$profile_file" 2>>"$LOG_FILE"); do
+    [ "$varname" = "ELEBAKE_CACHE_ENV_ARGS" ] && continue
+    [ -f "$base/.env/local/$varname" ] || continue
+    value=$(head -n 1 "$base/.env/local/$varname" 2>>"$LOG_FILE")
+    [ -n "$value" ] && echo "\"\$ELEBAKE_CONTEXT_SCRIPT\" setenv $varname \"$value\""
+  done
+  if [ -f "$base/.env/local/ELEBAKE_CACHE_ENV_ARGS" ]; then
+    echo ""
+    echo "# Enable environment cache (makes imports 89-95% faster)"
+    echo "\"\$ELEBAKE_CONTEXT_SCRIPT\" environment cache on"
   fi
+  return 0
+}
 
-  # Read profile variable list (first line)
-  local profile_vars=$(head -n 1 "$profile_file" 2>>"$LOG_FILE")
-
-  # Prologue vs Epilogue behavior:
-  # - prologue: Only profile variables (safe minimal set for restore)
-  # - epilogue: ALL variables from .env/local/ (complete user environment)
-  if [ "$profile_name" = "epilogue" ]; then
-    # Epilogue: Output ALL variables from .env/local/ (including function-specific interpreters)
-    for local_file in "$base/.env/local/"*; do
-      [ -f "$local_file" ] || continue
-      varname=$(basename "$local_file")
-
-      # Skip cache file - it's regenerated via "environment cache on" in dump
-      if [ "$varname" = "ELEBAKE_CACHE_ENV_ARGS" ]; then
-        continue
-      fi
-
-      local value=$(head -n 1 "$local_file" 2>>"$LOG_FILE")
-
-      if [ -n "$value" ]; then
-        # Output setenv command (will be in dump output)
-        # Use escaped dollar sign to output literal "$ELEBAKE_CONTEXT_SCRIPT"
-        echo "\"\$ELEBAKE_CONTEXT_SCRIPT\" setenv $varname \"$value\""
-      fi
-    done
-  else
-    # Prologue: Only output variables in profile (prevents function-specific interpreters from breaking restore)
-    for varname in $profile_vars; do
-      local local_file="$base/.env/local/$varname"
-
-      # Skip cache file - it's regenerated via "environment cache on" in dump
-      if [ "$varname" = "ELEBAKE_CACHE_ENV_ARGS" ]; then
-        continue
-      fi
-
-      if [ -f "$local_file" ]; then
-        local value=$(head -n 1 "$local_file" 2>>"$LOG_FILE")
-
-        if [ -n "$value" ]; then
-          # Output setenv command (will be in dump output)
-          # Use escaped dollar sign to output literal "$ELEBAKE_CONTEXT_SCRIPT"
-          echo "\"\$ELEBAKE_CONTEXT_SCRIPT\" setenv $varname \"$value\""
-        fi
-      fi
-    done
+#@help ___dump_env_epilogue0
+# @command dump env epilogue
+# @summary Emit the epilogue of a dump: EVERY .env/local override of the source, including function-specific interpreter pins -- restored at the very end, when the replay is done
+# @group   database
+# @env     ELEBAKE_CACHE_ENV_ARGS  regenerated by 'environment cache on', never copied
+# @see     dump env prologue
+# @see     dump
+#@end
+___dump_env_epilogue0() {
+  local base="$ELEBAKE_BASE" local_file varname value
+  for local_file in "$base/.env/local/"*; do
+    [ -f "$local_file" ] || continue
+    varname=$(basename "$local_file")
+    [ "$varname" = "ELEBAKE_CACHE_ENV_ARGS" ] && continue
+    value=$(head -n 1 "$local_file" 2>>"$LOG_FILE")
+    [ -n "$value" ] && echo "\"\$ELEBAKE_CONTEXT_SCRIPT\" setenv $varname \"$value\""
+  done
+  if [ -f "$base/.env/local/ELEBAKE_CACHE_ENV_ARGS" ]; then
+    echo ""
+    echo "# Restore environment cache (ELEBAKE_CACHE_ENV_ARGS)"
+    echo "\"\$ELEBAKE_CONTEXT_SCRIPT\" environment cache on"
   fi
-
-  # After prologue/epilogue setenv commands, output cache enablement if cache is enabled
-  # This enables cache for fast import operations (prologue) and regenerates it after setenv (epilogue)
-  if [ "$profile_name" = "prologue" ] || [ "$profile_name" = "epilogue" ]; then
-    # Only include cache commands if cache is actually enabled in source database
-    if [ -f "$cache_file" ]; then
-      echo ""
-      if [ "$profile_name" = "prologue" ]; then
-        echo "# Enable environment cache (makes imports 89-95% faster)"
-      else
-        echo "# Restore environment cache (ELEBAKE_CACHE_ENV_ARGS)"
-      fi
-      echo "\"\$ELEBAKE_CONTEXT_SCRIPT\" environment cache on"
-    fi
-  fi
+  return 0
 }
 
 # db_real_name — the name of the database $ELEBAKE_BASE points at
@@ -566,44 +540,49 @@ db_real_name() {
   fi
 }
 
-#@help _destroy1
+#@help ___destroy1
 # @command destroy <name>
-# @summary Remove this database and everything it owns, IRRECOVERABLY: the records, the worktrees and their registration in the source repo, the bundle handover area, the active-DB symlink
+# @summary Remove this database and everything it owns, IRRECOVERABLY, as three steps: the worktrees and their registration in the source repo, the records, the scaffolding (bundle handover area, active-DB symlink, empty root). The name IS the confirmation, checked before a line is emitted
 # @group   database
 # @param   name  must match the database's own name -- the confirmation
 # @example elebake destroy current
-# @env     ELEBAKE_FREEBSD_SRC  the repo whose worktrees are unregistered
+# @see     destroy worktrees
 # @see     dump
 #@end
-_destroy1() {
-  local given="$1" base="$ELEBAKE_BASE" root="$ELEBAKE_ROOT"
-  local src="${ELEBAKE_FREEBSD_SRC:-}" real wt id link realbase target
-  [ -d "$base" ] || {
-    generate_error "destroy: no database at $base"; return 0; }
+___destroy1() {
+  local given="$1" real root="$ELEBAKE_ROOT"
+  [ -d "$ELEBAKE_BASE" ] || {
+    printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'destroy: no database at $ELEBAKE_BASE'"; return 0; }
   real=$(db_real_name)
-  # ELEBAKE_BASE is usually the active-DB symlink, and rm -rf on a symlink
-  # removes the LINK, leaving the database itself orphaned. Resolve first.
-  realbase="$base"
-  if [ -L "$base" ]; then
-    target=$(readlink "$base")
-    case "$target" in
-      /*) realbase="$target" ;;
-      *)  realbase="$(dirname "$base")/$target" ;;
-    esac
-  fi
   [ "$given" = "$real" ] || {
-    generate_error "destroy: name '$given' does not match this database ('$real') -- naming it IS the confirmation"; return 0; }
+    printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error $(sq "destroy: name '$given' does not match this database ('$real') -- naming it IS the confirmation")"; return 0; }
+  printf '%s\n' "# DESTROY '$real' -- everything below is gone for good, with no undo:"
+  printf '%s\n' "#   the records, every stage with its boot tree, markers and backups,"
+  printf '%s\n' "#   the worktrees under $root/worktree and their registration in the source repo,"
+  printf '%s\n' "#   the bundle handover area $root/bundle (a handover point, never a store --"
+  printf '%s\n' "#   copy anything you still need OUT of it first),"
+  printf '%s\n' "#   and the active-DB symlink if it points here."
+  printf '%s\n' "# Not touched, because they are not this database's: deployed loaders on media,"
+  printf '%s\n' "# NVRAM boot entries, and key material in the world (pem/pkcs11/openpgp paths)."
+  printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" destroy worktrees '$given'"
+  printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" destroy records '$given'"
+  printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" destroy scaffold '$given'"
+}
 
-  emit_note "DESTROY '$real' -- everything below is gone for good, with no undo:"
-  emit_note "  the records ($realbase), every stage with its boot tree, markers and backups,"
-  emit_note "  the worktrees under $root/worktree and their registration in the source repo,"
-  emit_note "  the bundle handover area $root/bundle (a handover point, never a store --"
-  emit_note "  copy anything you still need OUT of it first),"
-  emit_note "  and the active-DB symlink if it points here."
-  emit_note "Not touched, because they are not this database's: deployed loaders on media,"
-  emit_note "NVRAM boot entries, and key material in the world (pem/pkcs11/openpgp paths)."
-
-  # Worktrees first: the ids are only knowable while the database exists.
+#@help _destroy_worktrees1
+# @command destroy worktrees <name>
+# @summary Step 1 of destroy: remove every stage worktree AND its registration in the source repo (a plain rm -rf would leave "missing but already registered worktree" behind); the ids are only knowable while the database exists
+# @group   database
+# @param   name  the database's own name -- the confirmation
+# @env     ELEBAKE_FREEBSD_SRC  the repo whose worktrees are unregistered
+# @see     destroy
+#@end
+_destroy_worktrees1() {
+  local given="$1" base="$ELEBAKE_BASE" src="${ELEBAKE_FREEBSD_SRC:-}" real link wt id
+  [ -d "$base" ] || { generate_error "destroy worktrees: no database at $base"; return 0; }
+  real=$(db_real_name)
+  [ "$given" = "$real" ] || {
+    generate_error "destroy worktrees: name '$given' does not match this database ('$real')"; return 0; }
   for link in "$base"/.staging/*/work; do
     [ -L "$link" ] || continue
     wt=$(readlink "$link")
@@ -616,29 +595,66 @@ _destroy1() {
       emit_note "      run 'git -C <src> worktree prune' in the source repo to clear its registration."
     fi
   done
+  [ -n "$src" ] && printf '%s\n' "git -C '$src' worktree prune"
+  return 0
+}
 
+#@help _destroy_records1
+# @command destroy records <name>
+# @summary Step 2 of destroy: remove the database directory itself -- resolved through the active-DB symlink first (rm -rf on a symlink removes the LINK and orphans the database)
+# @group   database
+# @param   name  the database's own name -- the confirmation
+# @see     destroy
+#@end
+_destroy_records1() {
+  local given="$1" base="$ELEBAKE_BASE" real realbase target
+  [ -d "$base" ] || { generate_error "destroy records: no database at $base"; return 0; }
+  real=$(db_real_name)
+  [ "$given" = "$real" ] || {
+    generate_error "destroy records: name '$given' does not match this database ('$real')"; return 0; }
+  realbase="$base"
+  if [ -L "$base" ]; then
+    target=$(readlink "$base")
+    case "$target" in
+      /*) realbase="$target" ;;
+      *)  realbase="$(dirname "$base")/$target" ;;
+    esac
+  fi
   printf '%s\n' "rm -rf '$realbase'"
+  printf '%s\n' "printf '# destroyed: %s\\n' '$real' >&2"
+}
+
+#@help _destroy_scaffold1
+# @command destroy scaffold <name>
+# @summary Step 3 of destroy: the bundle handover area, the active-DB symlink if it points here, and the empty scaffolding -- rmdir refuses non-empty directories, so a second database in the same root survives untouched
+# @group   database
+# @param   name  the database's own name -- the confirmation
+# @see     destroy
+#@end
+_destroy_scaffold1() {
+  local given="$1" root="$ELEBAKE_ROOT" real
+  real=$(db_real_name)
+  [ "$given" = "$real" ] || {
+    generate_error "destroy scaffold: name '$given' does not match this database ('$real')"; return 0; }
   printf '%s\n' "rm -rf '$root/bundle'"
   if [ -L "$root/db" ] && [ "$(readlink "$root/db")" = "$real" ]; then
     printf '%s\n' "rm -f '$root/db'"
   fi
-  [ -n "$src" ] && printf '%s\n' "git -C '$src' worktree prune"
-  # Leave no empty scaffolding behind: rmdir refuses non-empty directories,
-  # so a second database in the same root survives untouched.
   printf '%s\n' "rmdir '$root/worktree' '$root/incoming' 2>/dev/null || true"
   printf '%s\n' "rmdir '$root' 2>/dev/null || true"
-  printf '%s\n' "printf '# destroyed: %s\\n' '$real' >&2"
   printf '%s\n' "printf '# remaining under %s:\\n' '$root' >&2"
   printf '%s\n' "ls -A '$root' 2>/dev/null | sed 's/^/#   /' >&2 || true"
 }
 
 #@help __dump0
-# @command dump [<strategy>]
-# @summary Export the database as an executable shell script; the bare form is the COMPLETE description (strategy 'complete')
+# @command dump [<strategy> [<stage>|all]]
+# @summary Export the database as an executable shell script; the bare form is the COMPLETE description of every stage (strategy 'complete', scope 'all')
 # @group   database
 # @param   strategy  complete (everything the database holds) or minimized (binary management only: loaders, kernel modules, loader.conf, backups, media -- what a rescue system needs to roll back)
+# @param   stage     narrow the description to one stage; 'all' is every stage
 # @returns shell commands (a restorable dump; pipe to a file)
 # @example elebake dump > backup.sh
+# @example elebake dump minimized smoke1 > rescue.sh
 # @see     restore
 # @see     batch
 # @see     export
@@ -649,7 +665,7 @@ _destroy1() {
 # carries them (docs/DESIGN_DUMP_ARCHIVE.md).
 #@end
 __dump0() {
-  echo "\"\$ELEBAKE_CONTEXT_SCRIPT\" dump complete"
+  echo "\"\$ELEBAKE_CONTEXT_SCRIPT\" dump complete all"
 }
 
 # dump_strategy_ok <strategy> — the two vocabularies a dump can speak
@@ -657,21 +673,39 @@ dump_strategy_ok() {
   case "$1" in complete|minimized) return 0 ;; *) return 1 ;; esac
 }
 
-# dump_lines <strategy> <stage-dump-line> — the dump text every form shares;
-# the stage line names the scope (every stage, or one).
+#@help __dump1
+# @internal arity-1 of 'dump': one strategy, every stage -- rewrites to the
+# full command
+#@end
+__dump1() {
+  echo "\"\$ELEBAKE_CONTEXT_SCRIPT\" dump '$1' all"
+}
+
+#@help ___dump2
+# @internal arity-2 of 'dump', the canonical form: ONE strategy, ONE scope
+# ('all' or a stage name). Header, prologue, keys and receipts are the
+# same for every form; the strategy decides the vocabulary of the body.
+# 'complete' is the whole database; 'minimized' is the rescue vocabulary --
+# keys, receipts and per stage only what binary management needs (record,
+# media, backups, the loader/kernel/loader.conf subset of boot/). No
+# foundation, no work symlink, no phase bindings, no rebuild lines: a
+# rescue system swaps binaries, it does not build them.
 #
 # Header. The Version line names the dump FORMAT emitted by this script
 # (bump when the emitted command vocabulary changes incompatibly); restore
 # branches on it. The Serial is the lineage counter (provenance.sh): the
-# number the last 'export' advanced to, so a bare dump repeats the serial of
-# the last export. The Strategy names the vocabulary of the body.
+# number the last 'export' advanced to, so a bare dump repeats the serial
+# of the last export. The Strategy names the vocabulary of the body.
 #
 # Body - domain object dumps, delegated per base element (never reach into
-# another anchor's records from here). Keys are CLI replays; stages are file
-# imports (see stage.sh: a stage is not reproducible as CLI replay). The init
-# command is NOT included - it is implicit in restore.
-dump_lines() {
-  local strategy="$1" stageline="$2" base="$ELEBAKE_BASE"
+# another anchor's records from here). Keys are CLI replays; stages are
+# file imports (see stage.sh: a stage is not reproducible as CLI replay).
+# The init command is NOT included - it is implicit in restore.
+#@end
+___dump2() {
+  local strategy="$1" scope="$2" base="$ELEBAKE_BASE"
+  dump_strategy_ok "$strategy" || {
+    echo "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'dump: unknown strategy $strategy (complete | minimized)'"; return 0; }
   echo "# elebake database dump"
   echo "# Generated: $(date '+%Y-%m-%d %H:%M:%S')"
   echo "# Version: 2"
@@ -704,35 +738,14 @@ dump_lines() {
     echo "# boot/ (loader, kernel, loader.conf, manifest pair). No foundation,"
     echo "# no worktree, no rebuild: what a rescue system needs to roll back."
   fi
-  echo "$stageline"
+  if [ "$scope" = "all" ]; then
+    echo "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage dump all '$strategy'"
+  else
+    echo "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage dump '$scope' '$strategy'"
+  fi
   echo ""
   echo "# Epilogue - Restore complete user environment from OLD database"
   echo "\"\$ELEBAKE_CONTEXT_SCRIPT\" dump env epilogue"
-}
-
-#@help ___dump1
-# @internal arity-1 of 'dump': the description under ONE strategy, every
-# stage. 'complete' is the whole database; 'minimized' is the rescue
-# vocabulary -- keys, receipts and per stage only what binary management
-# needs (record, media, backups, the loader/kernel/loader.conf subset of
-# boot/). No foundation, no work symlink, no phase bindings, no rebuild
-# lines: a rescue system swaps binaries, it does not build them.
-#@end
-___dump1() {
-  dump_strategy_ok "$1" || {
-    echo "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'dump: unknown strategy $1 (complete | minimized)'"; return 0; }
-  dump_lines "$1" "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage dump all '$1'"
-}
-
-#@help ___dump2
-# @internal arity-2 of 'dump': ONE strategy, ONE stage -- the same header,
-# prologue, keys and receipts, then that stage alone (export's per-stage
-# form; a bare 'stage dump <stage>' has no header and cannot be restored)
-#@end
-___dump2() {
-  dump_strategy_ok "$1" || {
-    echo "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'dump: unknown strategy $1 (complete | minimized)'"; return 0; }
-  dump_lines "$1" "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage dump '$2' '$1'"
 }
 
 # _cat1 - Write stdin to file
@@ -1018,31 +1031,7 @@ restore_admissible() {
   printf '%s\n' "$fpr"
 }
 
-# restore_emit <dump> <base> — the ONE re-invocation, with the binding carried
-# in front of it: the child skips the startup re-exec
-# (ELEBAKE_CONTEXT_BOOTSTRAPPED is set for every interpreter), so _batch2
-# expands the dump's "$ELEBAKE_ARCHIVE_BASE/..." against <base>.
-#
-# The line starts with env, so the interpreter cannot expand a variable in
-# first position, and it must not eval the whole line either -- an eval
-# would re-split a quoted argument such as an error reason.
-# ELEBAKE_INTERPRETER_restore therefore maps the ONE literal word
-# "$ELEBAKE_CONTEXT_SCRIPT" to the script path and execs the words as they
-# are; the emission keeps the literal every combinator emits.
-#
-# Keep-going mode (restore survives failing lines, e.g. a re-run's 'stage
-# add' on an existing stage) is set by ELEBAKE_INTERPRETER_restore: an export
-# HERE would be lost -- the interpreter runs as the PIPELINE PEER of this
-# function and inherits the environment from before it ran.
-restore_emit() {
-  echo "env ELEBAKE_ARCHIVE_BASE='$2' \"\$ELEBAKE_CONTEXT_SCRIPT\" batch '$1'"
-}
 
-# restore_refuse <reason> — the ONE line of a refused restore: an error
-# re-invocation with the reason as ONE quoted word
-restore_refuse() {
-  echo "\"\$ELEBAKE_CONTEXT_SCRIPT\" error $(sq "restore: $1")"
-}
 
 #@help __restore1
 # @command restore <dump> [<base>]
@@ -1068,8 +1057,9 @@ __restore1() {
   # "parameter not set" -- mid-restore, everything after it skipped. Unbound
   # means "sources come from THIS database", so the default is $ELEBAKE_BASE;
   # __restore2 is the same line with a chosen base.
-  why=$(restore_admissible "$filepath") || { restore_refuse "$why"; return 0; }
-  restore_emit "$filepath" "$ELEBAKE_BASE"
+  why=$(restore_admissible "$filepath") || {
+    echo "\"\$ELEBAKE_CONTEXT_SCRIPT\" error $(sq "restore: $why")"; return 0; }
+  echo "env ELEBAKE_ARCHIVE_BASE='$ELEBAKE_BASE' \"\$ELEBAKE_CONTEXT_SCRIPT\" batch '$filepath'"
 }
 
 #@help __restore2
@@ -1079,12 +1069,18 @@ __restore1() {
 #@end
 __restore2() {
   local filepath="$1" archbase="$2" why
-  why=$(restore_admissible "$filepath") || { restore_refuse "$why"; return 0; }
-  if [ ! -d "$archbase" ]; then
-    restore_refuse "base directory not found: $archbase"
-    return 0
-  fi
-  restore_emit "$filepath" "$archbase"
+  why=$(restore_admissible "$filepath") || {
+    echo "\"\$ELEBAKE_CONTEXT_SCRIPT\" error $(sq "restore: $why")"; return 0; }
+  [ -d "$archbase" ] || {
+    echo "\"\$ELEBAKE_CONTEXT_SCRIPT\" error $(sq "restore: base directory not found: $archbase")"; return 0; }
+  # ONE re-invocation with the binding carried in front of it: the child
+  # skips the startup re-exec (ELEBAKE_CONTEXT_BOOTSTRAPPED is set for every
+  # interpreter), so _batch2 expands the dump's "$ELEBAKE_ARCHIVE_BASE/..."
+  # against this directory. The line starts with env, so
+  # ELEBAKE_INTERPRETER_restore maps the one literal script word to the
+  # path and execs the words as they are (no eval: it would re-split a
+  # quoted refusal reason). Keep-going is set by that same pin.
+  echo "env ELEBAKE_ARCHIVE_BASE='$archbase' \"\$ELEBAKE_CONTEXT_SCRIPT\" batch '$filepath'"
 }
 
 #@help _printenv0
@@ -1116,21 +1112,6 @@ EOF
 # so it speaks the same language as the dump: who binds the variable decides
 # which world the paths point at.
 
-# collect_line <abspath> — emit one collection entry, or nothing if absent
-collect_line() {
-  { [ -f "$1" ] || [ -L "$1" ]; } || return 0
-  case "$1" in
-    "$ELEBAKE_BASE"/*) printf '"$ELEBAKE_ARCHIVE_BASE"/%s\n' "${1#"$ELEBAKE_BASE"/}" ;;
-  esac
-}
-
-# collect_tree <absdir> — every file and symlink below a directory, sorted
-collect_tree() {
-  [ -d "$1" ] || return 0
-  find "$1" \( -type f -o -type l \) 2>/dev/null | sort | while IFS= read -r f; do
-    collect_line "$f"
-  done
-}
 
 #@help ___collect0
 # @command collect [<stage>]
@@ -1164,22 +1145,6 @@ ___collect1() {
 # filter / bundle / extract / export / import — the archive pipeline
 #-----------------------------------------------------------------------------
 
-# collection_write <outfile> — emit the shell that writes stdin-collected
-# lines to <outfile>; the caller pipes the filtered content in via $1.
-# collection_dropped <path> <strategy> — one audit line INTO the collection.
-# Not an emission: collection_emit wraps this output in a heredoc, so the
-# comment lands in the collection FILE and is read back by bundle/manifest.
-collection_dropped() {
-  printf '# dropped (%s): %s\n' "$2" "$1"
-}
-
-collection_emit() {
-  local out="$1"
-  printf '%s\n' "cat > '$out' <<'ELEBAKE_COLLECTION'"
-  cat
-  printf '%s\n' "ELEBAKE_COLLECTION"
-  printf '%s\n' "$MODIFY_FILE_PERMS 0600 '$out'"
-}
 
 #@help __filter2
 # @command filter <collection> <filtered>
@@ -1207,16 +1172,17 @@ __filter_default2() {
 _filter_redacted2() {
   local in="$1" out="$2" line
   [ -f "$in" ] || { generate_error "filter redacted: no such collection '$in'"; return 0; }
-  {
-    while IFS= read -r line; do
-      case "$line" in
-        \#*|"") printf '%s\n' "$line"; continue ;;
-        */marker/*|*/backup/*|*/site.mk|*/.tmp/*|*/.log/*)
-          collection_dropped "$line" redacted ;;
-        *) printf '%s\n' "$line" ;;
-      esac
-    done < "$in"
-  } | collection_emit "$out"
+  printf '%s\n' "cat > '$out' <<'ELVCOLLECTION'"
+  while IFS= read -r line; do
+    case "$line" in
+      \#*|"") printf '%s\n' "$line"; continue ;;
+      */marker/*|*/backup/*|*/site.mk|*/.tmp/*|*/.log/*)
+        printf '# dropped (redacted): %s\n' "$line" ;;
+      *) printf '%s\n' "$line" ;;
+    esac
+  done < "$in"
+  printf '%s\n' "ELVCOLLECTION"
+  printf '%s\n' "$MODIFY_FILE_PERMS 0600 '$out'"
   emit_note "filtered (redacted): $out"
 }
 
@@ -1228,15 +1194,16 @@ _filter_redacted2() {
 _filter_full2() {
   local in="$1" out="$2" line
   [ -f "$in" ] || { generate_error "filter full: no such collection '$in'"; return 0; }
-  {
-    while IFS= read -r line; do
-      case "$line" in
-        \#*|"") printf '%s\n' "$line"; continue ;;
-        */.tmp/*|*/.log/*) collection_dropped "$line" operational ;;
-        *) printf '%s\n' "$line" ;;
-      esac
-    done < "$in"
-  } | collection_emit "$out"
+  printf '%s\n' "cat > '$out' <<'ELVCOLLECTION'"
+  while IFS= read -r line; do
+    case "$line" in
+      \#*|"") printf '%s\n' "$line"; continue ;;
+      */.tmp/*|*/.log/*) printf '# dropped (operational): %s\n' "$line" ;;
+      *) printf '%s\n' "$line" ;;
+    esac
+  done < "$in"
+  printf '%s\n' "ELVCOLLECTION"
+  printf '%s\n' "$MODIFY_FILE_PERMS 0600 '$out'"
   emit_note "filtered (full): $out"
 }
 
@@ -1271,24 +1238,25 @@ minimized_keep() {
 _filter_minimized2() {
   local in="$1" out="$2" line rel
   [ -f "$in" ] || { generate_error "filter minimized: no such collection '$in'"; return 0; }
-  {
-    while IFS= read -r line; do
-      case "$line" in
-        \#*|"") printf '%s\n' "$line"; continue ;;
-        */.tmp/*|*/.log/*) collection_dropped "$line" operational; continue ;;
-      esac
-      rel=${line#\"\$ELEBAKE_ARCHIVE_BASE\"/}
-      case "$rel" in
-        .staging/*/*)
-          rel=${rel#.staging/*/}
-          if minimized_keep "$rel"; then printf '%s\n' "$line"; else collection_dropped "$line" minimized; fi ;;
-        stage/*|pem/*|openpgp/*|pkcs11/*|provenance/*)
-          printf '%s\n' "$line" ;;
-        *)
-          collection_dropped "$line" minimized ;;
-      esac
-    done < "$in"
-  } | collection_emit "$out"
+  printf '%s\n' "cat > '$out' <<'ELVCOLLECTION'"
+  while IFS= read -r line; do
+    case "$line" in
+      \#*|"") printf '%s\n' "$line"; continue ;;
+      */.tmp/*|*/.log/*) printf '# dropped (operational): %s\n' "$line"; continue ;;
+    esac
+    rel=${line#\"\$ELEBAKE_ARCHIVE_BASE\"/}
+    case "$rel" in
+      .staging/*/*)
+        rel=${rel#.staging/*/}
+        if minimized_keep "$rel"; then printf '%s\n' "$line"; else printf '# dropped (minimized): %s\n' "$line"; fi ;;
+      stage/*|pem/*|openpgp/*|pkcs11/*|provenance/*)
+        printf '%s\n' "$line" ;;
+      *)
+        printf '# dropped (minimized): %s\n' "$line" ;;
+    esac
+  done < "$in"
+  printf '%s\n' "ELVCOLLECTION"
+  printf '%s\n' "$MODIFY_FILE_PERMS 0600 '$out'"
   emit_note "filtered (minimized): $out"
 }
 
@@ -1356,13 +1324,6 @@ _bundle2() {
 # one trust decision, not two -- and a genuine dump handed over with a
 # foreign bundle is refused before anything is extracted.
 
-# seal_line <bundle> — the line, computed now
-seal_line() {
-  local sum size
-  sum=$(sha256 -q "$1" 2>>"$LOG_FILE") || return 1
-  size=$(wc -c < "$1" | tr -d ' ')
-  printf '# Bundle: sha256=%s bytes=%s\n' "$sum" "$size"
-}
 
 #@help _seal2
 # @command seal <dump> <bundle>
@@ -1376,14 +1337,15 @@ seal_line() {
 # @see     export
 #@end
 _seal2() {
-  local dump="$1" bundle="$2" line
+  local dump="$1" bundle="$2" line sum
   [ -f "$dump" ] || { generate_error "seal: no such dump '$dump'"; return 0; }
   [ -f "$bundle" ] || { generate_error "seal: no such bundle '$bundle'"; return 0; }
   ! grep -q '^# Bundle: sha256=' "$dump" || {
     generate_error "seal: '$dump' is already sealed (a dump names ONE bundle; export again for a new pair)"; return 0; }
   [ ! -f "$dump.asc" ] || {
     generate_error "seal: '$dump' is already attested -- sealing after signing would invalidate the signature"; return 0; }
-  line=$(seal_line "$bundle") || { generate_error "seal: cannot hash $bundle"; return 0; }
+  sum=$(sha256 -q "$bundle" 2>>"$LOG_FILE") || { generate_error "seal: cannot hash $bundle"; return 0; }
+  line="# Bundle: sha256=$sum bytes=$(wc -c < "$bundle" | tr -d ' ')"
   emit_note "seal: $dump names $(basename "$bundle") (${line#\# Bundle: })"
   printf '%s\n' "printf '%s\\n' '$line' >> '$dump'"
 }
@@ -1400,14 +1362,15 @@ _seal2() {
 # @see     import
 #@end
 _seal_verify2() {
-  local dump="$1" bundle="$2" want have
+  local dump="$1" bundle="$2" want have sum
   [ -f "$dump" ] || { generate_error "seal verify: no such dump '$dump'"; return 0; }
   [ -f "$bundle" ] || { generate_error "seal verify: no such bundle '$bundle'"; return 0; }
   want=$(grep '^# Bundle: sha256=' "$dump" | head -n1)
   [ -n "$want" ] || {
     generate_error "seal verify: '$dump' carries no seal line -- it was not exported with a bundle" \
       "(a dump and a bundle are bound by content, not by name)"; return 0; }
-  have=$(seal_line "$bundle") || { generate_error "seal verify: cannot hash $bundle"; return 0; }
+  sum=$(sha256 -q "$bundle" 2>>"$LOG_FILE") || { generate_error "seal verify: cannot hash $bundle"; return 0; }
+  have="# Bundle: sha256=$sum bytes=$(wc -c < "$bundle" | tr -d ' ')"
   [ "$want" = "$have" ] || {
     generate_error "seal verify: MISMATCHED PAIR -- $dump does not name this bundle" \
       "(dump says   ${want#\# Bundle: })" \
@@ -1466,45 +1429,12 @@ export_strategy_ok() {
   case "$1" in redacted|full|minimized) return 0 ;; *) return 1 ;; esac
 }
 
-# export_dump_strategy <filter strategy> — which vocabulary the dump speaks:
-# 'minimized' describes exactly the minimized payload, everything else is
-# the complete description (redacted/full govern the payload only)
-export_dump_strategy() {
-  case "$1" in minimized) printf 'minimized\n' ;; *) printf 'complete\n' ;; esac
-}
-
-# export_lines <dump> <bundle> <strategy> <dump-args> <collect-args> — the
-# batch every export form shares; the two argument strings name what is
-# described and what is collected (all stages, or one). The order is the
-# security argument: the serial advances first (so the dump carries it), the
-# bundle is packed before the seal (the seal hashes it), and the dump is
-# attested LAST so one signature covers the description, the seal and --
-# through MANIFEST.asc -- every file.
-export_lines() {
-  local dump="$1" bundle="$2" strategy="$3" dumpargs="$4" collectargs="$5"
-  local work="$ELEBAKE_BASE/export" key="${ELEBAKE_ARCHIVE_ATTEST_KEY:-}"
-  [ -n "$key" ] || {
-    printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'export: ELEBAKE_ARCHIVE_ATTEST_KEY not set' 'an unsigned archive is not evidence; setenv it to an openpgp record name'"
-    return 0; }
-  export_strategy_ok "$strategy" || {
-    printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'export: unknown strategy $strategy (redacted | full | minimized)'"
-    return 0; }
-  printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" provenance serial"
-  printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" dump $dumpargs > '$dump'"
-  printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" collect${collectargs:+ $collectargs} > '$work/collection.raw'"
-  printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" filter '$strategy' '$work/collection.raw' '$work/collection'"
-  printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" manifest attest '$work/collection' '$key'"
-  printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" bundle '$work/collection' '$bundle'"
-  printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" seal '$dump' '$bundle'"
-  printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" attest '$dump' '$key'"
-}
-
-#@help ___export3
-# @command export <dump> <bundle> <strategy> [<stage>]
-# @summary Write the two artifacts that travel apart, bound and signed: the DUMP to a path of your choosing (commit it), the BUNDLE to its store. redacted/full describe the database COMPLETELY and govern the payload only; minimized describes and carries binary management only (the rescue pair)
+#@help __export3
+# @command export <dump> <bundle> <strategy> [<stage>|all]
+# @summary Write the two artifacts that travel apart, bound and signed: the DUMP to a path of your choosing (commit it), the BUNDLE to its store. redacted/full describe the database COMPLETELY and govern the payload only; minimized describes and carries binary management only (the rescue pair). The bare form covers every stage
 # @group   database
 # @param   strategy  redacted (no machine secrets, for sending) | full (own disaster recovery) | minimized (rescue: loaders, kernel, loader.conf, backups, media)
-# @param   stage     narrow the pair to one stage
+# @param   stage     narrow the pair to one stage; 'all' is every stage
 # @env     ELEBAKE_ARCHIVE_ATTEST_KEY  the openpgp record that signs the bundle's MANIFEST and the dump
 # @example elebake export ~/git/config/dump.sh ~/.elebake/bundle/a1b2c3d.tar.gz full
 # @example elebake export ~/rescue/dump.sh ~/rescue/bundle.tar.gz minimized
@@ -1512,15 +1442,42 @@ export_lines() {
 # @see     manifest attest
 # @see     seal
 #@end
-___export3() {
-  export_lines "$1" "$2" "$3" "$(export_dump_strategy "$3")" ""
+__export3() {
+  echo "\"\$ELEBAKE_CONTEXT_SCRIPT\" export '$1' '$2' '$3' all"
 }
 
 #@help ___export4
-# @internal 4-arg sibling of 'export': narrow to one stage
+# @internal arity-4 of 'export', the canonical form: ONE scope ('all' or a
+# stage name). The order is the security argument: the serial advances
+# first (so the dump carries it), the bundle is packed before the seal (the
+# seal hashes it), and the dump is attested LAST so one signature covers
+# the description, the seal and -- through MANIFEST.asc -- every file.
+# 'minimized' makes the dump speak the rescue vocabulary; redacted/full
+# govern the payload only and leave the description complete.
 #@end
 ___export4() {
-  export_lines "$1" "$2" "$3" "$(export_dump_strategy "$3") '$4'" "'$4'"
+  local dump="$1" bundle="$2" strategy="$3" scope="$4" dstrat=complete
+  local work="$ELEBAKE_BASE/export" key="${ELEBAKE_ARCHIVE_ATTEST_KEY:-}"
+  [ -n "$key" ] || {
+    printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'export: ELEBAKE_ARCHIVE_ATTEST_KEY not set' 'an unsigned archive is not evidence; setenv it to an openpgp record name'"
+    return 0; }
+  export_strategy_ok "$strategy" || {
+    printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'export: unknown strategy $strategy (redacted | full | minimized)'"
+    return 0; }
+  [ "$strategy" = "minimized" ] && dstrat=minimized
+  printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" provenance serial"
+  if [ "$scope" = "all" ]; then
+    printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" dump '$dstrat' all > '$dump'"
+    printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" collect > '$work/collection.raw'"
+  else
+    printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" dump '$dstrat' '$scope' > '$dump'"
+    printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" collect '$scope' > '$work/collection.raw'"
+  fi
+  printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" filter '$strategy' '$work/collection.raw' '$work/collection'"
+  printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" manifest attest '$work/collection' '$key'"
+  printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" bundle '$work/collection' '$bundle'"
+  printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" seal '$dump' '$bundle'"
+  printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" attest '$dump' '$key'"
 }
 
 #@help ___import2

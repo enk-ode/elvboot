@@ -1,0 +1,4 @@
+cat
+# @summary Interpreter for `stage status attestkey` -- one derived-state line
+# Display terminal; cat so the text survives an executing terminal default.
+# @see ELEBAKE_INTERPRETER_stage_list

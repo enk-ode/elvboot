@@ -1,0 +1,5 @@
+cat
+# @summary Interpreter for the dump block `stage dump work` -- dump TEXT
+# Batch machinery: the emitted replay lines are displayed, not executed, so
+# they become part of the dump ('stage dump record' composes the blocks).
+# @see ELEBAKE_INTERPRETER_stage_dump_record2

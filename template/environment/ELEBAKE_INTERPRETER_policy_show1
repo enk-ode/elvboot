@@ -1,0 +1,4 @@
+cat
+# Arity-specific ON PURPOSE: the 0-arg sibling is a batch (one re-invocation
+# per record) and must keep the batch default.
+# Display terminal 'policy show' -- POLICY(...) as it WOULD be emitted.

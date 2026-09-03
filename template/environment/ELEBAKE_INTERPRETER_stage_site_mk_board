@@ -1,0 +1,5 @@
+cat
+# @summary Interpreter for `stage site mk board` -- one measurement as TEXT (-D lines)
+# `stage site mk` redirects it into site.mk.new; measured at generation time.
+# Display terminal; cat so the text survives an executing terminal default.
+# @see ELEBAKE_INTERPRETER_stage_site_mk_install

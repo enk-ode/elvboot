@@ -1,0 +1,4 @@
+sh
+# @summary Interpreter for `environment cache status` -- one report line
+# sh so the report reaches stderr (the emission is an echo to stderr).
+# @see ELEBAKE_INTERPRETER_environment_cache_on

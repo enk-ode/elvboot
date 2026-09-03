@@ -1,0 +1,6 @@
+sudo sh
+# @summary Interpreter for `stage sign pem` -- the Authenticode signing act
+# Needs root (root-only keys, the token). `stage sign` is the batch above it
+# (prerequisites, then the signing terminal the record kind selects).
+# Inspect first by running the command under cat.
+# @see ELEBAKE_INTERPRETER_stage_sign_key

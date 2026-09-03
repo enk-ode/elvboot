@@ -1,9 +1,0 @@
-sh
-# ARITY-SPECIFIC pin for the _stage_site_mk2 TERMINAL only (write the
-# measured site.mk). The former arity-agnostic 'sudo sh' pin also hit the
-# ___stage_site_mk1 BATCH combinator -- and sudo's env_reset empties
-# $ELEBAKE_CONTEXT_SCRIPT, so the re-invocation lines died with
-# "sh: : Permission denied" (heterogeneous family; see the arity rule).
-# The MEASUREMENT happens in the sitemk GENERATOR and needs efivar read
-# access: run the OUTER call under sudo with the base pinned --
-#   sudo env ELEBAKE_BASE=$HOME/.elebake/db ./elebake.sh stage site mk <stage>

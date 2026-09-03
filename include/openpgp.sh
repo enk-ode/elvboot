@@ -126,21 +126,20 @@ _openpgp_import2() {
   printf '%s\n' "rm -f '$base/openpgp/$name/$(basename "$src")' && cp -Pp '$src' '$base/openpgp/$name/' || { printf '# Error: openpgp import failed\\n' >&2; exit 1; }"
 }
 
-#@help _openpgp_collect0
+#@help ___openpgp_collect0
 # @command openpgp collect [<key>]
 # @summary List the files of the openpgp key records that belong into an archive -- public material only; private key material stays a path promise into the world
 # @group   keys
 # @see     collect
 #@end
-_openpgp_collect0() {
-  local base="$ELEBAKE_BASE" r n
+___openpgp_collect0() {
+  local base="$ELEBAKE_BASE" r n=0
   for r in "$base"/openpgp/*/; do
     [ -d "$r" ] || continue
-    n=$(basename "$r")
-    printf '# openpgp %s\n' "$n"
-    collect_tree "$r"
+    n=$((n+1))
+    printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" openpgp collect '$(basename "$r")'"
   done
-  return 0
+  [ "$n" -gt 0 ] || printf '%s\n' "# (no openpgp keys to collect)"
 }
 
 #@help _openpgp_collect1
@@ -151,5 +150,7 @@ _openpgp_collect1() {
   [ -d "$base/openpgp/$1" ] || {
     generate_error "openpgp collect: no such key '$1'"; return 0; }
   printf '# openpgp %s\n' "$1"
-  collect_tree "$base/openpgp/$1"
+  find "$base/openpgp/$1" \( -type f -o -type l \) 2>/dev/null | sort | while IFS= read -r f; do
+    printf '"$ELEBAKE_ARCHIVE_BASE"/%s\n' "${f#"$base/"}"
+  done
 }

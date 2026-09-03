@@ -22,37 +22,6 @@
 # The manifest never lists itself or its signature — the same exclusion
 # `stage manifest` makes for boot/manifest and boot/manifest.asc.
 
-#-----------------------------------------------------------------------------
-# manifest_entries <collection> — the manifest body, computed at generation time
-#-----------------------------------------------------------------------------
-# Reads a collection (comment lines and "$ELEBAKE_ARCHIVE_BASE"/-prefixed
-# paths), prints one manifest line per entry against $ELEBAKE_BASE. Returns 1
-# and names the offender on stderr when an entry cannot be read, so the caller
-# can turn that into a generation error instead of a short manifest.
-manifest_entries() {
-  local coll="$1" base="$ELEBAKE_BASE" line rel abs hash
-  while IFS= read -r line; do
-    case "$line" in \#*|"") continue ;; esac
-    rel=${line#\"\$ELEBAKE_ARCHIVE_BASE\"/}
-    # A manifest line is read back as `path key=value`, so a path with a space
-    # would verify as a different, shorter path. Refuse to write a line that
-    # cannot be read back -- the boot manifest has the same grammar.
-    case "$rel" in
-      *" "*|*"	"*) printf '%s (whitespace in path)\n' "$rel" >&2; return 1 ;;
-    esac
-    abs="$base/$rel"
-    if [ -L "$abs" ]; then
-      printf '%s symlink=%s\n' "$rel" "$(readlink "$abs")"
-    elif [ -f "$abs" ]; then
-      hash=$(sha256 -q "$abs" 2>>"$LOG_FILE") || { printf '%s\n' "$rel" >&2; return 1; }
-      printf '%s sha256=%s\n' "$rel" "$hash"
-    else
-      printf '%s\n' "$rel" >&2
-      return 1
-    fi
-  done < "$coll"
-  return 0
-}
 
 #-----------------------------------------------------------------------------
 # _manifest2 <collection> <manifest> — write the manifest for a collection
@@ -75,26 +44,43 @@ manifest_entries() {
 # @see     manifest verify
 #@end
 _manifest2() {
-  local coll="$1" out="$2" body missing n errf
+  local coll="$1" out="$2" base="$ELEBAKE_BASE" line rel abs hash body="" n
   [ -f "$coll" ] || { generate_error "manifest: no such collection '$coll'"; return 0; }
   case "$out" in
     */MANIFEST) ;;
     *) generate_error "manifest: the manifest must be named MANIFEST: '$out'" \
          "(import looks for it by name, next to the collection)"; return 0 ;;
   esac
-  errf=$(mktemp "$ELEBAKE_BASE/.tmp/manifest.XXXXXX") || {
-    generate_error "manifest: cannot create a scratch file under $ELEBAKE_BASE/.tmp"; return 0; }
-  body=$(manifest_entries "$coll" 2>"$errf") || {
-    missing=$(head -n1 "$errf"); rm -f "$errf"
-    generate_error "manifest: collection entry is neither file nor symlink: $missing" \
-      "(collect and bundle must see the same database)"; return 0; }
-  rm -f "$errf"
+  # one manifest line per collection entry, against $ELEBAKE_BASE; a path
+  # with whitespace could not be read back as `path key=value` (the boot
+  # manifest has the same grammar), an unreadable entry ends the command
+  # instead of shortening the manifest
+  while IFS= read -r line; do
+    case "$line" in \#*|"") continue ;; esac
+    rel=${line#\"\$ELEBAKE_ARCHIVE_BASE\"/}
+    case "$rel" in
+      *" "*|*"	"*) generate_error "manifest: whitespace in path: $rel"; return 0 ;;
+    esac
+    abs="$base/$rel"
+    if [ -L "$abs" ]; then
+      body="$body$rel symlink=$(readlink "$abs")
+"
+    elif [ -f "$abs" ]; then
+      hash=$(sha256 -q "$abs" 2>>"$LOG_FILE") || {
+        generate_error "manifest: cannot hash $rel"; return 0; }
+      body="$body$rel sha256=$hash
+"
+    else
+      generate_error "manifest: collection entry is neither file nor symlink: $rel" \
+        "(collect and bundle must see the same database)"; return 0
+    fi
+  done < "$coll"
   [ -n "$body" ] || {
     generate_error "manifest: collection '$coll' lists nothing to hash"; return 0; }
   n=$(printf '%s\n' "$body" | wc -l | tr -d ' ')
   emit_note "elebake manifest '$out' ($n entries, hashed at generation time)"
   printf '%s\n' "cat > '$out.new' <<'ELVEOF'"
-  printf '%s\n' "$body"
+  printf '%s' "$body"
   printf '%s\n' "ELVEOF"
   printf '%s\n' "mv '$out.new' '$out' && $MODIFY_FILE_PERMS 0644 '$out'"
   printf '%s\n' "printf '# MANIFEST written: $n entries\\n' >&2"
@@ -135,28 +121,34 @@ ___manifest_attest2() {
 # an extraction directory, and the receiver's own scratch files there are not
 # evidence of tampering. What the manifest lists must be there and must hash;
 # that is the claim being made.
-#@help _manifest_verify3
+#@help ___manifest_verify3
 # @command manifest verify <manifest> <base> <key>
-# @summary Verify a manifest at generation time: signed by the PINNED key, signature good, tree matches -- any finding fails the command
+# @summary Verify a manifest, both judgments at generation time: the signature (attest verify: signed by the PINNED key, key neither expired nor revoked) and the tree (manifest match: every listed entry present and identical) -- a finding fails the batch before restore replays anything
 # @group   database
 # @param   manifest  the MANIFEST to check
 # @param   base      the directory its paths are relative to (an extraction directory)
-# @param   key       the openpgp record naming the signer you expect (keyid = fingerprint or long id, 16+ hex digits)
-# @returns the findings, or the ok line
+# @param   key       the openpgp record naming the signer you expect
 # @example elebake manifest verify ~/.elebake/incoming/a1b2c3d/export/MANIFEST ~/.elebake/incoming/a1b2c3d manifest-attest
-# @see     import
 # @see     attest verify
+# @see     manifest match
 #@end
-_manifest_verify3() {
-  local man="$1" base="$2" key="$3" rel val have findings="" n=0 keyid gh attest_why fpr
-  [ -f "$man" ] || { generate_error "manifest verify: no such manifest '$man'"; return 0; }
-  [ -d "$base" ] || { generate_error "manifest verify: no such directory '$base'"; return 0; }
-  attest_key_read "$key" || { generate_error "manifest verify: $attest_why"; return 0; }
-  fpr=$(attest_signer "$man" "$keyid" "$gh") || {
-    generate_error "manifest verify: $fpr" \
-      "(manifest $man, expected signer: openpgp record '$key')"
-    return 0
-  }
+___manifest_verify3() {
+  printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" attest verify '$1' '$3'"
+  printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" manifest match '$1' '$2'"
+}
+
+#@help _manifest_match2
+# @command manifest match <manifest> <base>
+# @summary Does the tree under <base> match the manifest? Checked at generation time: every listed file hashes identically, every listed symlink points where recorded; findings (MISSING/CHANGED/RETARGETED) fail the command. Files present but unlisted are not findings -- the base is an extraction directory
+# @group   database
+# @param   manifest  the MANIFEST to check
+# @param   base      the directory its paths are relative to
+# @see     manifest verify
+#@end
+_manifest_match2() {
+  local man="$1" base="$2" rel val have findings="" n=0
+  [ -f "$man" ] || { generate_error "manifest match: no such manifest '$man'"; return 0; }
+  [ -d "$base" ] || { generate_error "manifest match: no such directory '$base'"; return 0; }
   while read -r rel val; do
     case "$val" in sha256=*|symlink=*) ;; *) continue ;; esac
     n=$((n + 1))
@@ -183,12 +175,12 @@ _manifest_verify3() {
         ;;
     esac
   done < "$man"
-  [ "$n" -gt 0 ] || { generate_error "manifest verify: '$man' lists no entries"; return 0; }
+  [ "$n" -gt 0 ] || { generate_error "manifest match: '$man' lists no entries"; return 0; }
   if [ -n "$findings" ]; then
     printf '%s' "$findings"
-    generate_error "manifest verify: $man does not describe $base" \
-      "(signature is good and pinned, so the manifest is the sender's -- the TREE differs)"
+    generate_error "manifest match: $man does not describe $base" \
+      "(the TREE differs from what the sender listed)"
     return 0
   fi
-  emit_note "manifest verify: $n entries, signed by $fpr, tree matches"
+  emit_note "manifest match: $n entries, tree matches"
 }

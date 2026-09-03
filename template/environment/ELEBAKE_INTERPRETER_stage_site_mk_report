@@ -1,4 +1,0 @@
-cat
-# Display family 'stage site mk report' (1-arg user form + 2-arg batch
-# building block) -- cat so the report survives an executing terminal
-# default. Agnostic pin: the family is homogeneous.

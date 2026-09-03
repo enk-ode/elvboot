@@ -1,0 +1,4 @@
+sh
+# @summary Interpreter for `environment cache on` -- writes the cache at generation time, reports
+# Bookkeeping; sh so the report reaches stderr.
+# @see ELEBAKE_INTERPRETER_environment_cache_off

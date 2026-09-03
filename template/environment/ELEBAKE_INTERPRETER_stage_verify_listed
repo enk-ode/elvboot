@@ -1,0 +1,4 @@
+sh
+# @summary Interpreter for `stage verify listed` -- one direction of the manifest check
+# Inspection at generation time; sh so a finding's `exit 1` stops the batch.
+# @see ELEBAKE_INTERPRETER_stage_manifest

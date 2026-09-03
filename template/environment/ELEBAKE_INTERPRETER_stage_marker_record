@@ -1,0 +1,6 @@
+sh
+# @summary Interpreter for `stage marker record` -- bookkeeping only
+# Writes the marker RECORD (bootvar, value-file path); no NVRAM is touched
+# here, so it acts. The NVRAM write is `stage marker write`, deliberately
+# unpinned: inspect-by-default, pipe to sudo sh when ready.
+# @see ELEBAKE_INTERPRETER_stage_site_mk2

@@ -1,0 +1,5 @@
+cat
+# Arity-specific ON PURPOSE: the 0-arg sibling is a batch (one re-invocation
+# per record) and must keep the batch default.
+# Display family 'pem collect' -- a collection is data (one path per
+# line, comments naming the origin), never commands to run.

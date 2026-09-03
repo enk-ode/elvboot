@@ -1,0 +1,6 @@
+sh
+# Arity-specific ON PURPOSE: the 1-arg sibling is a combinator (default
+# resolved at generation time) and must keep the combinator default.
+# Executes directly: unprivileged, stage-local, reviewable via the emission
+# (run the command under cat to inspect). Part of the minimal profile so the
+# pipeline runs without per-machine pinning.

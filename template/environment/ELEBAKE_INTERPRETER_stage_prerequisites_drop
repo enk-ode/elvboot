@@ -1,0 +1,3 @@
+sh
+# @summary Interpreter for `stage prerequisites drop` -- bookkeeping
+# @see ELEBAKE_INTERPRETER_stage_prerequisites_add

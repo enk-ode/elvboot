@@ -170,6 +170,7 @@ _provenance_import2() {
 #@help ___provenance_dump0
 # @command provenance dump
 # @summary Emit the provenance portion of a database dump: one 'provenance import' line per receipt file (cat-pinned: dump TEXT, replayed by restore)
+# @env     ELEBAKE_ARCHIVE_BASE  the prefix the emitted paths are written against
 # @group   database
 # @see     dump
 #@end
@@ -180,7 +181,7 @@ ___provenance_dump0() {
     n=$((n+1))
     for f in "$r"*; do
       [ -f "$f" ] || continue
-      printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" provenance import '$(basename "$r")' $(archive_rel "$f")"
+      printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" provenance import '$(basename "$r")' \"\$ELEBAKE_ARCHIVE_BASE/${f#"$base/"}\""
     done
   done
   [ "$n" -gt 0 ] || printf '%s\n' "# (no receipts to dump)"
@@ -192,13 +193,17 @@ ___provenance_dump0() {
 #@help _provenance_collect0
 # @command provenance collect
 # @summary List the receipt record files that belong into an archive
+# @env     ELEBAKE_ARCHIVE_BASE  the prefix the emitted paths are written against
 # @group   database
 # @see     collect
 #@end
 _provenance_collect0() {
+  local base="$ELEBAKE_BASE" f
   printf '# provenance\n'
-  collect_tree "$ELEBAKE_BASE/provenance"
-  return 0
+  [ -d "$base/provenance" ] || return 0
+  find "$base/provenance" \( -type f -o -type l \) 2>/dev/null | sort | while IFS= read -r f; do
+    printf '"$ELEBAKE_ARCHIVE_BASE"/%s\n' "${f#"$base/"}"
+  done
 }
 
 #-----------------------------------------------------------------------------

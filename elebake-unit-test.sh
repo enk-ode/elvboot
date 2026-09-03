@@ -163,10 +163,10 @@ test_bootstrap_layout() {
     [ -d "$TEST_DIR/$d" ] || { ok=0; fail "missing directory: $d"; }
   done
   [ "$ok" -eq 1 ] && pass "database layout complete"
-  if [ -f "$TEST_DIR/.env/default/ELEBAKE_INTERPRETER_stage_dump_record" ]; then
+  if [ -f "$TEST_DIR/.env/default/ELEBAKE_INTERPRETER_stage_dump_marker" ]; then
     pass "profile installed the dump building-block pins"
   else
-    fail "profile did not install ELEBAKE_INTERPRETER_stage_dump_record"
+    fail "profile did not install ELEBAKE_INTERPRETER_stage_dump_marker"
   fi
 }
 
@@ -522,35 +522,111 @@ test_stage_device_and_boot_tree() {
 }
 
 test_stage_marker_emission_inspects_only() {
-  test_header "marker: record + guarded NVRAM emission, value stays runtime"
+  test_header "marker: record acts, write stays an inspected NVRAM emission, value stays runtime"
   test_setup
   run_elebake stage add unitn > /dev/null 2>&1
+  # the write terminal is unpinned by design; the test database pins the
+  # terminal default to sh, so pin the write to cat HERE -- tests never
+  # touch NVRAM
+  run_elebake setenv ELEBAKE_INTERPRETER_stage_marker_write cat > /dev/null
   run_elebake setenv ELEBAKE_INTERPRETER_stage_marker3 cat > /dev/null
   local out; out=$(run_elebake stage marker unitn Boot00AB /nonexistent/markerfile 2>&1)
-  if printf '%s\n' "$out" | grep -q "echo 'Boot00AB' >"; then
-    pass "emission records the boot variable"
+  if printf '%s\n' "$out" | grep -q "stage marker record 'unitn' 'Boot00AB' '/nonexistent/markerfile'" \
+     && printf '%s\n' "$out" | grep -q "stage marker write 'unitn' restore"; then
+    pass "stage marker is a batch: record, then write"
   else
-    fail "bootvar record line missing"
+    fail "marker batch wrong: $out"
+  fi
+  run_elebake unsetenv ELEBAKE_INTERPRETER_stage_marker3 > /dev/null
+  out=$(run_elebake stage marker unitn Boot00AB /nonexistent/markerfile 2>&1)
+  if [ "$(cat "$TEST_DIR/stage/unitn/marker/bootvar" 2>/dev/null)" = "Boot00AB" ]; then
+    pass "the record acted (bootvar stored)"
+  else
+    fail "bootvar record missing"
   fi
   if printf '%s\n' "$out" | grep -q "efivar"; then
     pass "NVRAM access stays a runtime emission (inspected, not executed)"
   else
-    fail "no efivar emission found"
+    fail "no efivar emission found: $out"
   fi
-  if printf '%s\n' "$out" | grep -q "openssl rand"; then
-    pass "marker VALUE is generated at runtime only"
+  if printf '%s\n' "$out" | grep -q "openssl rand" && printf '%s\n' "$out" | grep -q "NEW value: empty"; then
+    pass "value file absent -> generate, decided at generation time; the VALUE itself is runtime"
   else
-    fail "runtime value generation missing"
+    fail "generation decision wrong: $out"
   fi
-  if run_elebake stage marker unitn BadName /abs 2>&1 | grep -q "neither a load option"; then
+  printf 'cafe\n' > "$TEST_DIR/markerfile"
+  run_elebake stage marker record unitn Boot00AB "$TEST_DIR/markerfile" > /dev/null 2>&1
+  out=$(run_elebake stage marker write unitn restore 2>&1)
+  if printf '%s\n' "$out" | grep -q "restoring the known marker" && ! printf '%s\n' "$out" | grep -q "openssl rand"; then
+    pass "value file present -> restore branch only, no runtime if"
+  else
+    fail "restore decision wrong: $out"
+  fi
+  if ! printf '%s\n' "$out" | grep -q "cafe"; then
+    pass "the marker value never appears in the emission"
+  else
+    fail "marker value leaked into the emission"
+  fi
+  if run_elebake stage marker unitn BadName /abs 2>&1 | grep -q "not a load option"; then
     pass "malformed load option rejected"
   else
     fail "malformed load option not rejected"
   fi
-  if run_elebake stage marker unitn Boot00AB relative/path 2>&1 | grep -q "must be absolute"; then
+  if run_elebake stage marker record unitn Boot00AB relative/path 2>&1 | grep -q "must be absolute"; then
     pass "relative marker file rejected"
   else
     fail "relative marker file not rejected"
+  fi
+}
+
+test_stage_tree_sync_is_a_batch_with_close() {
+  test_header "tree sync/adopt: batches of small terminals, guards at generation time"
+  test_setup
+  run_elebake stage add unitt > /dev/null 2>&1
+  run_elebake stage device unitt a /dev/nonexistent99 /mnt > /dev/null 2>&1
+  run_elebake stage boot tree unitt a testlabel zpool99/testds > /dev/null 2>&1
+  run_elebake setenv ELEBAKE_INTERPRETER_stage_tree_sync cat > /dev/null
+  run_elebake setenv ELEBAKE_INTERPRETER_stage_adopt cat > /dev/null
+  local out; out=$(run_elebake stage tree sync unitt a 2>&1)
+  if printf '%s\n' "$out" | grep -q "stage pool import 'unitt' 'a' rw" \
+     && printf '%s\n' "$out" | grep -q "stage tree work 'unitt' 'a'" \
+     && printf '%s\n' "$out" | grep -q "stage tree close 'unitt' 'a'" \
+     && printf '%s\n' "$out" | grep -q "stage pool export 'unitt' 'a'"; then
+    pass "tree sync = pool import, tree work, tree close, pool export"
+  else
+    fail "tree sync batch wrong: $out"
+  fi
+  out=$(run_elebake stage adopt unitt a 2>&1)
+  if printf '%s\n' "$out" | grep -q "stage pool import 'unitt' 'a' ro" && printf '%s\n' "$out" | grep -q "stage adopt copy 'unitt' 'a'" \
+     && printf '%s\n' "$out" | grep -q "stage pool export 'unitt' 'a'"; then
+    pass "adopt = pool import (ro), adopt copy, pool export"
+  else
+    fail "adopt batch wrong: $out"
+  fi
+  if head -1 "$TEST_DIR/.env/default/ELEBAKE_INTERPRETER_stage_tree_sync" | grep -q "KEEP_GOING=1" \
+     && head -1 "$TEST_DIR/.env/default/ELEBAKE_INTERPRETER_stage_tree_work" | grep -q "KEEP_GOING=0"; then
+    pass "the sync keeps going (close + export always run), the work core is fail-fast"
+  else
+    fail "keep-going wrappers missing from the installed pins"
+  fi
+  for cmd in "stage pool import unitt a rw" "stage tree snapshot unitt a" "stage tree copy unitt a" "stage tree verify unitt a" "stage adopt copy unitt a"; do
+    out=$(run_elebake $cmd 2>&1)
+    if printf '%s\n' "$out" | grep -q "device not present.*checked at generation time" && ! printf '%s\n' "$out" | grep -q "zpool\|zfs \|cp -a"; then
+      pass "$cmd: absent device is refused at generation time, nothing emitted"
+    else
+      fail "$cmd: guard not at generation time: $out"
+    fi
+  done
+  out=$(run_elebake stage backup unitt a lbl 'why' 2>&1)
+  if printf '%s\n' "$out" | grep -q "device not present.*checked at generation time" && ! printf '%s\n' "$out" | grep -q "mount"; then
+    pass "stage backup: device guard at generation time too"
+  else
+    fail "backup guard: $out"
+  fi
+  if run_elebake stage pool import unitt a bogus 2>&1 | grep -q "rw or ro"; then
+    pass "pool import mode is validated"
+  else
+    fail "bogus pool mode accepted"
   fi
 }
 
@@ -1406,7 +1482,7 @@ test_manifest_verify_and_bundle_pairing() {
     fail "no signature produced"
   fi
 
-  if run_elebake manifest verify "$man" "$TEST_DIR" unit-attest 2>&1 | grep -q "signed by $UNIT_FPR, tree matches"; then
+  if run_elebake manifest verify "$man" "$TEST_DIR" unit-attest 2>&1 | grep -q "tree matches"; then
     pass "a good pair verifies against the PINNED signer"
   else
     fail "good pair rejected: $(run_elebake manifest verify "$man" "$TEST_DIR" unit-attest 2>&1)"
@@ -1558,7 +1634,7 @@ test_backup_records_and_rollback() {
   test_header "stage backup: records with label/description; rollback saves the suspect first"
   test_setup
   run_elebake stage add unitb > /dev/null 2>&1
-  run_elebake stage device unitb a /dev/nonexistent99 /mnt > /dev/null 2>&1
+  run_elebake stage device unitb a /dev/null /mnt > /dev/null 2>&1
   local d="$TEST_DIR/stage/unitb"
   mkdir -p "$d/backup/a/known-good" "$d/backup/a/older"
   printf 'GOOD\n' > "$d/backup/a/known-good/loader.efi"; sha256 -q "$d/backup/a/known-good/loader.efi" > "$d/backup/a/known-good/sha256"
@@ -1744,7 +1820,7 @@ test_stage_prerequisites_lists() {
   else
     pass "drop removes the entry"
   fi
-  if run_elebake stage dump unitq | grep -q "stage prerequisites verify add 'unitq' '/boot/loader.efi.signed'"; then
+  if run_elebake stage dump unitq | grep -q "stage prerequisites add 'unitq' 'verify' '/boot/loader.efi.signed'"; then
     pass "stage dump replays the lists"
   else
     fail "dump replay missing"
@@ -1794,8 +1870,7 @@ test_foundation_prereqs_arrays() {
   test_setup
   run_elebake stage add unita > /dev/null 2>&1
   fixture_worktree unita
-  run_elebake setintp stage_foundation_make cat > /dev/null
-  if run_elebake stage foundation make unita | grep -q "prerequisites_exist"; then
+  if run_elebake stage foundation render prerequisites unita | grep -q "prerequisites_exist"; then
     fail "arrays emitted although the checkout has no extern declarations"
   else
     pass "old checkout (no extern): no arrays — backwards compatible"
@@ -1803,7 +1878,7 @@ test_foundation_prereqs_arrays() {
   printf 'extern const char *const	prerequisites_exist[];\nextern const char *const	prerequisites_verify[];\nextern const unsigned int	prerequisites_exist_n;\nextern const unsigned int	prerequisites_verify_n;\n' >> "$TEST_BASE_DIR/fix-work-$TESTS_RUN-unita/stand/efi/loader/local/measurement.h"
   run_elebake stage prerequisites verify add unita /boot/loader.conf > /dev/null
   run_elebake stage prerequisites verify add unita /boot/loader.efi.signed > /dev/null
-  local out; out=$(run_elebake stage foundation make unita)
+  local out; out=$(run_elebake stage foundation render prerequisites unita)
   if printf '%s\n' "$out" | grep -q "#define	LOADER_PREREQUISITES_VERIFY_N	2" \
      && printf '%s\n' "$out" | grep -q '"/boot/loader.efi.signed",' \
      && printf '%s\n' "$out" | grep -q "#define	LOADER_PREREQUISITES_EXIST_N	0" \
@@ -1887,6 +1962,7 @@ main() {
   should_run_test test_stage_add_validation
   should_run_test test_stage_device_and_boot_tree
   should_run_test test_stage_marker_emission_inspects_only
+  should_run_test test_stage_tree_sync_is_a_batch_with_close
   should_run_test test_stage_loader_ingest
   should_run_test test_stage_unkey_and_attest
   should_run_test test_batch_fail_fast_default

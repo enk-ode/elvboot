@@ -221,19 +221,19 @@ _macro_drop1() {
   emit_note "macro '$name' dropped"
 }
 
-#@help _macro_show0
+#@help ___macro_show0
 # @command macro show [<MACRO>]
 # @summary Show all macro records (or one) as the #ifdef block that WOULD be emitted
 # @group   foundation
 #@end
-_macro_show0() {
-  local base="$ELEBAKE_BASE" f n=0
-  for f in "$base"/foundation/macros/*; do
-    [ -f "$f" ] || continue; n=$((n+1))
-    printf '# %s:\n' "$(basename "$f")"
-    fnd_render_macro "$base" "$(basename "$f")" | sed 's/^/#   /'
+___macro_show0() {
+  local base="$ELEBAKE_BASE" r n=0
+  for r in "$base"/foundation/macros/*; do
+    [ -f "$r" ] || continue
+    n=$((n+1))
+    printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" macro show '$(basename "$r")'"
   done
-  [ "$n" -gt 0 ] || printf '# (no macros -- macro add <MACRO> <type> <label>)\n'
+  [ "$n" -gt 0 ] || printf '%s\n' "# (no macros -- macro add <MACRO> <type> <label>)"
 }
 
 #@help _macro_show1
@@ -288,18 +288,19 @@ _expectation_drop1() {
   emit_note "expectation '$name' dropped"
 }
 
-#@help _expectation_show0
+#@help ___expectation_show0
 # @command expectation show [<exp>]
 # @summary Show all expectations (or one) as the C that WOULD be emitted
 # @group   foundation
 #@end
-_expectation_show0() {
-  local base="$ELEBAKE_BASE" f n=0
-  for f in "$base"/foundation/expectations/*; do
-    [ -f "$f" ] || continue; n=$((n+1))
-    printf '# %s: %s\n' "$(basename "$f")" "$(fnd_render_expectation "$base" "$(basename "$f")")"
+___expectation_show0() {
+  local base="$ELEBAKE_BASE" r n=0
+  for r in "$base"/foundation/expectations/*; do
+    [ -f "$r" ] || continue
+    n=$((n+1))
+    printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" expectation show '$(basename "$r")'"
   done
-  [ "$n" -gt 0 ] || printf '# (no expectations -- expectation add <exp> <type> <label> <value>)\n'
+  [ "$n" -gt 0 ] || printf '%s\n' "# (no expectations -- expectation add <exp> <type> <label> <value>)"
 }
 
 #@help _expectation_show1
@@ -353,18 +354,19 @@ _claim_drop1() {
   emit_note "claim '$name' dropped"
 }
 
-#@help _claim_show0
+#@help ___claim_show0
 # @command claim show [<claim>]
 # @summary Show all claims (or one) as the C that WOULD be emitted
 # @group   foundation
 #@end
-_claim_show0() {
-  local base="$ELEBAKE_BASE" f n=0
-  for f in "$base"/foundation/claims/*; do
-    [ -f "$f" ] || continue; n=$((n+1))
-    printf '# %s: %s\n' "$(basename "$f")" "$(fnd_render_claim "$base" "$(basename "$f")")"
+___claim_show0() {
+  local base="$ELEBAKE_BASE" r n=0
+  for r in "$base"/foundation/claims/*; do
+    [ -f "$r" ] || continue
+    n=$((n+1))
+    printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" claim show '$(basename "$r")'"
   done
-  [ "$n" -gt 0 ] || printf '# (no claims -- claim add <claim> <measurement> <diagnose|-> <publish|-> <exp>)\n'
+  [ "$n" -gt 0 ] || printf '%s\n' "# (no claims -- claim add <claim> <measurement> <diagnose|-> <publish|-> <exp>)"
 }
 
 #@help _claim_show1
@@ -417,18 +419,19 @@ _trigger_drop1() {
   emit_note "trigger '$name' dropped"
 }
 
-#@help _trigger_show0
+#@help ___trigger_show0
 # @command trigger show [<trigger>]
 # @summary Show all triggers (or one) as the C that WOULD be emitted
 # @group   foundation
 #@end
-_trigger_show0() {
-  local base="$ELEBAKE_BASE" f n=0
-  for f in "$base"/foundation/triggers/*; do
-    [ -f "$f" ] || continue; n=$((n+1))
-    printf '# %s: %s\n' "$(basename "$f")" "$(fnd_render_trigger "$base" "$(basename "$f")")"
+___trigger_show0() {
+  local base="$ELEBAKE_BASE" r n=0
+  for r in "$base"/foundation/triggers/*; do
+    [ -f "$r" ] || continue
+    n=$((n+1))
+    printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" trigger show '$(basename "$r")'"
   done
-  [ "$n" -gt 0 ] || printf '# (no triggers -- trigger add <trigger> <when> <action>)\n'
+  [ "$n" -gt 0 ] || printf '%s\n' "# (no triggers -- trigger add <trigger> <when> <action>)"
 }
 
 #@help _trigger_show1
@@ -544,18 +547,19 @@ _gate_claim_drop2() {
   emit_note "gate '$gate': claim '$claim' unlinked"
 }
 
-#@help _gate_show0
+#@help ___gate_show0
 # @command gate show [<gate>]
 # @summary Show all gates (or one) as the C that WOULD be emitted
 # @group   foundation
 #@end
-_gate_show0() {
-  local base="$ELEBAKE_BASE" g n=0
-  for g in "$base"/foundation/gates/*/; do
-    [ -d "$g" ] || continue; n=$((n+1))
-    printf '# %s\n' "$(fnd_render_gate "$base" "$(basename "$g")")"
+___gate_show0() {
+  local base="$ELEBAKE_BASE" r n=0
+  for r in "$base"/foundation/gates/*; do
+    [ -d "$r" ] || continue
+    n=$((n+1))
+    printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" gate show '$(basename "$r")'"
   done
-  [ "$n" -gt 0 ] || printf '# (no gates -- gate add <gate> [<secret-slot>])\n'
+  [ "$n" -gt 0 ] || printf '%s\n' "# (no gates -- gate add <gate> [<secret-slot>])"
 }
 
 #@help _gate_show1
@@ -656,18 +660,19 @@ _policy_drop1() {
   emit_note "policy '$name' dropped"
 }
 
-#@help _policy_show0
+#@help ___policy_show0
 # @command policy show [<policy>]
 # @summary Show all policies (or one) as the C that WOULD be emitted
 # @group   foundation
 #@end
-_policy_show0() {
-  local base="$ELEBAKE_BASE" f n=0
-  for f in "$base"/foundation/policies/*; do
-    [ -f "$f" ] || continue; n=$((n+1))
-    printf '# %s: %s\n' "$(basename "$f")" "$(fnd_render_policy "$base" "$(basename "$f")")"
+___policy_show0() {
+  local base="$ELEBAKE_BASE" r n=0
+  for r in "$base"/foundation/policies/*; do
+    [ -f "$r" ] || continue
+    n=$((n+1))
+    printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" policy show '$(basename "$r")'"
   done
-  [ "$n" -gt 0 ] || printf '# (no policies -- policy add <policy> <gate>)\n'
+  [ "$n" -gt 0 ] || printf '%s\n' "# (no policies -- policy add <policy> <gate>)"
 }
 
 #@help _policy_show1
@@ -738,32 +743,77 @@ fnd_render_policy_c() {
 # dump — the arsenal as CLI replays, dependency order (cat-pinned)
 #-----------------------------------------------------------------------------
 #@help ___foundation_dump0
-# @internal building block of the database dump: the five families as CLI
-# replays in dependency order (expectations, claims, triggers, gates,
-# policies). Order INSIDE a gate/policy is file order, replayed as plain
-# appends. Adds are idempotent-immutable, so replays are safe.
+# @command foundation dump
+# @summary Emit the foundation portion of a database dump: one block per family in dependency order (macros, expectations, claims, triggers, gates, policies); adds are idempotent-immutable, so replays are safe
+# @group   foundation
+# @see     dump
 #@end
 ___foundation_dump0() {
-  local base="$ELEBAKE_BASE" f g line type label value
   printf '%s\n' "# foundation arsenal - CLI replay per family (dependency order)"
+  printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" macro dump"
+  printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" expectation dump"
+  printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" claim dump"
+  printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" trigger dump"
+  printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" gate dump"
+  printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" policy dump"
+}
+
+#@help ___macro_dump0
+# @internal dump block (cat-pinned): one 'macro add' replay per record
+#@end
+___macro_dump0() {
+  local base="$ELEBAKE_BASE" f type label value
   for f in "$base"/foundation/macros/*; do
     [ -f "$f" ] || continue
     read -r type label value < "$f"   # value = "<defined> <else...>"
     printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" macro add '$(basename "$f")' '$type' '$label' '${value#* }' '${value%% *}'"
   done
+  return 0
+}
+
+#@help ___expectation_dump0
+# @internal dump block (cat-pinned): one 'expectation add' replay per record
+#@end
+___expectation_dump0() {
+  local base="$ELEBAKE_BASE" f type label value
   for f in "$base"/foundation/expectations/*; do
     [ -f "$f" ] || continue
     read -r type label value < "$f"
     printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" expectation add '$(basename "$f")' '$type' '$label' '$value'"
   done
+  return 0
+}
+
+#@help ___claim_dump0
+# @internal dump block (cat-pinned): one 'claim add' replay per record
+#@end
+___claim_dump0() {
+  local base="$ELEBAKE_BASE" f
   for f in "$base"/foundation/claims/*; do
     [ -f "$f" ] || continue
     printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" claim add '$(basename "$f")' $(sed "s/[^ ]*/'&'/g" "$f")"
   done
+  return 0
+}
+
+#@help ___trigger_dump0
+# @internal dump block (cat-pinned): one 'trigger add' replay per record
+#@end
+___trigger_dump0() {
+  local base="$ELEBAKE_BASE" f
   for f in "$base"/foundation/triggers/*; do
     [ -f "$f" ] || continue
     printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" trigger add '$(basename "$f")' $(sed "s/[^ ]*/'&'/g" "$f")"
   done
+  return 0
+}
+
+#@help ___gate_dump0
+# @internal dump block (cat-pinned): per gate the 'gate add' replay (with its
+# secret slot) and one 'gate claim add' per bound claim
+#@end
+___gate_dump0() {
+  local base="$ELEBAKE_BASE" g line
   for g in "$base"/foundation/gates/*/; do
     [ -d "$g" ] || continue
     if [ -f "$g/secret" ]; then
@@ -776,6 +826,15 @@ ___foundation_dump0() {
       printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" gate claim add '$(basename "$g")' '$line'"
     done < "$g/claims"
   done
+  return 0
+}
+
+#@help ___policy_dump0
+# @internal dump block (cat-pinned): per policy the 'policy add' replay and
+# one 'policy trigger add' per bound trigger
+#@end
+___policy_dump0() {
+  local base="$ELEBAKE_BASE" f line
   for f in "$base"/foundation/policies/*; do
     [ -f "$f" ] || continue
     printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" policy add '$(basename "$f")' '$(sed -n 's/^gate //p' "$f" | head -1)'"
@@ -789,14 +848,18 @@ ___foundation_dump0() {
 #@help _foundation_collect0
 # @command foundation collect
 # @summary List the arsenal record files (macros, expectations, claims, triggers, gates, policies) that belong into an archive
+# @env     ELEBAKE_ARCHIVE_BASE  the prefix the emitted paths are written against
 # @group   foundation
 # @see     collect
 #@end
 _foundation_collect0() {
-  local base="$ELEBAKE_BASE" fam
+  local base="$ELEBAKE_BASE" fam f
   printf '# foundation\n'
   for fam in macros expectations claims triggers gates policies; do
-    collect_tree "$base/foundation/$fam"
+    [ -d "$base/foundation/$fam" ] || continue
+    find "$base/foundation/$fam" \( -type f -o -type l \) 2>/dev/null | sort | while IFS= read -r f; do
+      printf '"$ELEBAKE_ARCHIVE_BASE"/%s\n' "${f#"$base/"}"
+    done
   done
   return 0
 }

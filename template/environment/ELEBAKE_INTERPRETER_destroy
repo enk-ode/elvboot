@@ -1,4 +1,0 @@
-cat
-# Display-by-default for the one irreversible command: destroy prints the
-# rm -rf commands it would run, so they can be read before being handed
-# to sh. Pin it to sh only if you know what you are doing.

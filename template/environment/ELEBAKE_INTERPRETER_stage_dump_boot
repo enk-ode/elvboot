@@ -1,6 +1,0 @@
-cat
-# Building block of 'stage dump' (___stage_dump_boot1): emits the dump-TEXT
-# lines reproducing the boot part of one stage. Default cat: captured by
-# 'elebake dump > backup.sh', replayed against the target by 'restore'.
-# The unrolling arities above (stage dump / stage dump <stage>) keep the
-# executing batch default -- they run ON THE SOURCE at dump time.

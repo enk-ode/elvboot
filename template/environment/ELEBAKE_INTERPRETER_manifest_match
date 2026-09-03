@@ -1,0 +1,5 @@
+sh
+# @summary Interpreter for `manifest match` -- the tree against the manifest
+# Inspection at generation time; sh so a finding's `exit 1` stops `import`
+# before restore replays anything. Under cat the finding is toothless.
+# @see ELEBAKE_INTERPRETER_attest_verify

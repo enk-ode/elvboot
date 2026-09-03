@@ -1,3 +1,6 @@
-sudo sh
-# Needs root (read-only ZFS pool import of the medium's boot dataset). The
-# copy goes INTO the stage only; the pool is exported again immediately.
+env ELEBAKE_BATCH_KEEP_GOING=1 sh -c 'tmp=$(mktemp "$ELEBAKE_BASE/.tmp/batch.XXXXXX"); chmod 0600 "$tmp"; cat > "$tmp"; exec "$ELEBAKE_CONTEXT_SCRIPT" batch "$tmp" true'
+# @summary Interpreter for the batch `stage adopt` -- KEEP-GOING wrapper
+# import (read-only) / adopt copy / export: the export must run even when
+# the copy failed, so this batch keeps going and still reports the failure.
+# Set to cat for a dry-run.
+# @see ELEBAKE_INTERPRETER_stage_adopt_copy

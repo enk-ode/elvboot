@@ -1,5 +1,0 @@
-cat
-# @summary Interpreter for `help manual` -- Pandoc Markdown on stdout
-# Display terminal: the manual is TEXT. Pipe it where you want it
-# (pandoc -t man for docs/elebake.8, lowdown -sTterm for the terminal).
-# @see ELEBAKE_INTERPRETER_help

@@ -1,0 +1,4 @@
+cat
+# @summary Interpreter for `stage filter list` -- one view of the curation
+# Display terminal; cat so the text survives an executing terminal default.
+# @see ELEBAKE_INTERPRETER_stage_filter_add

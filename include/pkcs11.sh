@@ -144,21 +144,20 @@ _pkcs11_import2() {
   printf '%s\n' "rm -f '$base/pkcs11/$name/$(basename "$src")' && cp -Pp '$src' '$base/pkcs11/$name/' || { printf '# Error: pkcs11 import failed\\n' >&2; exit 1; }"
 }
 
-#@help _pkcs11_collect0
+#@help ___pkcs11_collect0
 # @command pkcs11 collect [<key>]
 # @summary List the files of the pkcs11 key records that belong into an archive -- public material only; private key material stays a path promise into the world
 # @group   keys
 # @see     collect
 #@end
-_pkcs11_collect0() {
-  local base="$ELEBAKE_BASE" r n
+___pkcs11_collect0() {
+  local base="$ELEBAKE_BASE" r n=0
   for r in "$base"/pkcs11/*/; do
     [ -d "$r" ] || continue
-    n=$(basename "$r")
-    printf '# pkcs11 %s\n' "$n"
-    collect_tree "$r"
+    n=$((n+1))
+    printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" pkcs11 collect '$(basename "$r")'"
   done
-  return 0
+  [ "$n" -gt 0 ] || printf '%s\n' "# (no pkcs11 keys to collect)"
 }
 
 #@help _pkcs11_collect1
@@ -169,5 +168,7 @@ _pkcs11_collect1() {
   [ -d "$base/pkcs11/$1" ] || {
     generate_error "pkcs11 collect: no such key '$1'"; return 0; }
   printf '# pkcs11 %s\n' "$1"
-  collect_tree "$base/pkcs11/$1"
+  find "$base/pkcs11/$1" \( -type f -o -type l \) 2>/dev/null | sort | while IFS= read -r f; do
+    printf '"$ELEBAKE_ARCHIVE_BASE"/%s\n' "${f#"$base/"}"
+  done
 }

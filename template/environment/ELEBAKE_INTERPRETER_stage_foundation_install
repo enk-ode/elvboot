@@ -1,0 +1,5 @@
+sh
+# @summary Interpreter for `stage foundation install` -- foundation.c.new -> foundation.c
+# The completeness check runs at generation time; the emission is one mv.
+# sh so the generated file lands (last line of the make batch).
+# @see ELEBAKE_INTERPRETER_stage_foundation_render
