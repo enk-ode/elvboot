@@ -33,7 +33,7 @@ points back here. Parts of the series are on their way upstream.
 
 ## [elebake](https://enk-ode.github.io/elvboot/)
 
-**[elebake](https://enk-ode.github.io/elvboot/) compiles a boot trust chain: a build → sign → attest →
+**[elebake](https://enk-ode.github.io/elvboot/)** compiles a boot trust chain: a build → sign → attest →
 deploy pipeline for FreeBSD verified boot, built around one goal —
 **tamper detection** for a machine's boot path. The owner decides what
 is measured, when, and what happens on a shortfall; [elebake](https://enk-ode.github.io/elvboot/) turns those
