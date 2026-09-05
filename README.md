@@ -1,9 +1,9 @@
-# elvboot — elevated boot
+# [elvboot](https://enk-ode.github.io/elvboot/) — elevated boot
 
 **elvboot** is the project: a FreeBSD verified-boot / tamper-detection
 effort for a machine's own boot path. The family, by name:
 
-- **elebake** — the tool this repository ships today: the compiler of
+- **[elebake](https://enk-ode.github.io/elvboot/)** — the tool this repository ships today: the compiler of
   the boot trust chain (everything below).
 - **elvbootd** — the planned runtime side: hardened hook scripts in
   the OS's native mechanisms (devd/periodic/resume) that watch the
@@ -14,10 +14,10 @@ effort for a machine's own boot path. The family, by name:
 
 ## The FreeBSD sources -- read this first
 
-elebake is nothing without the loader it compiles for. The
+[elebake](https://enk-ode.github.io/elvboot/) is nothing without the loader it compiles for. The
 measurement/claim/gate/policy engine that reads the compiled decisions
 at boot is a FreeBSD patch series, *platform trust gates*, and the
-catalogs elebake offers are parsed from the headers of that series.
+catalogs [elebake](https://enk-ode.github.io/elvboot/) offers are parsed from the headers of that series.
 Against a stock FreeBSD tree the catalogs are empty and nothing
 measures anything.
 
@@ -31,12 +31,12 @@ Branch `platform-trust-gates-15.1` is based on releng/15.1; the
 loader-side engine lives under `stand/efi/loader/local/` and its README
 points back here. Parts of the series are on their way upstream.
 
-## elebake
+## [elebake](https://enk-ode.github.io/elvboot/)
 
-**elebake** compiles a boot trust chain: a build → sign → attest →
+**[elebake](https://enk-ode.github.io/elvboot/) compiles a boot trust chain: a build → sign → attest →
 deploy pipeline for FreeBSD verified boot, built around one goal —
 **tamper detection** for a machine's boot path. The owner decides what
-is measured, when, and what happens on a shortfall; elebake turns those
+is measured, when, and what happens on a shortfall; [elebake](https://enk-ode.github.io/elvboot/) turns those
 decisions into generated artifacts (C policy tables, veriexec
 manifests, site baselines) and keeps every step inspectable.
 
