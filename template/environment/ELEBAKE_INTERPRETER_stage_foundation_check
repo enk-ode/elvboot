@@ -1,4 +1,0 @@
-sh
-# Check terminal 'stage foundation check' -- sharp re-verification of
-# every bound phase right before emission; sh so a failure EXECUTES its
-# error and the foundation batch stops before make. Silent on success.

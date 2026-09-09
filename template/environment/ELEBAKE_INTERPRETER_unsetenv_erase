@@ -1,0 +1,3 @@
+sh
+# Act terminal of 'unsetenv': removes .env/local/<VAR>; sh so it takes effect.
+# @see ELEBAKE_INTERPRETER_setenv_write

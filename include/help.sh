@@ -81,137 +81,38 @@
 
 # --- Generated-help engine ---------------------------------------------------
 # help_source_files: the files scanned for #@help doc-blocks at runtime.
+
 help_source_files() {
-  echo "$ELEBAKE_CONTEXT_SCRIPT"
-  local m
-  for m in "$ELEBAKE_LIBDIR"/include/*.sh; do
-    [ -f "$m" ] || continue
-    [ "$m" = "$ELEBAKE_CONTEXT_SCRIPT" ] && continue
-    echo "$m"
-  done
+        echo "$ELEBAKE_CONTEXT_SCRIPT"
+        local m
+        for m in "$ELEBAKE_LIBDIR"/include/*.sh; do
+                [ -f "$m" ] || continue
+                [ "$m" = "$ELEBAKE_CONTEXT_SCRIPT" ] && continue
+                echo "$m"
+        done
 }
 
-# help_render MODE [TARGET]
-#   MODE=overview  -> grouped command summaries (elebake help)
-#   MODE=query     -> detail (exact command), group, or prefix match
-#   MODE=manpage   -> markdown COMMANDS sections
-# Honours ELEBAKE_DISPLAY_ANSI. Pure read of the doc-blocks.
+# help_render MODE [TARGET] -- feed every source with doc-blocks to
+# template/awk/help-render.awk (overview | query <target> | group <target> |
+# manpage). Honours ELEBAKE_DISPLAY_ANSI. Pure read of the doc-blocks.
+
 help_render() {
-  local mode="$1" target="${2:-}"
-  local ch="" cc="" cg="" cr=""
-  if [ "${ELEBAKE_DISPLAY_ANSI:-0}" = "1" ]; then
-    ch="$COLOR_BLUE"; cc="$COLOR_CYAN"; cg="$COLOR_GRAY"; cr="$COLOR_RESET"
-  fi
-  help_source_files | tr '\n' '\0' | xargs -0 cat 2>>"$LOG_FILE" | awk \
-    -v mode="$mode" -v target="$target" \
-    -v ch="$ch" -v cc="$cc" -v cg="$cg" -v cr="$cr" '
-    function trim(s){ sub(/^[ \t]+/,"",s); sub(/[ \t]+$/,"",s); return s }
-    function pathof(u,  p){ p=u; sub(/[ \t]*[<[].*$/,"",p); return trim(p) }
-    function mesc(s){ gsub(/</,"\\<",s); gsub(/>/,"\\>",s); gsub(/\|/,"\\|",s); return s }
-    BEGIN{ seq=0 }
-    /^#@help/ { inblk=1; kind=""; usage=""; summary=""; ret=""; body="";
-                gc=0; pc=0; ec=0; sc=0; vc=0; dgid=""; dgtitle=""; dgord=999; topic="";
-                next }
-    inblk && /^#@end$/ {
-      inblk=0
-      if (kind=="command") {
-        p=pathof(usage); cu[p]=usage; cs[p]=summary; cr_[p]=ret; cord[p]=(++seq)
-        cnp[p]=pc; for(i=1;i<=pc;i++) cp[p,i]=prm[i]
-        cne[p]=ec; for(i=1;i<=ec;i++) cex[p,i]=exs[i]
-        cns[p]=sc; for(i=1;i<=sc;i++) cse[p,i]=seer[i]
-        cnv[p]=vc; for(i=1;i<=vc;i++) cv[p,i]=env[i]
-        for(i=1;i<=gc;i++){ g=grp[i]; gmn[g]++; gm[g,gmn[g]]=p }
-      } else if (kind=="defgroup") {
-        dgt[dgid]=dgtitle; dgo[dgid]=dgord; dgb[dgid]=body; dgall[++ndg]=dgid
-      } else if (kind=="topic") {
-        for(i=1;i<=gc;i++){ g=grp[i]; tpn[g]++; tpt[g,tpn[g]]=topic; tpb[g,tpn[g]]=body }
-      }
-      next
-    }
-    inblk {
-      line=$0
-      if (match(line,/^#[ \t]*@[a-z]+/)) {
-        rest=line; sub(/^#[ \t]*@/,"",rest)
-        name=rest; sub(/[ \t].*$/,"",name)
-        val=rest; sub(/^[a-z]+[ \t]*/,"",val); val=trim(val)
-        if(name=="command"){kind="command"; usage=val}
-        else if(name=="summary"){summary=val}
-        else if(name=="group"){grp[++gc]=val}
-        else if(name=="param"){prm[++pc]=val}
-        else if(name=="env"){env[++vc]=val}
-        else if(name=="option"){prm[++pc]="--" val}
-        else if(name=="returns"){ret=val}
-        else if(name=="example"){exs[++ec]=val}
-        else if(name=="see"){seer[++sc]=val}
-        else if(name=="defgroup"){kind="defgroup"; dgid=val; sub(/[ \t].*$/,"",dgid); dgtitle=val; sub(/^[^ \t]+[ \t]+/,"",dgtitle)}
-        else if(name=="order"){dgord=val+0}
-        else if(name=="topic"){kind="topic"; topic=val}
-        else if(name=="internal"){kind="internal"}
-        next
-      }
-      if (match(line,/^#[ \t][ \t]/)) { t=line; sub(/^#[ \t]+/,"",t); body=(body==""?t:body "\n" t) }
-      next
-    }
-    END{
-      if (mode=="query") {
-        if (target in cu) mode="detail"
-        else { isg=0; for(a=1;a<=ndg;a++) if(dgall[a]==target) isg=1
-               if (isg) mode="group"; else mode="prefix" }
-      }
-      w=0; for(p in cu){ if(length("elebake " cu[p]) > w) w=length("elebake " cu[p]) }
-      w+=2
-      if (mode=="detail") {
-        if (!(target in cu)) { print "Unknown command: " target; exit 1 }
-        print ch "elebake " cu[target] cr
-        print "  " cs[target]
-        if (cnp[target]>0){ print ""; print ch "Arguments:" cr; for(i=1;i<=cnp[target];i++) print "  " cp[target,i] }
-        if (cr_[target]!=""){ print ""; print ch "Output:" cr "  " cr_[target] }
-        if (cnv[target]>0){ print ""; print ch "Environment:" cr; for(i=1;i<=cnv[target];i++) print "  " cv[target,i]; print "  " cg "(details: elebake help env <VAR>)" cr }
-        if (cne[target]>0){ print ""; print ch "Examples:" cr; for(i=1;i<=cne[target];i++) print "  " cc cex[target,i] cr }
-        if (cns[target]>0){ print ""; print ch "See also:" cr; for(i=1;i<=cns[target];i++) print "  " cc "elebake " cse[target,i] cr }
-        exit 0
-      }
-      if (mode=="prefix") {
-        n=0; for(p in cu) if (index(p, target)==1) n++
-        if (n==0) { print "No help for: " target; exit 1 }
-        for(p in cu) if (index(p, target)==1) { pad=w-length("elebake " cu[p]); s=sprintf("%-"pad"s",""); print "  " cc "elebake " cu[p] cr s cg cs[p] cr }
-        exit 0
-      }
-      for(a=1;a<=ndg;a++) ord[a]=dgall[a]
-      for(a=2;a<=ndg;a++){ k=ord[a]; b=a-1; while(b>=1 && dgo[ord[b]]>dgo[k]){ ord[b+1]=ord[b]; b-- } ord[b+1]=k }
-      if (mode=="manpage") {
-        for(a=1;a<=ndg;a++){
-          g=ord[a]
-          if (gmn[g]==0 && tpn[g]==0) continue
-          print "## " dgt[g]; print ""
-          if (dgb[g]!=""){ nn=split(dgb[g],bl,"\n"); for(i=1;i<=nn;i++) print mesc(bl[i]); print "" }
-          for(i=1;i<=gmn[g];i++){ p=gm[g,i]; print "**" mesc(cu[p]) "**"; print ":   " mesc(cs[p]); print "" }
-          for(i=1;i<=tpn[g];i++){ print "**" mesc(tpt[g,i]) "**"; print ":   "; m=split(tpb[g,i],tl,"\n"); for(j=1;j<=m;j++) print "    " mesc(tl[j]); print "" }
-        }
-        exit 0
-      }
-      first=1
-      for(a=1;a<=ndg;a++){
-        g=ord[a]
-        if (mode=="group" && g!=target) continue
-        if (gmn[g]==0 && tpn[g]==0) continue
-        if (!first) print ""
-        first=0
-        print ch dgt[g] cr
-        print ""
-        if (dgb[g]!="") { intro=dgb[g]; gsub(/\n/," ",intro); print "  " cg intro cr; print "" }
-        for(i=1;i<=gmn[g];i++){ p=gm[g,i]; pad=w-length("elebake " cu[p]); s=sprintf("%-"pad"s",""); print "  " cc "elebake " cu[p] cr s cg cs[p] cr }
-        for(i=1;i<=tpn[g];i++){ print "  " ch tpt[g,i] cr; m=split(tpb[g,i],tl,"\n"); for(j=1;j<=m;j++) print "    " cg tl[j] cr }
-      }
-    }
-  '
+        local mode="$1" target="${2:-}"
+        local ch="" cc="" cg="" cr=""
+        if [ "${ELEBAKE_DISPLAY_ANSI:-0}" = "1" ]; then
+                ch="$COLOR_BLUE"; cc="$COLOR_CYAN"; cg="$COLOR_GRAY"; cr="$COLOR_RESET"
+        fi
+        help_source_files | tr '\n' '\0' | xargs -0 cat 2>>"$LOG_FILE" | awk \
+        -v mode="$mode" -v target="$target" \
+        -v ch="$ch" -v cc="$cc" -v cg="$cg" -v cr="$cr" \
+        -f "$ELEBAKE_TEMPLATE_DIR/awk/help-render.awk"
 }
 
 #@help _help0
 # @command help [<command|group|topic>]
 # @summary Show the grouped overview, or detail for a command, group or topic
 # @group   setup
-# @param   command  any command path (e.g. 'stage sign'), a group (keys, stage,
+# @param   command  any command path, unquoted (stage sign key), a group (keys, stage,
 # @param            provisioning, deploy, ...) or a topic (environment)
 # @returns help text (no database required)
 # @env     ELEBAKE_DISPLAY_ANSI  0 disables colored output
@@ -219,82 +120,74 @@ help_render() {
 # @example elebake help stage sign
 #@end
 _help0() {
-  local c_reset="" c_heading="" c_gray=""
-  if [ "${ELEBAKE_DISPLAY_ANSI:-0}" = "1" ]; then
-    c_reset="$COLOR_RESET"; c_heading="$COLOR_BLUE"; c_gray="$COLOR_GRAY"
-  fi
-  printf '%b\n' "${c_heading}elebake${c_reset} - emit-and-inspect tooling for verified boot / tamper detection"
-  echo ""
-  printf '%b\n' "${c_gray}Usage:${c_reset} elebake <command> [arguments]"
-  printf '%b\n' "${c_gray}Detail for any command:${c_reset} elebake help <command>   ${c_gray}(e.g. elebake help stage sign)${c_reset}"
-  echo ""
-  help_render overview
-  echo ""
-  printf '%b\n' "${c_gray}Concept topic:${c_reset} elebake help environment"
+        local c_reset="" c_heading="" c_gray=""
+        if [ "${ELEBAKE_DISPLAY_ANSI:-0}" = "1" ]; then
+                c_reset="$COLOR_RESET"; c_heading="$COLOR_BLUE"; c_gray="$COLOR_GRAY"
+        fi
+        printf '%b\n' "${c_heading}elebake${c_reset} - emit-and-inspect tooling for verified boot / tamper detection"
+        echo ""
+        printf '%b\n' "${c_gray}Usage:${c_reset} elebake <command> [arguments]"
+        printf '%b\n' "${c_gray}Detail for any command:${c_reset} elebake help <command>   ${c_gray}(e.g. elebake help stage sign)${c_reset}"
+        echo ""
+        help_render overview
+        echo ""
+        printf '%b\n' "${c_gray}Concept topic:${c_reset} elebake help environment"
 }
 
 #@help _help1
-# @internal arity-1 sibling of 'help' (group/topic/one-word command dispatch)
+# @internal arity-1 sibling of 'help' (a group, a topic, a one-word command path): help_render query
 #@end
 _help1() {
-  local topic="$1"
-  case "$topic" in
-    environment)
-      cat <<'EOF' >&2
+        help_render query "$1"
+}
 
-===============================================================================
-Environment System and Safety-First Design
-===============================================================================
-
-elebake displays commands instead of executing them. That is intentional and
-controlled by interpreter variables, resolved per function (first match wins):
-
-1. Arity-specific pin:   ELEBAKE_INTERPRETER_<function><arity>
-2. Arity-agnostic pin:   ELEBAKE_INTERPRETER_<function>
-3. Class fallback:       _f   -> ELEBAKE_TERMINAL_INTERPRETER          (cat)
-                         __f  -> ELEBAKE_COMBINATOR_INTERPRETER
-                         ___f -> ELEBAKE_BATCH_COMBINATOR_INTERPRETER
-
-The class fallback is a safety net, not a place to declare behaviour: commands
-whose effect must not depend on a global toggle (bookkeeping, help) carry their
-own pin. Inspect and set them with:
-
-  elebake getintp <function>
-  elebake setintp <function> <interpreter>
-
-Variables resolve through a three-layer cascade; the first layer that has the
-file wins:
-
-  .env/local/            machine overrides (setenv writes here)
-  .env/default/          installed by bootstrap from the chosen profile
-  template/environment/  shipped baseline
-
-  elebake getenv <VAR>       effective value + which layer answered
-  elebake printenv           the whole effective environment
-
-Profiles (bootstrap <name> minimal|all) are files in template/environment/
-(ELEBAKE_PROFILE_*): line 1 lists the variables to install into .env/default.
-After adding a variable to the templates, add it to BOTH profile lists —
-an uninstalled interpreter pin silently falls back to cat.
-
-Logs and traces of every invocation: .log/YYYY-MM-DD/ inside the database,
-retention via ELEBAKE_RETENTION_DAYS_LOG / _TRACE.
-===============================================================================
-EOF
-      ;;
-    *)
-      help_render query "$topic"
-      ;;
-  esac
+#@help _help_environment0
+# @command help environment
+# @summary The concept topic: the environment system and the safety-first design (interpreters, pins, the three-layer cascade, profiles, logs) -- template/manual/topic-environment.md
+# @group   setup
+# @env     ELEBAKE_TEMPLATE_DIR  where the topic text lives
+# @example elebake help environment
+# @see     help env
+# @see     setintp
+#@end
+_help_environment0() {
+        cat "$ELEBAKE_TEMPLATE_DIR/manual/topic-environment.md"
 }
 
 #@help _help2
 # @internal arity-2 sibling of 'help' (detail for two-word command paths)
 #@end
 _help2() {
-  help_render query "$1 $2"
+        help_render query "$1 $2"
 }
 
+#@help _help3
+# @internal arity-3 sibling of 'help' (three-word command paths, e.g. stage sign key)
+#@end
+_help3() {
+        help_render query "$1 $2 $3"
+}
+
+#@help _help4
+# @internal arity-4 sibling of 'help' (four-word command paths, e.g. stage prerequisites exist add)
+#@end
+_help4() {
+        help_render query "$1 $2 $3 $4"
+}
+
+#@help _help5
+# @internal arity-5 sibling of 'help' (five-word command paths, e.g. stage action exists in loader)
+#@end
+_help5() {
+        help_render query "$1 $2 $3 $4 $5"
+}
+
+#@help _help6
+# @internal arity-6 sibling of 'help' (six-word command paths)
+#@end
+_help6() {
+        help_render query "$1 $2 $3 $4 $5 $6"
+}
 
 #@help ___help_manual0
 # @command help manual
@@ -307,16 +200,16 @@ _help2() {
 # @see     help manual part
 #@end
 ___help_manual0() {
-  local part
-  printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" help manual title"
-  for part in name synopsis description sources; do
-    printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" help manual part $part"
-  done
-  printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" help manual commands"
-  printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" help manual environment"
-  for part in files examples see-also authors; do
-    printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" help manual part $part"
-  done
+        local part
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" help manual title"
+        for part in name synopsis description sources; do
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" help manual part $part"
+        done
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" help manual commands"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" help manual environment"
+        for part in files examples see-also authors; do
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" help manual part $part"
+        done
 }
 
 #@help _help_manual_title0
@@ -326,21 +219,47 @@ ___help_manual0() {
 # @see     help manual
 #@end
 _help_manual_title0() {
-  printf '%s\n' "% ELEBAKE(8) elebake | System Manager's Manual" "% Dr. Johannes Brügmann" "% $(date '+%B') $(date '+%e' | tr -d ' '), $(date '+%Y')" ""
+        printf '%s\n' "% ELEBAKE(8) elebake | System Manager's Manual" "% Dr. Johannes Brügmann" "% $(date '+%B') $(date '+%e' | tr -d ' '), $(date '+%Y')" ""
 }
 
-#@help _help_manual_part1
-# @command help manual part <name>
-# @summary One prose building block of the manual, template/manual/<name>.md, verbatim
+#@help ___help_manual_part1
+# @command help manual part <part>
+# @summary One part of the manual page (template/manual/<part>.md): the part exists; then 'help manual part print'
 # @group   setup
-# @env     ELEBAKE_TEMPLATE_DIR  the shipped templates: prose under manual/
+# @internal
 # @see     help manual
 #@end
-_help_manual_part1() {
-  local f="$ELEBAKE_TEMPLATE_DIR/manual/$1.md"
-  case "$1" in ""|*/*|*..*) generate_error "help manual part: not a part name: '$1'"; return 0 ;; esac
-  [ -f "$f" ] || { generate_error "help manual part: template/manual/$1.md missing"; return 0; }
-  cat "$f"; printf '\n'
+___help_manual_part1() {
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" help manual part exists '$1'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" help manual part print '$1'"
+}
+
+#@help __help_manual_part_exists1
+# @command help manual part exists <part>
+# @summary The part is a name and template/manual/<part>.md exists: a comment line, else an error line
+# @group   setup
+# @internal
+# @see     help manual
+# @env     ELEBAKE_TEMPLATE_DIR  where template/manual lives
+#@end
+__help_manual_part_exists1() {
+        if record_name_ok "$1" && test -f "$ELEBAKE_TEMPLATE_DIR/manual/$1.md"; then
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'manual part $1 shipped'"
+        else
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'help manual part: template/manual/$1.md missing (or not a part name)'"
+        fi
+}
+
+#@help _help_manual_part_print1
+# @command help manual part print <part>
+# @summary Text terminal: the part's markdown and a blank line
+# @group   setup
+# @internal
+# @see     help manual
+# @env     ELEBAKE_TEMPLATE_DIR  where template/manual lives
+#@end
+_help_manual_part_print1() {
+        cat "$ELEBAKE_TEMPLATE_DIR/manual/$1.md"; printf '\n'
 }
 
 #@help _help_manual_commands0
@@ -350,8 +269,8 @@ _help_manual_part1() {
 # @see     help manual
 #@end
 _help_manual_commands0() {
-  printf '%s\n' "# COMMANDS" "" "Every command, grouped as \`elebake help\` groups it. \`elebake help <command>\` shows parameters, environment and examples." ""
-  help_render manpage
+        printf '%s\n' "# COMMANDS" "" "Every command, grouped as \`elebake help\` groups it. \`elebake help <command>\` shows parameters, environment and examples." ""
+        help_render manpage
 }
 
 #@help _help_manual_environment0
@@ -365,15 +284,15 @@ _help_manual_commands0() {
 # @see     help manual
 #@end
 _help_manual_environment0() {
-  local f v sm
-  printf '%s\n' "# ENVIRONMENT" ""
-  printf '%s\n' "All configuration lives in \`ELEBAKE_*\` variables, layered as \`.env/local\` (override, written by \`setenv\`), \`.env/default\` (the installed profile) and the shipped templates. Interpreter pins \`ELEBAKE_INTERPRETER_<function>\` decide per function whether emitted shell is displayed or executed: arity-specific before arity-agnostic before the class default (\`ELEBAKE_TERMINAL_INTERPRETER\`, default \`cat\`). Every variable answers \`elebake help env <VAR>\`." ""
-  for f in "$ELEBAKE_TEMPLATE_DIR"/environment/ELEBAKE_*; do
-    [ -f "$f" ] || continue
-    v=$(basename "$f")
-    case "$v" in ELEBAKE_PROFILE_*) continue ;; esac
-    sm=$(sed -n 's/^#[ \t]*@summary[ \t]*//p' "$f" | head -n1)
-    [ -n "$sm" ] || continue
-    printf '%s\n' "**$v**" ":   $(printf '%s' "$sm" | sed 's/[<>|]/\\&/g')" ""
-  done
+        local f v sm
+        printf '%s\n' "# ENVIRONMENT" ""
+        printf '%s\n' "All configuration lives in \`ELEBAKE_*\` variables, layered as \`.env/local\` (override, written by \`setenv\`), \`.env/default\` (the installed profile) and the shipped templates. Interpreter pins \`ELEBAKE_INTERPRETER_<function>\` decide per function whether emitted shell is displayed or executed: arity-specific before arity-agnostic before the class default (\`ELEBAKE_TERMINAL_INTERPRETER\`, default \`cat\`). Every variable answers \`elebake help env <VAR>\`." ""
+        for f in "$ELEBAKE_TEMPLATE_DIR"/environment/ELEBAKE_*; do
+                [ -f "$f" ] || continue
+                v=$(basename "$f")
+                case "$v" in ELEBAKE_PROFILE_*) continue ;; esac
+                sm=$(sed -n 's/^#[ \t]*@summary[ \t]*//p' "$f" | head -n1)
+                [ -n "$sm" ] || continue
+                printf '%s\n' "**$v**" ":   $(printf '%s' "$sm" | sed 's/[<>|]/\\&/g')" ""
+        done
 }

@@ -1,7 +1,4 @@
-sudo sh
-# @summary Interpreter for `stage tree close` -- rollback when the tree is not the manifest
-# Decided at generation time; the emission is one zfs rollback (or a note).
-# Needs root (the imported pool / the mounted medium). Inspect first by
-# running the command under cat. To protect this step (display instead of
-# execute), remove or override this pin.
-# @see ELEBAKE_INTERPRETER_stage_tree_sync
+env ELEBAKE_BATCH_KEEP_GOING=0 sh -c 'tmp=$(mktemp "$ELEBAKE_BASE/.tmp/batch.XXXXXX"); chmod 0600 "$tmp"; cat > "$tmp"; exec "$ELEBAKE_CONTEXT_SCRIPT" batch "$tmp" true'
+# 'stage tree close' is a batch: its checks must stop it even inside a keep-going
+# sync (KEEP_GOING=1 there), so the pin forces fail-fast for its own lines.
+# @see ELEBAKE_INTERPRETER_stage_tree_work

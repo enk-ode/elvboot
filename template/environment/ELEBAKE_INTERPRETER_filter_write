@@ -1,0 +1,4 @@
+sh
+# Act terminal of 'filter <strategy>': writes the filtered collection; sh so it acts.
+# Inspect first by running it under cat.
+# @see ELEBAKE_INTERPRETER_bundle_pack

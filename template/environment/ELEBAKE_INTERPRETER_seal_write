@@ -1,0 +1,3 @@
+sh
+# Act terminal of 'seal': appends the seal line to the dump; sh so it acts.
+# @see ELEBAKE_INTERPRETER_bundle_pack

@@ -1,6 +1,0 @@
-sudo sh
-# Needs root (root-only keys, EFI variables, or the mounted medium); deploy
-# carries its own backup + sha256 verify. Inspect first by running the command
-# under cat. To protect this step (display instead of execute), remove or
-# override this pin. 'stage marker' is deliberately NOT pinned: NVRAM byte
-# surgery stays inspect-by-default.

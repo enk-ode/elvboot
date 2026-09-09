@@ -28,205 +28,239 @@
 #      to the imported serial, so a database that continues someone's
 #      lineage (the rescue case) exports the next number, not 1.
 #
-# ARCHITECTURE: TERMINALS emit ONLY shell. Everything read here is World the
-# generator sees as-is -- serial, receipts, hashes -- and is read at
-# generation time.
-
-# serial_current — the number the last export carried (0 = never exported)
-serial_current() {
-  local f="$ELEBAKE_BASE/export/serial" n
-  [ -f "$f" ] && n=$(head -n1 "$f") || n=0
-  case "$n" in ''|*[!0-9]*) n=0 ;; esac
-  printf '%s\n' "$n"
-}
-
-# serial_floor <fingerprint> — highest serial among the receipts of ONE signer
-serial_floor() {
-  local fpr="$1" r s floor=0
-  for r in "$ELEBAKE_BASE"/provenance/*/; do
-    [ -f "$r/serial" ] && [ -f "$r/signer" ] || continue
-    [ "$(head -n1 "$r/signer")" = "$fpr" ] || continue
-    s=$(head -n1 "$r/serial")
-    case "$s" in ''|*[!0-9]*) continue ;; esac
-    [ "$s" -gt "$floor" ] && floor=$s
-  done
-  printf '%s\n' "$floor"
-}
-
-# dump_header_field <dump> <Name> — the value of a '# Name: value' header line
-dump_header_field() {
-  sed -n "s/^# $2: //p" "$1" | head -n1
-}
+# Everything read here is World the generator sees as-is -- serial,
+# receipts, hashes -- and is read at generation time (the inspections
+# serial_current, serial_floor, dump_header_field live in predicate.sh).
 
 #-----------------------------------------------------------------------------
 # _provenance_serial0 — advance the export serial
 #-----------------------------------------------------------------------------
+
 #@help _provenance_serial0
 # @command provenance serial
-# @summary Advance the export serial by one (export does this before writing the dump); the number lands in the dump header
+# @summary Act terminal: advance the export serial by one (export does this before writing the dump); the number lands in the dump header
 # @group   database
-# @returns the shell that writes export/serial
-# @example elebake provenance serial | sh
+# @example elebake provenance serial
 # @see     provenance list
+# @see     export
 #@end
 _provenance_serial0() {
-  local cur next
-  cur=$(serial_current)
-  next=$((cur + 1))
-  emit_note "provenance serial: $cur -> $next"
-  printf '%s\n' "printf '%s\\n' '$next' > '$ELEBAKE_BASE/export/serial' && $MODIFY_FILE_PERMS 0600 '$ELEBAKE_BASE/export/serial'"
+        emit_note "provenance serial: $(serial_current) -> $(($(serial_current) + 1))"
+        printf '%s\n' "printf '%s\\n' '$(($(serial_current) + 1))' > '$ELEBAKE_BASE/export/serial' && $MODIFY_FILE_PERMS 0600 '$ELEBAKE_BASE/export/serial'"
 }
 
-#-----------------------------------------------------------------------------
-# _provenance_add2 <dump> <bundle> — the receipt of an import
-#-----------------------------------------------------------------------------
-# Called by `import` after every check and right BEFORE restore: the batch
-# machinery guarantees it never runs for a pair that failed a check, and the
-# admissibility it applies is restore's own (restore_admissible: format,
-# pinned signer, serial floor) -- a downgrade leaves no receipt. The facts
-# are read now and written as one record. Re-filing the same receipt is a
-# silent no-op; a differing receipt under the same id is refused.
-#@help _provenance_add2
+#@help ___provenance_add2
 # @command provenance add <dump> <bundle>
-# @summary File the receipt of an admitted import: dump and bundle hashes, pinned signer, serial, when and where -- same admissibility as restore -- and raise the export serial to the imported one
+# @summary File the receipt of an admitted import: the dump readable, numbered, signed by the pinned signer and not a downgrade (restore's own checks), the bundle readable or '-'; then 'provenance receipt' (files it, or says it is filed, or refuses a differing one) and the export serial raised to the imported one
 # @group   database
 # @param   dump    the dump that was replayed
 # @param   bundle  the bundle it came with ('-' for a dump replayed without one)
 # @env     ELEBAKE_ARCHIVE_ATTEST_KEY  the openpgp record naming the signer the dump must carry
-# @returns the shell that writes the receipt record
 # @example elebake provenance add ~/git/config/dump.sh ~/.elebake/bundle/a1b2c3d.tar.gz
 # @see     import
 # @see     provenance list
+# @see     restore v2
 #@end
-_provenance_add2() {
-  local dump="$1" bundle="$2" key="${ELEBAKE_ARCHIVE_ATTEST_KEY:-}" base="$ELEBAKE_BASE"
-  local fpr serial dsum bsum id rec stamp by cur into line
-  fpr=$(restore_admissible "$dump") || { generate_error "provenance add: $fpr"; return 0; }
-  serial=$(dump_header_field "$dump" Serial)
-  dsum=$(sha256 -q "$dump" 2>>"$LOG_FILE") || { generate_error "provenance add: cannot hash $dump"; return 0; }
-  if [ "$bundle" = "-" ]; then
-    bsum="-"
-  else
-    [ -f "$bundle" ] || { generate_error "provenance add: no such bundle '$bundle'"; return 0; }
-    bsum=$(sha256 -q "$bundle" 2>>"$LOG_FILE") || { generate_error "provenance add: cannot hash $bundle"; return 0; }
-  fi
-  id="$(printf '%06d' "$serial")-$(printf '%s' "$dsum" | cut -c1-12)"
-  rec="$base/provenance/$id"
-  stamp=$(date -u '+%Y-%m-%dT%H:%M:%SZ' 2>>"$LOG_FILE")
-  by="$(id -un 2>>"$LOG_FILE")@$(hostname 2>>"$LOG_FILE")"
-  into=$(db_real_name)
-  if [ -d "$rec" ]; then
-    if [ "$(head -n1 "$rec/dump" 2>/dev/null)" = "$dsum" ] && [ "$(head -n1 "$rec/bundle" 2>/dev/null)" = "$bsum" ]; then
-      emit_note "provenance: receipt $id already filed (unchanged)"; return 0
-    fi
-    generate_error "provenance add: receipt '$id' exists with different content (immutable)"; return 0
-  fi
-  emit_note "provenance: filing receipt $id (serial $serial, signer $fpr)"
-  printf '%s\n' "$MODIFY_DIR_CREATE '$rec' && $MODIFY_FILE_PERMS 0700 '$rec'"
-  for line in "serial:$serial" "signer:$fpr" "dump:$dsum" "bundle:$bsum" "restored:$stamp" "into:$into" "by:$by"; do
-    printf '%s\n' "printf '%s\\n' '${line#*:}' > '$rec/${line%%:*}'"
-  done
-  printf '%s\n' "$MODIFY_FILE_PERMS 0600 '$rec'/*"
-  # continue the lineage: the next export of THIS database numbers above
-  # what it just absorbed
-  cur=$(serial_current)
-  if [ "$serial" -gt "$cur" ]; then
-    printf '%s\n' "printf '%s\\n' '$serial' > '$base/export/serial' && $MODIFY_FILE_PERMS 0600 '$base/export/serial'"
-    emit_note "provenance: export serial raised $cur -> $serial"
-  fi
-  printf '%s\n' "printf '# receipt filed: provenance/%s\\n' '$id' >&2"
+___provenance_add2() {
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" dump readable '$1'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" dump serial numbered '$1'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" archive key pinned"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" restore signer admissible '$1'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" restore serial admissible '$1'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" provenance bundle readable '$2'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" provenance receipt '$1' '$2'"
 }
 
-#-----------------------------------------------------------------------------
-# _provenance_import2 <id> <absfile> — base element of a dump
-#-----------------------------------------------------------------------------
-#@help _provenance_import2
+#@help __provenance_bundle_readable1
+# @command provenance bundle readable <bundle>
+# @summary The bundle is '-' (a dump replayed without one) or a readable file: a comment line, else an error line
+# @group   database
+# @internal
+# @see     provenance add
+#@end
+__provenance_bundle_readable1() {
+        if test "$1" = - || test -r "$1"; then
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'bundle $1 readable'"
+        else
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'provenance add: no such bundle $1'"
+        fi
+}
+
+#@help __provenance_receipt2
+# @command provenance receipt <dump> <bundle>
+# @summary The receipt id is <serial>-<12 hex of the dump hash>. No receipt of that id yet: rewrite to 'provenance file ...', else to 'provenance receipt same ...' (filed already, or a differing one under the same id)
+# @group   database
+# @internal
+# @see     provenance add
+#@end
+__provenance_receipt2() {
+        local id=""
+        id="$(printf '%06d' "$(dump_header_field "$1" Serial 2>/dev/null || echo 0)" 2>/dev/null)-$(sha256 -q "$1" 2>/dev/null | cut -c1-12)"
+        if test ! -d "$ELEBAKE_BASE/provenance/$id"; then
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" provenance file '$1' '$2'"
+        else
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" provenance receipt same '$1' '$2'"
+        fi
+}
+
+#@help __provenance_receipt_same2
+# @command provenance receipt same <dump> <bundle>
+# @summary The filed receipt carries the same dump and bundle hashes: a note line (already filed, unchanged), else an error line (a receipt is immutable)
+# @group   database
+# @internal
+# @see     provenance receipt
+#@end
+__provenance_receipt_same2() {
+        local id="" dsum="" bsum=-
+        dsum=$(sha256 -q "$1" 2>/dev/null)
+        test "$2" = - || bsum=$(sha256 -q "$2" 2>/dev/null)
+        id="$(printf '%06d' "$(dump_header_field "$1" Serial 2>/dev/null || echo 0)" 2>/dev/null)-$(printf '%s' "$dsum" | cut -c1-12)"
+        if test "$(head -n1 "$ELEBAKE_BASE/provenance/$id/dump" 2>/dev/null)" = "$dsum" && test "$(head -n1 "$ELEBAKE_BASE/provenance/$id/bundle" 2>/dev/null)" = "$bsum"; then
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" note 'provenance: receipt $id already filed (unchanged)'"
+        else
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'provenance add: receipt $id exists with different content (immutable)'"
+        fi
+}
+
+#@help _provenance_file2
+# @command provenance file <dump> <bundle>
+# @summary Act terminal: the script that writes the receipt record provenance/<serial>-<hash12>/ (serial, signer, dump and bundle hashes, when, into which database, by whom; 0700/0600) and, when the imported serial is above this database's export serial, raises it (the lineage continues)
+# @group   database
+# @internal
+# @see     provenance add
+# @env     ELEBAKE_ARCHIVE_ATTEST_KEY  the openpgp record naming the signer the receipt records
+#@end
+_provenance_file2() {
+        local serial="" fpr="" dsum="" bsum=- id="" rec="" cur=""
+        serial=$(dump_header_field "$1" Serial 2>/dev/null)
+        fpr=$(attest_signer "$1" "$(sed -n 1p "$ELEBAKE_BASE/openpgp/${ELEBAKE_ARCHIVE_ATTEST_KEY:-}/keyid" 2>/dev/null)" "$(sed -n 1p "$ELEBAKE_BASE/openpgp/${ELEBAKE_ARCHIVE_ATTEST_KEY:-}/gnupghome" 2>/dev/null)" 2>/dev/null)
+        dsum=$(sha256 -q "$1" 2>/dev/null)
+        test "$2" = - || bsum=$(sha256 -q "$2" 2>/dev/null)
+        id="$(printf '%06d' "${serial:-0}" 2>/dev/null)-$(printf '%s' "$dsum" | cut -c1-12)"
+        rec="$ELEBAKE_BASE/provenance/$id"
+        cur=$(serial_current)
+        emit_note "provenance: filing receipt $id (serial $serial, signer $fpr)"
+        printf '%s\n' "$MODIFY_DIR_CREATE '$rec' && $MODIFY_FILE_PERMS 0700 '$rec'"
+        printf '%s\n' "printf '%s\\n' '$serial' > '$rec/serial'"
+        printf '%s\n' "printf '%s\\n' '$fpr' > '$rec/signer'"
+        printf '%s\n' "printf '%s\\n' '$dsum' > '$rec/dump'"
+        printf '%s\n' "printf '%s\\n' '$bsum' > '$rec/bundle'"
+        printf '%s\n' "printf '%s\\n' '$(date -u '+%Y-%m-%dT%H:%M:%SZ')' > '$rec/restored'"
+        printf '%s\n' "printf '%s\\n' '$(basename "$(readlink -f "$ELEBAKE_BASE")")' > '$rec/into'"
+        printf '%s\n' "printf '%s\\n' '$(id -un)@$(hostname)' > '$rec/by'"
+        printf '%s\n' "$MODIFY_FILE_PERMS 0600 '$rec'/*"
+        if test "${serial:-0}" -gt "$cur"; then
+                printf '%s\n' "printf '%s\\n' '$serial' > '$ELEBAKE_BASE/export/serial' && $MODIFY_FILE_PERMS 0600 '$ELEBAKE_BASE/export/serial'"
+                emit_note "provenance: export serial raised $cur -> $serial"
+        fi
+        emit_note "receipt filed: provenance/$id"
+}
+
+#@help ___provenance_import2
 # @command provenance import <id> <absfile>
-# @summary Copy ONE file of a receipt record from another database -- dump/restore base element; the record directory is created on first file
+# @summary Copy ONE file of a receipt record from another database (dump/restore base element; the record directory is created on first file): the id is a record name, the source exists; then 'provenance import place'
 # @group   database
 # @param   id       the receipt record name (<serial>-<dump hash prefix>)
 # @param   absfile  absolute source path in the OTHER database
 # @see     provenance dump
+# @see     restore
 #@end
-_provenance_import2() {
-  local id="$1" src="$2" base="$ELEBAKE_BASE" dst
-  case "$id" in
-    ""|*/*|.|..|*[!A-Za-z0-9_.-]*)
-      generate_error "provenance import: invalid receipt id '$id'"; return 0 ;;
-  esac
-  { [ -f "$src" ] || [ -L "$src" ]; } || {
-    generate_error "provenance import: no such file: $src"; return 0; }
-  dst="$base/provenance/$id/$(basename "$src")"
-  if [ "$src" = "$dst" ]; then
-    emit_note "provenance import '$id': $(basename "$src") is already this element"; return 0
-  fi
-  printf '%s\n' "$MODIFY_DIR_CREATE '$base/provenance/$id' && $MODIFY_FILE_PERMS 0700 '$base/provenance/$id'"
-  printf '%s\n' "rm -f '$dst' && cp -Pp '$src' '$base/provenance/$id/' || { printf '# Error: provenance import failed\\n' >&2; exit 1; }"
+___provenance_import2() {
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" provenance id valid '$1'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" base element exists '$2'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" provenance import place '$1' '$2'"
 }
 
-#-----------------------------------------------------------------------------
-# ___provenance_dump0 — the receipts as base elements (cat-pinned)
-#-----------------------------------------------------------------------------
+#@help __provenance_id_valid1
+# @command provenance id valid <id>
+# @summary The receipt id is a record name: a comment line, else an error line
+# @group   database
+# @internal
+# @see     provenance import
+#@end
+__provenance_id_valid1() {
+        if record_name_ok "$1"; then
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'receipt id $1 valid'"
+        else
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'provenance import: invalid receipt id $1'"
+        fi
+}
+
+#@help __provenance_import_place2
+# @command provenance import place <id> <absfile>
+# @summary The source is not already this element (a dump replayed against its OWN database): rewrite to 'provenance import copy', else a note line
+# @group   database
+# @internal
+# @see     provenance import
+#@end
+__provenance_import_place2() {
+        if test "$2" != "$ELEBAKE_BASE/provenance/$1/${2##*/}"; then
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" provenance import copy '$1' '$2'"
+        else
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" note 'provenance import $1: ${2##*/} is already this element'"
+        fi
+}
+
+#@help _provenance_import_copy2
+# @command provenance import copy <id> <absfile>
+# @summary Act terminal: the record directory (0700), rm -f and cp -Pp of the file
+# @group   database
+# @internal
+# @see     provenance import
+#@end
+_provenance_import_copy2() {
+        printf '%s\n' "$MODIFY_DIR_CREATE '$ELEBAKE_BASE/provenance/$1' && $MODIFY_FILE_PERMS 0700 '$ELEBAKE_BASE/provenance/$1'"
+        printf '%s\n' "rm -f '$ELEBAKE_BASE/provenance/$1/${2##*/}' && cp -Pp '$2' '$ELEBAKE_BASE/provenance/$1/' || { printf '# Error: provenance import failed\\n' >&2; exit 1; }"
+}
+
 #@help ___provenance_dump0
 # @command provenance dump
-# @summary Emit the provenance portion of a database dump: one 'provenance import' line per receipt file (cat-pinned: dump TEXT, replayed by restore)
-# @env     ELEBAKE_ARCHIVE_BASE  the prefix the emitted paths are written against
+# @summary Emit the provenance portion of a database dump: one 'provenance import' line per receipt file (cat-pinned: dump TEXT, replayed by restore); none is a comment line
 # @group   database
+# @env     ELEBAKE_ARCHIVE_BASE  the prefix the emitted paths are written against
 # @see     dump
 #@end
 ___provenance_dump0() {
-  local base="$ELEBAKE_BASE" r f n=0
-  for r in "$base"/provenance/*/; do
-    [ -d "$r" ] || continue
-    n=$((n+1))
-    for f in "$r"*; do
-      [ -f "$f" ] || continue
-      printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" provenance import '$(basename "$r")' \"\$ELEBAKE_ARCHIVE_BASE/${f#"$base/"}\""
-    done
-  done
-  [ "$n" -gt 0 ] || printf '%s\n' "# (no receipts to dump)"
+        local r="" f="" n=0
+        for r in "$ELEBAKE_BASE"/provenance/*/; do
+                test -d "$r" || continue
+                n=$((n + 1))
+                for f in "$r"*; do
+                        test -f "$f" || continue
+                        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" provenance import '$(basename "$r")' \"\$ELEBAKE_ARCHIVE_BASE/${f#"$ELEBAKE_BASE/"}\""
+                done
+        done
+        test "${n:-0}" -gt 0 || printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'no receipts to dump'"
 }
 
-#-----------------------------------------------------------------------------
-# _provenance_collect0 — the receipt files that belong into an archive
-#-----------------------------------------------------------------------------
 #@help _provenance_collect0
 # @command provenance collect
-# @summary List the receipt record files that belong into an archive
-# @env     ELEBAKE_ARCHIVE_BASE  the prefix the emitted paths are written against
+# @summary Text terminal: the receipt record files that belong into an archive, by their real path against "$ELEBAKE_ARCHIVE_BASE"
 # @group   database
+# @env     ELEBAKE_ARCHIVE_BASE  the prefix the emitted paths are written against
 # @see     collect
 #@end
 _provenance_collect0() {
-  local base="$ELEBAKE_BASE" f
-  printf '# provenance\n'
-  [ -d "$base/provenance" ] || return 0
-  find "$base/provenance" \( -type f -o -type l \) 2>/dev/null | sort | while IFS= read -r f; do
-    printf '"$ELEBAKE_ARCHIVE_BASE"/%s\n' "${f#"$base/"}"
-  done
+        printf '# provenance\n'
+        find "$ELEBAKE_BASE/provenance" \( -type f -o -type l \) 2>/dev/null | sort | sed "s|^$ELEBAKE_BASE/|\"\$ELEBAKE_ARCHIVE_BASE\"/|"
 }
 
-#-----------------------------------------------------------------------------
-# _provenance_list0 — the lineage, readable
-#-----------------------------------------------------------------------------
 #@help _provenance_list0
 # @command provenance list
-# @summary Show the export serial and every receipt: serial, when, signer, dump and bundle hashes, into which database
+# @summary Text terminal: the export serial and every receipt -- serial, when, signer, dump and bundle hashes, into which database, by whom; none is said so
 # @group   database
 # @example elebake provenance list
 # @see     provenance add
+# @see     import
 #@end
 _provenance_list0() {
-  local base="$ELEBAKE_BASE" r n=0
-  printf '# export serial: %s\n' "$(serial_current)"
-  printf '# receipts (serial  restored  signer  dump  bundle  into  by)\n'
-  for r in "$base"/provenance/*/; do
-    [ -d "$r" ] || continue
-    n=$((n+1))
-    printf '#   %6s  %s  %s  %s  %s  %s  %s\n' \
-      "$(head -n1 "$r/serial" 2>/dev/null)" "$(head -n1 "$r/restored" 2>/dev/null)" \
-      "$(head -n1 "$r/signer" 2>/dev/null | cut -c25-)" "$(head -n1 "$r/dump" 2>/dev/null | cut -c1-12)" \
-      "$(head -n1 "$r/bundle" 2>/dev/null | cut -c1-12)" "$(head -n1 "$r/into" 2>/dev/null)" "$(head -n1 "$r/by" 2>/dev/null)"
-  done
-  [ "$n" -gt 0 ] || printf '#   (no receipts -- this database was never the target of an import)\n'
+        local r="" n=0
+        printf '# export serial: %s\n' "$(serial_current)"
+        printf '# receipts (serial  restored  signer  dump  bundle  into  by)\n'
+        for r in "$ELEBAKE_BASE"/provenance/*/; do
+                test -d "$r" || continue
+                n=$((n + 1))
+                printf '#   %6s  %s  %s  %s  %s  %s  %s\n' "$(head -n1 "$r/serial" 2>/dev/null)" "$(head -n1 "$r/restored" 2>/dev/null)" "$(head -n1 "$r/signer" 2>/dev/null | cut -c25-)" "$(head -n1 "$r/dump" 2>/dev/null | cut -c1-12)" "$(head -n1 "$r/bundle" 2>/dev/null | cut -c1-12)" "$(head -n1 "$r/into" 2>/dev/null)" "$(head -n1 "$r/by" 2>/dev/null)"
+        done
+        test "${n:-0}" -gt 0 || printf '#   (no receipts -- this database was never the target of an import)\n'
 }

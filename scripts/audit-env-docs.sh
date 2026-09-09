@@ -65,7 +65,6 @@ fn != "" {
     line = substr(line, RSTART + RLENGTH)
   }
   # selected external variables worth documenting when used
-  if ($0 ~ /\$\{?EDITOR/)    used["EDITOR"] = 1
   if ($0 ~ /\$\{?GNUPGHOME/) used["GNUPGHOME"] = 1
 }
 END { flush_fn() }

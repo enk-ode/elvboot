@@ -1,0 +1,3 @@
+cat
+# Text terminal of 'destroy': the warning is shown, never run.
+# @see ELEBAKE_INTERPRETER_destroy_records_remove

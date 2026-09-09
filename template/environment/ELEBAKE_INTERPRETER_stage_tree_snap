@@ -1,0 +1,3 @@
+sudo sh
+# Act terminal of 'stage tree snapshot': zfs snapshot needs root.
+# @see ELEBAKE_INTERPRETER_stage_tree_write

@@ -1,0 +1,4 @@
+sh
+# Act terminal of 'environment init': copies the profile's templates into .env/default;
+# sh so bookkeeping acts (without it the cat default only displayed -- tutorial find #17).
+# @see ELEBAKE_INTERPRETER_setenv_write

@@ -6,6 +6,11 @@ Read what it emits, then execute — either by piping to `sh` where shown,
 or by pinning executing interpreters (the `minimal` profile pins the
 usual suspects already).
 
+`make PREFIX=$HOME install` puts an `elebake` wrapper into ~/bin and the
+manual into ~/share/man (both on FreeBSD's defaults; PREFIX, DESTDIR,
+BINDIR, MANDIR as in bsd.own.mk) that run this checkout; the examples
+below spell out `./elebake.sh` so they work before that step.
+
 ## 0. Database
 
 ```sh
@@ -100,7 +105,7 @@ Two artifacts travel separately: the DUMP is the versioned description
 commit). Neither contains the other; the dump names the bundle by hash.
 
 ```
-elebake export dump.sh ~/.elebake/bundle/a1b2c3d.tar.gz redacted
+elebake export redacted dump.sh ~/.elebake/bundle/a1b2c3d.tar.gz
 elebake import dump.sh ~/.elebake/bundle/a1b2c3d.tar.gz
 ```
 

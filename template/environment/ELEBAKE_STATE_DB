@@ -1,0 +1,3 @@
+/var/db/elvboot
+# @summary The state directory of the generated earlboot/elvbootd scripts on the target (ELV_STATE in the scripts: appraisal, book, heartbeat, spool, marks, smart counters); created 0700 root by the install steps
+# @see ELEBAKE_CONTAINERS

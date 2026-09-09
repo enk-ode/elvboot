@@ -1,0 +1,3 @@
+sh
+# Act terminal of 'stage install': make install into destdir/; sh so it installs.
+# @see ELEBAKE_INTERPRETER_stage_build_stand_run

@@ -1,0 +1,3 @@
+sh
+# Act terminal of 'stage build stand': make in the worktree; sh so it builds.
+# @see ELEBAKE_INTERPRETER_stage_install_run

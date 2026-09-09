@@ -1,0 +1,3 @@
+cat
+# Text terminal: the site.mk as comment lines.
+# @see ELEBAKE_INTERPRETER_stage_site_mk_baselines

@@ -85,3 +85,36 @@ man:
 man-html: man
 	mandoc -T html -O style=man.css docs/elebake.8 > docs/elebake.html
 	cp docs/elebake.html docs/index.html
+
+# --- install ------------------------------------------------------------------
+# FreeBSD conventions (bsd.own.mk): PREFIX is the install prefix (default
+# /usr/local, needs root), DESTDIR a staging root prepended to every path,
+# BINDIR and MANDIR the targets. A per-user install:
+#
+#   make PREFIX=${HOME} install        -> ~/bin/elebake, ~/share/man/man8/elebake.8
+#
+# Both land on FreeBSD's defaults: ~/bin is on the login PATH and man(1)
+# derives ~/share/man from it. The wrapper execs THIS checkout's
+# elebake.sh -- a development install: include/ and template/ are read
+# from here, `git pull` is the update. make uninstall removes both files.
+PREFIX?=	/usr/local
+DESTDIR?=
+BINDIR?=	${PREFIX}/bin
+MANDIR?=	${PREFIX}/share/man/man
+WRAPPER=	${DESTDIR}${BINDIR}/elebake
+MANPAGE=	${DESTDIR}${MANDIR}8/elebake.8
+
+.PHONY: install uninstall
+
+install: docs/elebake.8
+	@mkdir -p ${DESTDIR}${BINDIR} ${DESTDIR}${MANDIR}8
+	@printf '#!/bin/sh\n# elebake wrapper (make install from %s)\nexec /bin/sh %s/elebake.sh "$$@"\n' \
+	    '${.CURDIR}' '${.CURDIR}' > ${WRAPPER}.tmp
+	@install -m 0755 ${WRAPPER}.tmp ${WRAPPER} && rm -f ${WRAPPER}.tmp
+	@install -m 0444 docs/elebake.8 ${MANPAGE}
+	@echo "install: ${WRAPPER} -> ${.CURDIR}/elebake.sh"
+	@echo "install: ${MANPAGE}"
+
+uninstall:
+	@rm -f ${WRAPPER} ${MANPAGE}
+	@echo "uninstall: ${WRAPPER} and ${MANPAGE} removed"

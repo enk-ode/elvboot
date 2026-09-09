@@ -1,0 +1,3 @@
+sh
+# Act terminal of 'stage checkout': git worktree add; sh so it acts.
+# @see ELEBAKE_INTERPRETER_stage_clean_dir

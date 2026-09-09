@@ -1,0 +1,4 @@
+sh
+# @summary Interpreter for `stage container prepare` -- the hooks/ directory
+# (first line of the mk batches). sh so it lands.
+# @see ELEBAKE_INTERPRETER_stage_container_install

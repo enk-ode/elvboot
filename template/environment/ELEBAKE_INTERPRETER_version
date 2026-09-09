@@ -1,0 +1,3 @@
+cat
+# Text terminal 'version': prints the format and the commit; cat shows the line.
+# @see ELEBAKE_INTERPRETER_help

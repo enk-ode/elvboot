@@ -289,18 +289,18 @@ user_story_4_foundation_acceptance() {
 #define	LOADERLOCK_SECRET	NULL
 #endif
 
-GATE_DEFINE(bootlock, BOOTLOCK_SECRET,
+GATE_DEFINE(bootlock, BOOTLOCK_SECRET, NULL,
     CLAIM(measure_secureboot, NULL, NULL, MEASUREMENT_BYTE("SecureBoot", 1)),
     CLAIM(measure_setupmode, NULL, NULL, MEASUREMENT_BYTE("SetupMode", 0)),
     CLAIM(measure_marker, diagnose_marker, NULL, MARKER_EXPECTED),
     CLAIM(measure_board, NULL, "board.sha256", BOARD_EXPECTED),
     CLAIM(measure_keys, diagnose_keys, "keys.sha256", KEYS_EXPECTED));
 
-GATE_DEFINE(loaderlock, LOADERLOCK_SECRET,
+GATE_DEFINE(loaderlock, LOADERLOCK_SECRET, NULL,
     CLAIM(measure_prerequisites_exist, diagnose_prerequisites_exist, "exist.count", MEASUREMENT_BYTE("PrereqsExist", LOADER_PREREQUISITES_EXIST_N)),
     CLAIM(measure_prerequisites_verify, diagnose_prerequisites_verify, "verify.count", MEASUREMENT_BYTE("PrereqsVerify", LOADER_PREREQUISITES_VERIFY_N)));
 
-GATE_DEFINE(strictwatch, NULL,
+GATE_DEFINE(strictwatch, NULL, NULL,
     CLAIM(measure_strict, NULL, "strict.active", MEASUREMENT_BYTE("StrictActive", 1)),
     CLAIM(measure_ve_strict, NULL, "strict.marker", MEASUREMENT_BYTE("VeStrictPresent", 1)));
 

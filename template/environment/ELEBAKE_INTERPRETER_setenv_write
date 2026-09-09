@@ -1,0 +1,4 @@
+sh
+# Act terminal of 'setenv': writes .env/local/<VAR>; sh so it takes effect regardless
+# of the safe-by-default TERMINAL_INTERPRETER=cat.
+# @see ELEBAKE_INTERPRETER_getenv_read

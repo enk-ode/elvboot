@@ -1,0 +1,4 @@
+cat
+# @summary Interpreter for `stage elvbootd glue devd` -- the devd configuration as TEXT
+# (`stage elvbootd mk` redirects it into hooks/elvboot.devd.conf)
+# @see ELEBAKE_INTERPRETER_stage_elvbootd_install

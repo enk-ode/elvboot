@@ -1,7 +1,42 @@
+#!/bin/sh
 #
 # SPDX-License-Identifier: BSD-2-Clause
 #
 # Copyright (c) 2026 Dr. Johannes Brügmann
+# elebake engine - the combinator engine every module runs on. Nothing in
+# here knows a stage, a key or a dump; it knows anchors, interpreters and
+# exit codes.
+#
+#   dispatch        to_function_call (the command words bind the longest
+#                   anchor name, the argument count picks the arity),
+#                   dispatch (runs the anchor, its output is the command
+#                   text), lookup_interpreter (the pin of the anchor:
+#                   ELEBAKE_INTERPRETER_<name><arity>, <name>, then the
+#                   class default), apply_command_alias
+#   environment     the three-layer cascade .env/local, .env/default,
+#                   template/environment (build_env_args*, env_resolve_file,
+#                   ensure_interpreter_var), run_env (the isolated
+#                   environment an interpreter runs in), the no-database
+#                   world of bootstrap (build_env_args_template)
+#   execution       process_arguments (resolve, dispatch, interpret) as the
+#                   pipeline produce_with_exit | to_trace_file |
+#                   consume_with_exit | to_trace_file, traces and logs
+#                   (trace_log, LOG_FILE, retention)
+#   exit arithmetic the batch ring .tmp/batch-exits (get_batch_id,
+#                   store_batch_exits), combine_exit_codes and
+#                   check_batch_success: a code above 128 is a batch pointer
+#                   only when the child is the runner or a batch combinator,
+#                   everywhere else a code other than 0 is the failure bit
+#   fallbacks       _unknown_command1, __wrong_arity1, _error*, _note1,
+#                   _comment1, _log*, _fail2 -- the terminals every module
+#                   rewrites to
+#   helpers         sq (single-quote an argument), emit_note (a runtime
+#                   stderr line), install_layout, rebase_db_path,
+#                   backend_dump_extra_lines, line_pos_ok, line_insert_emit,
+#                   display*, safety_first_message
+#   main            the entry: bootstrap's special path, the commands that
+#                   run without a database, the database checks, then
+#                   process_arguments
 
 trace_log() {
   if [ -z "${ELEBAKE_TRACE_FILE:-}" ]; then
@@ -143,6 +178,26 @@ build_env_args_full() {
     done
   fi
 
+  echo "$env_args"
+}
+
+# build_env_args_template -- the SHIPPED baseline as env args: every variable
+# template/environment/ELEBAKE_* provides (first line; profiles and the
+# cache excluded). Before a database exists this IS the environment: the
+# third layer of the cascade (local, default, template) read directly, so
+# bootstrap and its children see the same pins a bootstrapped database
+# installs, and no line needs an environment prefix.
+build_env_args_template() {
+  local varfile varname value escaped_value env_args=""
+  for varfile in "$ELEBAKE_TEMPLATE_DIR/environment"/ELEBAKE_* "$ELEBAKE_TEMPLATE_DIR/environment/PATH"; do
+    [ -f "$varfile" ] || continue
+    varname=$(basename "$varfile")
+    case "$varname" in ELEBAKE_PROFILE_*|ELEBAKE_CACHE_ENV_ARGS|ELEBAKE_BASE) continue ;; esac
+    value=$(head -n1 "$varfile")
+    should_skip_env_value "$value" && continue
+    escaped_value=$(printf '%s\n' "$value" | sed "s/'/'\\\\''/g")
+    env_args="$env_args $varname='$escaped_value'"
+  done
   echo "$env_args"
 }
 
@@ -288,6 +343,19 @@ _unknown_command1() {
   echo "exit 1"
 }
 
+# __wrong_arity1 - combinator for a KNOWN command path called with the wrong
+# number of arguments (to_function_call() found the stem, no arity matched):
+# one error line carrying the usage lines of the command's help.
+#@help __wrong_arity1
+# @internal dispatch fallback: known command path, wrong number of arguments -- an error line with the usage
+#@end
+__wrong_arity1() {
+        local cmd="" usage=""
+        cmd=$(printf '%s' "$1" | tr '_' ' ')
+        usage=$( ( ELEBAKE_DISPLAY_ANSI=0; help_render query "$cmd" ) 2>/dev/null | grep "^elebake $cmd" | paste -sd '|' - | sed 's/|/ | /g')
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error $(sq "wrong number of arguments for '$cmd' -- usage:") $(sq "$usage")"
+}
+
 to_function_call() {
   # First argument is the function list (mandatory)
   local functions="${1:-}"
@@ -324,6 +392,7 @@ to_function_call() {
   # === STEP 1: Filter FIRST to narrow search space (performance optimization) ===
   # Only keep functions that match current prefix
   # This dramatically reduces search space for subsequent operations
+  local deep_unknown=""
   local filtered=""
   for line in $functions; do
     case "$line" in
@@ -350,7 +419,7 @@ to_function_call() {
       local deep_result
       deep_result=$(to_function_call "$filtered_deep" "${curr}_${next}" "$@")
       case "$deep_result" in
-        _unknown_command1*) ;;    # nothing deeper -- fall through to local match
+        _unknown_command1*) deep_unknown="$deep_result" ;;    # nothing deeper -- fall through to local match
         *) printf '%s\n' "$deep_result"; return 0 ;;
       esac
     fi
@@ -384,8 +453,26 @@ to_function_call() {
     fi
   done
 
+  # === STEP 2b: the words ARE a command path, only the argument count is
+  # wrong (e.g. 'stage build kernel' without the stage, 'stage filter
+  # uncurated <stage>' without the source dir). Say so instead of letting a
+  # shorter command swallow the last word as an argument or reporting the
+  # first word as unknown.
+  for line in $filtered; do
+    case "$line" in
+      _${curr}[0-9]*|__${curr}[0-9]*|___${curr}[0-9]*)
+        printf '%s %s\n' "__wrong_arity1" "$(printf '%s\n' "$curr" | sed "s/'/'\\\\''/g; s/^/'/; s/$/'/")"
+        return 0 ;;
+    esac
+  done
+
   # === STEP 3: nothing here and nothing deeper: unknown command ===
-  # (the deep branch already ran FIRST -- outside-in)
+  # (the deep branch already ran FIRST -- outside-in). Report the LONGEST
+  # path tried, so 'stage nosuch' is named as such, not as 'stage'.
+  if [ -n "$deep_unknown" ]; then
+    printf '%s\n' "$deep_unknown"
+    return 0
+  fi
   printf '%s %s\n' "_unknown_command1" "$(printf '%s\n' "$curr" | sed "s/'/'\\\\''/g; s/^/'/; s/$/'/")"
   return 0
 }
@@ -730,20 +817,45 @@ has_newline_in_path() {
   [ "$(printf '%s' "$path" | wc -l)" -gt 0 ]
 }
 
+# Exit codes above 128 are batch pointers: 128 + (p << 6) + id names the ring position
+# .tmp/batch-exits/<id> where the runner recorded its lines. Whether a code IS a pointer is
+# decided by WHO the child is, never by the value: the producer's return is a pointer when
+# the dispatched function is the runner _batch2, the consumer's exit is a pointer when the
+# dispatched function is a batch combinator (its interpreter spawns the runner). Everywhere
+# else a code other than 0 is the failure bit -- an interpreter killed by a signal (the
+# shell renders that as 128 + signum) included. We only accumulate over the children.
+
+# exit_signal_number <code> -- the signal behind a shell-rendered signal death (for a message)
+exit_signal_number() {
+	echo $(( $1 - 128 ))
+}
+
+# check_batch_success <code> [<is-batch>] -- did the child succeed? A child whose code is a
+# batch pointer (is-batch = 1) succeeded when every recorded line succeeded; a line's own
+# nested pointer is the third field the runner recorded, so the recursion never guesses
+# context_call_is_batch -- 1 when the resolved top-level call returns a batch pointer
+# (the runner itself, or a batch combinator whose interpreter spawns the runner)
+context_call_is_batch() {
+	case "${ELEBAKE_CONTEXT_CALL:-}" in
+		_batch2*|___*) echo 1 ;;
+		*) echo 0 ;;
+	esac
+}
+
 check_batch_success() {
-	local exit_code="$1"
+	local exit_code="$1" is_batch="${2:-0}"
 
 	# Exit 0: Success
 	if [ "$exit_code" -eq 0 ]; then
 		return 0
 	fi
 
-	# Exit 1-127: Real failure
-	if [ "$exit_code" -lt 128 ]; then
+	# Not a batch pointer (a plain failure, or a signal death rendered as 128+N)
+	if [ "$exit_code" -lt 128 ] || [ "$is_batch" != 1 ]; then
 		return 1
 	fi
 
-	# Exit 128-255: Batch completion - recursively check children
+	# Batch completion - recursively check children
 	local batch_id=$(( (exit_code - 128) & 0x3F ))
 	local batch_file="$ELEBAKE_BASE/.tmp/batch-exits/$batch_id"
 
@@ -755,8 +867,11 @@ check_batch_success() {
 	# Check each child recursively
 	# Note: || [ -n "$child_exit" ] prevents set -e from triggering on EOF
 	while IFS='|' read -r child_exit child_func child_ref || [ -n "$child_exit" ]; do
-		if ! check_batch_success "$child_exit"; then
-			return 1
+		[ -n "$child_exit" ] || continue
+		if [ -n "$child_ref" ]; then
+			check_batch_success "$child_exit" 1 || return 1
+		else
+			[ "$child_exit" -eq 0 ] || return 1
 		fi
 	done < "$batch_file"
 
@@ -786,8 +901,9 @@ produce_with_exit() {
 
 	trace_log "|" "produce_with_exit" "Wrote exit code to file: $exit_file"
 
-	# Use recursive helper to check if execution succeeded
-	if ! check_batch_success "$dispatch_exit"; then
+	# Use recursive helper to check if execution succeeded (the dispatch's
+	# return is a batch pointer only when the dispatched function is the runner)
+	if ! check_batch_success "$dispatch_exit" "${producer_is_batch:-0}"; then
 		# Failure path: show captured output, report on stderr.
 		# The failure already propagates out-of-band via the producer exit
 		# channel (combine_exit_codes), so no error script is injected into
@@ -853,7 +969,6 @@ consume_with_exit() {
 	eval "run_env -- $interpreter" > "$stdout_file"
 	local exit_code=$?
 	set -e
-
 	# Store exit code for caller
 	echo "$exit_code" > "$exit_file"
 
@@ -900,10 +1015,12 @@ free_batch_id() {
 	$MODIFY_FILE_REMOVE "$batch_file" 2>>"$LOG_FILE"
 }
 
+# combine_exit_codes <init-bits> <producer-exit> <consumer-exit> [<producer-is-batch> <consumer-is-batch>]
 combine_exit_codes() {
 	local init_bits="$1"
 	local producer_exit="$2"
 	local consumer_exit="$3"
+	local producer_is_batch="${4:-0}" consumer_is_batch="${5:-0}"
 
 	# Trace entry point with all parameters
 	trace_log "|" "combine_exit_codes" "ENTRY: init_bits='$init_bits' producer_exit='$producer_exit' consumer_exit='$consumer_exit'"
@@ -920,8 +1037,8 @@ combine_exit_codes() {
 		return 1
 	fi
 
-	# Check if producer is batch completion code
-	if [ "$producer_exit" -ge 128 ]; then
+	# Check if producer is batch completion code (the dispatched function is the runner)
+	if [ "$producer_is_batch" = 1 ] && [ "$producer_exit" -ge 128 ]; then
 		# Producer returned batch code - propagate it up
 		# Extract batch_id and read batch file
 		local batch_id=$(( (producer_exit - 128) & 0x3F ))
@@ -960,8 +1077,8 @@ combine_exit_codes() {
 	fi
 
 	# Check if consumer is batch completion code
-	if [ "$consumer_exit" -ge 128 ]; then
-		# Consumer returned batch code
+	if [ "$consumer_is_batch" = 1 ] && [ "$consumer_exit" -ge 128 ]; then
+		# Consumer returned batch code (the dispatched function is a batch combinator)
 		# Extract batch_id from batch exit code
 		local batch_id=$(( (consumer_exit - 128) & 0x3F ))
 
@@ -1003,7 +1120,7 @@ combine_exit_codes() {
 		return "$consumer_exit"
 	fi
 
-	# Both producer and consumer are regular exit codes (0-127)
+	# Both producer and consumer are regular exit codes (0-127) or signal deaths
 	# Normalize to bits and encode
 	local p_bit=0
 	if [ "$producer_exit" -ne 0 ]; then
@@ -1019,12 +1136,35 @@ combine_exit_codes() {
 	ELEBAKE_CONTEXT_EXIT_BITS="$p_bit.$c_bit"
 	export ELEBAKE_CONTEXT_EXIT_BITS
 
+
 	# Encode into bit pattern
 	# Current level encoding: (p << 1) | c
 	local encoded=$(( (p_bit << 1) | c_bit ))
 
 	# Return encoded exit code
 	return "$encoded"
+}
+
+#@help _note1
+# @command note <text>
+# @summary Print '# <text>' to stderr -- a line for the caller (a report, a finding) that a running batch shows; cat shows it too
+# @group   setup
+# @internal
+# @example elebake note 'gate fish_0: slot LOADER_TRUST_BOOTLOCK_SECRET has no baseline'
+#@end
+_note1() {
+        printf '%s\n' "printf '# %s\\n' '$(printf '%s' "$1" | sed "s/'/'\\\\''/g")' >&2"
+}
+
+#@help _comment1
+# @command comment <text>
+# @summary Print one comment line '# <text>' -- the neutral element of a batch that has nothing left to do (sh runs it as a no-op, cat shows why)
+# @group   setup
+# @internal
+# @example elebake comment 'loader does not host phase SYSINIT'
+#@end
+_comment1() {
+  printf '# %s\n' "$1"
 }
 
 #@help _error1
@@ -1208,6 +1348,15 @@ process_arguments() {
   # Extract function name (first word before space or entire string if no space)
   local func_name="${resolved_call%% *}"
 
+  # Who the child is decides how its exit code reads: the runner's return is a
+  # batch pointer, a batch combinator's interpreter spawns the runner and returns
+  # one; every other code other than 0 is the failure bit (see combine_exit_codes)
+  local producer_is_batch=0 consumer_is_batch=0
+  case "$func_name" in
+    _batch2) producer_is_batch=1 ;;
+    ___*) consumer_is_batch=1 ;;
+  esac
+
   # Look up module in FUNCTION_MODULES mapping (format: "func:module.sh func:module.sh ...")
   # This is a build-time generated mapping - see scripts/generate-metadata.sh
   for mapping in $FUNCTION_MODULES; do
@@ -1375,8 +1524,11 @@ process_arguments() {
     # Let combine_exit_codes understand what exit codes mean and handle them
     # CRITICAL: Disable set -e to allow capturing exit codes >127
     local combined_exit
+    if [ "$consumer_is_batch" != 1 ] && [ "$consumer_exit" -ge 129 ] && [ "$consumer_exit" -le 160 ]; then
+      printf "# Error: %s\n" "Interpreter killed by signal $(exit_signal_number "$consumer_exit") (exit $consumer_exit)" >&2
+    fi
     set +e
-    combine_exit_codes "$init_bits" "$producer_exit" "$consumer_exit"
+    combine_exit_codes "$init_bits" "$producer_exit" "$consumer_exit" "$producer_is_batch" "$consumer_is_batch"
     combined_exit=$?
     set -e
 
@@ -1409,8 +1561,11 @@ process_arguments() {
     # Let combine_exit_codes understand what exit codes mean and handle them
     # CRITICAL: Disable set -e to allow capturing exit codes >127
     local combined_exit
+    if [ "$consumer_is_batch" != 1 ] && [ "$consumer_exit" -ge 129 ] && [ "$consumer_exit" -le 160 ]; then
+      printf "# Error: %s\n" "Interpreter killed by signal $(exit_signal_number "$consumer_exit") (exit $consumer_exit)" >&2
+    fi
     set +e
-    combine_exit_codes "$init_bits" "$producer_exit" "$consumer_exit"
+    combine_exit_codes "$init_bits" "$producer_exit" "$consumer_exit" "$producer_is_batch" "$consumer_is_batch"
     combined_exit=$?
     set -e
     set +e
@@ -1448,9 +1603,20 @@ main() {
     local resolved_call=$(to_function_call "$ANCHOR_FUNCTIONS" "$@")
     export ELEBAKE_CONTEXT_CALL="$resolved_call"
 
+    # Only the bootstrap batch itself takes this path (it runs under sh -e,
+    # before any database exists). Its own lines -- bootstrap name valid,
+    # bootstrap scaffold, bootstrap init, bootstrap link -- start with the
+    # same word but are ordinary no-database commands: they go through
+    # process_arguments like every other line (Part 2 admits them).
+    local func_name="${resolved_call%% *}"
+    case "$func_name" in
+      ___bootstrap2|__bootstrap1) ;;
+      *) func_name="" ;;
+    esac
+  fi
+  if [ -n "${func_name:-}" ]; then
     # Dynamic module loading: deterministic function-to-module lookup
     # Bootstrap bypasses process_arguments(), so we must load module manually
-    local func_name="${resolved_call%% *}"
     for mapping in $FUNCTION_MODULES; do
       case "$mapping" in
         "$func_name":*)
@@ -1464,15 +1630,15 @@ main() {
       esac
     done
 
-    # IMPORTANT: Set ELEBAKE_BASE to an existing directory for bootstrap
-    # The nested init call needs BASE to exist, so we use /tmp as a safe default
-    # The actual target directory is passed by _bootstrap1 as an argument to init
+    # No database exists: the environment is the shipped baseline
+    # (template/environment), and the bootstrap batch itself runs under
+    # sh -e -- the batch runner's scratch lives in the database the batch
+    # is about to create (its first act, 'bootstrap scaffold'). ELEBAKE_BASE
+    # points at an existing directory for the trace machinery; the target
+    # database is named by the batch lines themselves.
     ELEBAKE_BASE="${TMPDIR:-/tmp}"
-
-    # Export complete environment for bootstrap execution
-    # Override bootstrap and init interpreters (init is called by bootstrap)
-    # Provide PATH for file operations (no sbin directories needed)
-    export ELEBAKE_CACHE_ENV_ARGS="PATH='/bin:/usr/bin:/usr/local/bin' ELEBAKE_INTERPRETER_bootstrap='sh' ELEBAKE_INTERPRETER_init='sh'"
+    export LOG_FILE="${LOG_FILE:-/dev/null}"
+    export ELEBAKE_CACHE_ENV_ARGS="PATH='/bin:/usr/bin:/usr/local/bin' $(build_env_args_template) ELEBAKE_INTERPRETER_bootstrap='sh -e'"
 
     # Evaluate CACHE_ENV_ARGS to make variables available for lookup_interpreter
     eval "export $ELEBAKE_CACHE_ENV_ARGS"
@@ -1516,9 +1682,10 @@ main() {
           ELEBAKE_BASE="${TMPDIR:-/tmp}"
         fi
 
-        # Ensure interpreter variables have defaults (no .env files available)
-        # Start with CACHE_ENV_ARGS if set (e.g., from bootstrap's init call)
-        env_args="${ELEBAKE_CACHE_ENV_ARGS:-}"
+        # No .env layer yet: the environment is the shipped baseline
+        # (template/environment) -- the children of bootstrap's init land
+        # here and see the same pins a bootstrapped database installs
+        env_args="${ELEBAKE_CACHE_ENV_ARGS:-$(build_env_args_template)}"
         ensure_interpreter_var "ELEBAKE_TERMINAL_INTERPRETER"
         ensure_interpreter_var "ELEBAKE_COMBINATOR_INTERPRETER"
         ensure_interpreter_var "ELEBAKE_BATCH_COMBINATOR_INTERPRETER"
@@ -1528,7 +1695,7 @@ main() {
         process_arguments "$@"
         exit_code=$?
         # Use check_batch_success to handle batch completion codes
-        if check_batch_success "$exit_code"; then
+        if check_batch_success "$exit_code" "$(context_call_is_batch)"; then
           return 0
         else
           return 1
@@ -1538,9 +1705,18 @@ main() {
   done
   fi
 
-  # Ensure ELEBAKE_BASE exists (required for all other commands)
+  # Ensure ELEBAKE_BASE is a usable database (required for all other
+  # commands). Fail early and say what is wrong: the active-DB symlink can
+  # point nowhere (a database was removed or a bootstrap failed half way),
+  # the directory can be missing, or it can exist without its .env layer.
+  if [ -L "$ELEBAKE_BASE" ] && [ ! -e "$ELEBAKE_BASE" ]; then
+    error "active database symlink $ELEBAKE_BASE -> $(readlink "$ELEBAKE_BASE") points nowhere (bootstrap <name> <profile>, or ln -sfn <name> $ELEBAKE_ROOT/db)"
+  fi
   if [ ! -d "$ELEBAKE_BASE" ]; then
-    error "elebake base directory not found: $ELEBAKE_BASE"
+    error "no database at $ELEBAKE_BASE (bootstrap <name> <profile>)"
+  fi
+  if [ ! -d "$ELEBAKE_BASE/.env" ]; then
+    error "database $ELEBAKE_BASE has no .env layer -- an incomplete bootstrap (bootstrap <name> <profile> again)"
   fi
 
   #---------------------------------------------------------------------------
@@ -1565,7 +1741,7 @@ main() {
 
   # Convert batch completion codes to simple success/failure for user
   # Use check_batch_success() to recursively determine if execution succeeded
-  if check_batch_success "$exit_code"; then
+  if check_batch_success "$exit_code" "$(context_call_is_batch)"; then
     return 0
   else
     return 1

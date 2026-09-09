@@ -96,9 +96,20 @@ test_setup() {
   fi
   ELEBAKE_BASE="$TEST_DIR" "$TEST_SCRIPT" setenv ELEBAKE_TERMINAL_INTERPRETER sh > /dev/null 2>&1
   ELEBAKE_BASE="$TEST_DIR" "$TEST_SCRIPT" setenv ELEBAKE_PATH "/bin:/usr/bin:/usr/local/bin" > /dev/null 2>&1
+  # A test never changes the system: every act terminal the profile pins to
+  # sudo is pinned to cat here -- its output is analysed, never run (JB 09.09.).
+  local pin
+  for pin in "$(dirname "$TEST_SCRIPT")"/template/environment/ELEBAKE_INTERPRETER_*; do
+    case "$(sed -n 1p "$pin")" in sudo*)
+      ELEBAKE_BASE="$TEST_DIR" "$TEST_SCRIPT" setenv "${pin##*/}" cat > /dev/null 2>&1 ;;
+    esac
+  done
 }
 
-run_elebake() { ELEBAKE_BASE="$TEST_DIR" "$TEST_SCRIPT" "$@" 2>&1; }
+# The output is captured before it is printed: a consumer that closes early
+# (grep -q) must never reach the running batch -- its exit channel would see
+# the broken pipe, not the failing line (engine finding 09.09.).
+run_elebake() { local out rc; out=$(ELEBAKE_BASE="$TEST_DIR" "$TEST_SCRIPT" "$@" 2>&1); rc=$?; printf '%s\n' "$out"; return $rc; }
 # unit_attest_key <record> -- generate a throwaway OpenPGP key in a home
 # short enough for gpg-agent's socket, register it in the test database and
 # pin it as the archive attest key. Sets UNIT_GNUPGHOME and UNIT_FPR.
@@ -398,7 +409,7 @@ test_dump_version_header() {
   else
     fail "serial/strategy header missing"
   fi
-  if printf '%s\n' "$out" | grep -q "(no receipts to dump)"; then
+  if printf '%s\n' "$out" | grep -q "no receipts to dump"; then
     pass "the receipts are part of the description"
   else
     fail "provenance section missing"
@@ -525,10 +536,10 @@ test_stage_marker_emission_inspects_only() {
   test_header "marker: record acts, write stays an inspected NVRAM emission, value stays runtime"
   test_setup
   run_elebake stage add unitn > /dev/null 2>&1
-  # the write terminal is unpinned by design; the test database pins the
-  # terminal default to sh, so pin the write to cat HERE -- tests never
-  # touch NVRAM
-  run_elebake setenv ELEBAKE_INTERPRETER_stage_marker_write cat > /dev/null
+  # the NVRAM act terminal is pinned to cat by its template (inspect, then
+  # pipe to sudo sh); the test database pins the terminal default to sh, so
+  # the pin is set again HERE as the belt to the braces -- tests never touch NVRAM
+  run_elebake setenv ELEBAKE_INTERPRETER_stage_marker_nvram cat > /dev/null
   run_elebake setenv ELEBAKE_INTERPRETER_stage_marker3 cat > /dev/null
   local out; out=$(run_elebake stage marker unitn Boot00AB /nonexistent/markerfile 2>&1)
   if printf '%s\n' "$out" | grep -q "stage marker record 'unitn' 'Boot00AB' '/nonexistent/markerfile'" \
@@ -691,6 +702,53 @@ EOF
   fi
 }
 
+test_batch_exit_survives_a_closed_pipe() {
+  test_header "batch exit: a consumer that closes the pipe (2>&1 | grep -q) is a write error, never a swallowed failure"
+  test_setup
+  cat > "$TEST_BASE_DIR/unit-pipe.sh" <<'EOF'
+"$ELEBAKE_CONTEXT_SCRIPT" setenv ELEBAKE_UNIT_A one
+"$ELEBAKE_CONTEXT_SCRIPT" error boom
+"$ELEBAKE_CONTEXT_SCRIPT" setenv ELEBAKE_UNIT_B two
+EOF
+  local a="$TEST_DIR/.env/local/ELEBAKE_UNIT_A" b="$TEST_DIR/.env/local/ELEBAKE_UNIT_B" rc
+  ELEBAKE_BASE="$TEST_DIR" "$TEST_SCRIPT" batch "$TEST_BASE_DIR/unit-pipe.sh" > /dev/null 2>&1; rc=$?
+  if [ "$rc" -ne 0 ] && [ -f "$a" ] && [ ! -f "$b" ]; then
+    pass "fail-fast, output consumed: B not set, exit $rc"
+  else
+    fail "fail-fast consumed: rc=$rc a=$(cat "$a" 2>/dev/null) b=$(cat "$b" 2>/dev/null)"
+  fi
+  rm -f "$a" "$b"
+  ELEBAKE_BATCH_KEEP_GOING=1 ELEBAKE_BASE="$TEST_DIR" "$TEST_SCRIPT" batch "$TEST_BASE_DIR/unit-pipe.sh" > /dev/null 2>&1; rc=$?
+  if [ "$rc" -ne 0 ] && [ -f "$a" ] && [ -f "$b" ]; then
+    pass "keep-going, output consumed: B set, exit $rc still reports the failure"
+  else
+    fail "keep-going consumed: rc=$rc a=$(cat "$a" 2>/dev/null) b=$(cat "$b" 2>/dev/null)"
+  fi
+  rm -f "$a" "$b"
+  ELEBAKE_BASE="$TEST_DIR" "$TEST_SCRIPT" batch "$TEST_BASE_DIR/unit-pipe.sh" 2>/dev/null | grep -q "Set ELEBAKE_UNIT_A"
+  if [ -f "$a" ] && [ ! -f "$b" ]; then
+    pass "fail-fast, stdout in a pipe grep closes early: B not set"
+  else
+    fail "stdout pipe: a=$(cat "$a" 2>/dev/null) b=$(cat "$b" 2>/dev/null)"
+  fi
+  rm -f "$a" "$b"
+  ELEBAKE_BASE="$TEST_DIR" "$TEST_SCRIPT" batch "$TEST_BASE_DIR/unit-pipe.sh" 2>&1 | grep -q "Set ELEBAKE_UNIT_A"
+  if [ -f "$a" ] && [ ! -f "$b" ]; then
+    pass "fail-fast, stderr in the pipe too (2>&1): the error step is not killed, B not set"
+  else
+    fail "2>&1 pipe: a=$(cat "$a" 2>/dev/null) b=$(cat "$b" 2>/dev/null)"
+  fi
+  rm -f "$a" "$b"
+  # a signal death of an interpreter is named, never read as a batch id
+  ELEBAKE_BASE="$TEST_DIR" "$TEST_SCRIPT" setintp error 'sh -c "kill -TERM \$\$"' > /dev/null 2>&1
+  local out; out=$(ELEBAKE_BASE="$TEST_DIR" "$TEST_SCRIPT" batch "$TEST_BASE_DIR/unit-pipe.sh" 2>&1); rc=$?
+  if [ "$rc" -ne 0 ] && printf '%s\n' "$out" | grep -q "killed by signal 15" && [ ! -f "$b" ]; then
+    pass "an interpreter killed by SIGTERM is reported as a signal death and stops the batch"
+  else
+    fail "signal death: rc=$rc b=$(cat "$b" 2>/dev/null) $(printf '%s\n' "$out" | grep -i "signal\|failed" | head -3)"
+  fi
+}
+
 test_getenv_layer_reporting() {
   test_header "getenv reports the winning layer"
   test_setup
@@ -847,9 +905,10 @@ test_foundation_catalogs() {
 fixture_worktree() {
   local fix="$TEST_BASE_DIR/fix-work-$TESTS_RUN-$1/stand/efi/loader/local"
   mkdir -p "$fix"
-  printf 'struct measurement\tmeasure_alpha(int argc, CHAR16 *argv[]);\nvoid\tdiagnose_alpha(int argc, CHAR16 *argv[], struct diagnosis *);\n' > "$fix/measurement.h"
+  printf 'loader.measure measurement.h struct[[:space:]]measurement[[:space:]]*%%s( not in the loader catalog of this checkout\nloader.diagnose measurement.h void[[:space:]]*%%s( not in the loader catalog of this checkout\nloader.when policy.h ^bool[[:space:]]*%%s( not in the loader catalog of this checkout\nloader.action action.h extern[[:space:]]const[[:space:]]struct[[:space:]]action[[:space:]]*%%s; not in the loader catalog of this checkout\n' > "$fix/catalog.tbl"
+  printf 'struct measurement\tmeasure_alpha(int argc, CHAR16 *argv[]);\nstruct measurement\tmeasure_record(int argc, CHAR16 *argv[]);\nvoid\tdiagnose_alpha(int argc, CHAR16 *argv[], struct diagnosis *);\n' > "$fix/measurement.h"
   printf 'bool\twhen_always(const struct appraisal *);\nenum phase {\n\tPHASE_ONE,\n\tPHASE_TWO,\n};\n' > "$fix/policy.h"
-  printf 'extern const struct action\ttest_act;\n' > "$fix/action.h"
+  printf 'extern const struct action\ttest_act;\nextern const struct action\thandover_act;\n' > "$fix/action.h"
   ln -sfn "$TEST_BASE_DIR/fix-work-$TESTS_RUN-$1" "$TEST_DIR/stage/$1/work"
   printf 'fixture-ref\n' > "$TEST_DIR/stage/$1/checkout"
 }
@@ -863,6 +922,7 @@ test_foundation_expectation_crud() {
   else
     fail "expectation show wrong: $(run_elebake expectation show)"
   fi
+  run_elebake macro add BOARD_DIGEST sha256 BoardIdentity > /dev/null
   run_elebake expectation add board-expected macro - BOARD_EXPECTED > /dev/null
   if run_elebake expectation show board-expected | grep -q "board-expected: BOARD_EXPECTED"; then
     pass "macro type renders the value verbatim"
@@ -1000,7 +1060,7 @@ test_foundation_immutability_idempotence() {
   else
     fail "gate re-add clobbered the claims list"
   fi
-  if run_elebake gate add g1 OTHER_SLOT 2>&1 | grep -q "different secret slot"; then
+  if run_elebake gate add g1 OTHER_SLOT 2>&1 | grep -q "different slots"; then
     pass "gate re-add with another slot is refused"
   else
     fail "slot change accepted"
@@ -1055,18 +1115,16 @@ test_foundation_position() {
 test_foundation_dangling_show() {
   test_header "dangling references render visibly, never fatally"
   test_setup
-  run_elebake claim add c1 measure_x - - ghost-exp > /dev/null
-  if run_elebake claim show c1 | grep -q "undefined expectation: ghost-exp"; then
-    pass "claim over a missing expectation shows the undefined marker"
+  if run_elebake claim add c1 measure_x - - ghost-exp | grep -q "no such expectation" && [ ! -f "$TEST_DIR/foundation/claims/c1" ]; then
+    pass "claim add refuses a missing expectation (the reference never dangles)"
   else
-    fail "dangling expectation not marked"
+    fail "dangling expectation accepted"
   fi
   run_elebake gate add g1 > /dev/null
-  run_elebake gate claim add g1 ghost-claim > /dev/null
-  if run_elebake gate show g1 | grep -q "undefined claim: ghost-claim"; then
-    pass "gate over a missing claim shows the undefined marker"
+  if run_elebake gate claim add g1 ghost-claim | grep -q "no such claim" && ! grep -qs ghost-claim "$TEST_DIR/foundation/gates/g1/claims"; then
+    pass "gate claim add refuses a missing claim (the reference never dangles)"
   else
-    fail "dangling claim not marked"
+    fail "dangling claim accepted"
   fi
 }
 
@@ -1111,14 +1169,13 @@ test_stage_phase_policy_binding() {
   run_elebake gate add gbad > /dev/null
   run_elebake gate claim add gbad cbad > /dev/null
   run_elebake policy add pbad gbad > /dev/null
-  if run_elebake stage phase policy add unitb PHASE_ONE pbad 2>&1 | grep -q "not in this checkout's catalog"; then
+  if run_elebake stage phase policy add unitb PHASE_ONE pbad 2>&1 | grep -q "not in the loader catalog of this checkout"; then
     pass "unknown measurement fails the transitive check"
   else
     fail "bogus measurement accepted"
   fi
-  run_elebake policy add pghost ghost-gate > /dev/null
-  if run_elebake stage phase policy add unitb PHASE_ONE pghost 2>&1 | grep -q "undefined gate"; then
-    pass "dangling gate fails at the binding"
+  if run_elebake policy add pghost ghost-gate | grep -q "no such gate" && [ ! -f "$TEST_DIR/foundation/policies/pghost" ]; then
+    pass "policy add refuses a missing gate (the reference never dangles)"
   else
     fail "dangling gate accepted"
   fi
@@ -1149,7 +1206,7 @@ test_foundation_dump_replays() {
 expectation add 'e1' 'byte' 'A' '1'
 claim add 'c1' 'measure_alpha' '-' '-' 'e1'
 trigger add 't1' 'when_always' 'test_act'
-gate add 'g1' 'SLOT_X'
+gate add 'g1' 'SLOT_X' '-'
 gate claim add 'g1' 'c1'
 policy add 'p1' 'g1'
 policy trigger add 'p1' 't1'"
@@ -1239,6 +1296,42 @@ test_stage_foundation_emitter() {
   else
     fail "check answer wrong: $(run_elebake stage foundation check unite 2>&1)"
   fi
+  local chk; chk=$(run_elebake stage foundation check unite 2>&1)
+  if printf '%s\n' "$chk" | grep -q "gate gsec: secret slot LOADER_TRUST_GSEC_SECRET has no baseline" \
+     && printf '%s\n' "$chk" | grep -q "macro ALPHA_DIGEST: LOADER_TRUST_ALPHA_DIGEST has no value yet" \
+     && printf '%s\n' "$chk" | grep -q "foundation check ok: 1 binding"; then
+    pass "the check names the empty lock slot and the macro without value"
+  else
+    fail "unprovisioned notes: $chk"
+  fi
+  run_elebake stage baseline add unite LOADER_TRUST_GSEC_SECRET string 00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff > /dev/null 2>&1
+  printf 'CFLAGS+= -DLOADER_TRUST_ALPHA_DIGEST=0x00\n' > "$TEST_BASE_DIR/fix-work-$TESTS_RUN-unite/stand/efi/loader/local/site.mk"
+  if run_elebake stage foundation check unite 2>&1 | grep -q "LOADER_TRUST_GSEC_SECRET provisioned" && run_elebake stage foundation check unite 2>&1 | grep -q "LOADER_TRUST_ALPHA_DIGEST provisioned"; then
+    pass "a baseline record or a site.mk line counts as provided: the check reports everything provisioned"
+  else
+    fail "after baselines: $(run_elebake stage foundation check unite 2>&1)"
+  fi
+  run_elebake expectation add rec-valid byte RecordValid 1 > /dev/null
+  run_elebake claim add rec measure_record - - rec-valid > /dev/null
+  run_elebake gate claim add gsec rec > /dev/null
+  run_elebake trigger add th when_always handover_act > /dev/null
+  run_elebake policy trigger add pa th > /dev/null
+  local chk2; chk2=$(run_elebake stage foundation check unite 2>&1)
+  if printf '%s\n' "$chk2" | grep -q "measure_record needs LOADER_TRUST_RECORD_SALT" \
+     && printf '%s\n' "$chk2" | grep -q "handover_act needs LOADER_TRUST_WORD_SECRET" \
+     && run_elebake stage require unite | grep -q "measure_record needs LOADER_TRUST_RECORD_SALT"; then
+    pass "record claim and handover demand their baselines: the check and stage require name them"
+  else
+    fail "baseline demands: $chk2 $(run_elebake stage require unite 2>&1)"
+  fi
+  run_elebake stage baseline add unite LOADER_TRUST_RECORD_SALT string 0123456789abcdef > /dev/null 2>&1
+  run_elebake stage baseline add unite LOADER_TRUST_WORD_SECRET string fedcba9876543210 > /dev/null 2>&1
+  if run_elebake stage foundation check unite 2>&1 | grep -q "handover_act: LOADER_TRUST_WORD_SECRET provisioned" \
+     && run_elebake stage require unite | grep -q "handover_act: LOADER_TRUST_WORD_SECRET provisioned"; then
+    pass "with the baselines both demands are satisfied"
+  else
+    fail "after demand baselines: $(run_elebake stage foundation check unite 2>&1; run_elebake stage require unite)"
+  fi
   if run_elebake gate add "bad-gate" 2>&1 | grep -q "C identifier"; then
     pass "gate names must be C identifiers (they land in the C output)"
   else
@@ -1267,11 +1360,10 @@ test_stage_foundation_emitter() {
   else
     fail "report wrong"
   fi
-  run_elebake macro drop ALPHA_DIGEST > /dev/null
-  if run_elebake stage foundation check unite 2>&1 | grep -q "no macro record defines 'ALPHA_EXPECTED'"; then
-    pass "check catches a dropped macro record (world drifted)"
+  if run_elebake macro drop ALPHA_DIGEST | grep -q "referenced" && [ -f "$TEST_DIR/foundation/macros/ALPHA_DIGEST" ]; then
+    pass "a macro record an expectation names cannot be dropped (the world cannot drift under the bindings)"
   else
-    fail "macro drift not caught: $(run_elebake stage foundation check unite 2>&1)"
+    fail "referenced macro dropped: $(run_elebake macro drop ALPHA_DIGEST 2>&1)"
   fi
 }
 
@@ -1296,7 +1388,7 @@ test_stage_kernel_build_emissions() {
   if run_elebake stage build kernel unitk 2>&1 | grep -q "no such KERNCONF"; then
     fail "existing KERNCONF rejected"
   fi
-  run_elebake setintp stage_build_kernel cat > /dev/null
+  run_elebake setintp stage_build_kernel_run cat > /dev/null
   local out; out=$(run_elebake stage build kernel unitk)
   if printf '%s\n' "$out" | grep -q "buildkernel KERNCONF='GENERIC'" \
      && printf '%s\n' "$out" | grep -q "MAKEOBJDIRPREFIX="; then
@@ -1304,6 +1396,15 @@ test_stage_kernel_build_emissions() {
   else
     fail "buildkernel emission wrong: $out"
   fi
+  run_elebake setenv ELEBAKE_MAKEARGS "WITH_VERIEXEC=yes" > /dev/null
+  run_elebake setintp stage_install_kernel_run cat > /dev/null
+  if run_elebake stage build kernel unitk | grep -q "make -C '[^']*' WITH_VERIEXEC=yes buildkernel" \
+     && run_elebake stage install kernel unitk | grep -q "make -C '[^']*' WITH_VERIEXEC=yes installkernel"; then
+    pass "ELEBAKE_MAKEARGS reaches buildkernel AND installkernel alike"
+  else
+    fail "make args not carried into both: $(run_elebake stage build kernel unitk; run_elebake stage install kernel unitk)"
+  fi
+  run_elebake setenv ELEBAKE_MAKEARGS "" > /dev/null
   run_elebake setenv ELEBAKE_KERNCONF BOGUS > /dev/null
   if run_elebake stage build kernel unitk 2>&1 | grep -q "no such KERNCONF in this checkout: BOGUS"; then
     pass "unknown KERNCONF fails against the checkout"
@@ -1312,7 +1413,7 @@ test_stage_kernel_build_emissions() {
   fi
   run_elebake setenv ELEBAKE_KERNCONF GENERIC > /dev/null
   mkdir -p "$TEST_DIR/stage/unitk/obj"
-  run_elebake setintp stage_install_kernel cat > /dev/null
+  run_elebake setintp stage_install_kernel_run cat > /dev/null
   out=$(run_elebake stage install kernel unitk)
   if printf '%s\n' "$out" | grep -q "installkernel KERNCONF='GENERIC'" \
      && printf '%s\n' "$out" | grep -q 'install -U' \
@@ -1512,7 +1613,7 @@ test_manifest_verify_and_bundle_pairing() {
   fi
   printf 'E\n' > "$TEST_DIR/stage/m2/boot/loader.efi"
 
-  run_elebake setenv ELEBAKE_INTERPRETER_bundle cat > /dev/null
+  run_elebake setenv ELEBAKE_INTERPRETER_bundle_pack cat > /dev/null
   out=$(run_elebake bundle "$coll" "$TEST_BASE_DIR/bundle/m2.tar.gz" 2>&1)
   if printf '%s\n' "$out" | grep -q '^export/MANIFEST$' \
      && printf '%s\n' "$out" | grep -q '^export/MANIFEST.asc$'; then
@@ -1648,7 +1749,6 @@ test_backup_records_and_rollback() {
   else
     fail "backup list wrong: $out"
   fi
-  run_elebake setenv ELEBAKE_INTERPRETER_stage_backup4 cat > /dev/null
   run_elebake setenv ELEBAKE_INTERPRETER_stage_backup2 cat > /dev/null
   run_elebake setenv ELEBAKE_INTERPRETER_stage_backup3 cat > /dev/null
   out=$(run_elebake stage backup unitb a)
@@ -1689,7 +1789,6 @@ test_backup_records_and_rollback() {
   else
     fail "rollback batch wrong: $out"
   fi
-  run_elebake setenv ELEBAKE_INTERPRETER_stage_rollback_apply cat > /dev/null
   out=$(run_elebake stage rollback apply unitb a older)
   if printf '%s\n' "$out" | grep -q "backup/a/older/loader.efi" && printf '%s\n' "$out" | grep -q "first deploy"; then
     pass "rollback apply writes the named record's loader and shows its description"
@@ -1713,7 +1812,7 @@ test_stage_dump_minimized() {
   printf 'L' > "$d/boot/loader.efi"; printf 'K' > "$d/boot/kernel/kernel"; printf 'M' > "$d/boot/kernel/if_x.ko"
   printf 'lua' > "$d/boot/lua/loader.lua"; printf 'c' > "$d/boot/loader.conf"; printf 'Boot0001' > "$d/marker/bootvar"
   printf 'B' > "$d/backup/a/x/loader.efi"; printf 'p1' > "$d/phases/loaderconf"
-  local out; out=$(run_elebake stage dump unitm minimized)
+  local out; out=$(run_elebake stage dump minimized unitm)
   if printf '%s\n' "$out" | grep -q "boot/kernel/if_x.ko" && printf '%s\n' "$out" | grep -q "boot/loader.conf" \
      && printf '%s\n' "$out" | grep -q "'backup/a/x' " && ! printf '%s\n' "$out" | grep -q "lua" \
      && ! printf '%s\n' "$out" | grep -q "marker" && ! printf '%s\n' "$out" | grep -q "phase policy" \
@@ -1827,6 +1926,674 @@ test_stage_prerequisites_lists() {
   fi
 }
 
+test_stage_baseline_records() {
+  test_header "stage baseline: add/show/drop/learn, immutability, site mk rendering, dump"
+  test_setup
+  run_elebake stage add unitbl > /dev/null 2>&1
+  run_elebake stage baseline add unitbl LOADER_TRUST_TIME_BOOT_MAX_MS int 90000 > /dev/null
+  run_elebake stage baseline add unitbl LOADER_TRUST_BOOTLOCK_SECRET string 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08 > /dev/null
+  run_elebake stage baseline add unitbl LOADER_TRUST_IMAGES_DIGEST digest 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08 > /dev/null
+  local sid; sid=$(basename "$(readlink "$TEST_DIR/stage/unitbl")")
+  if [ "$(cat "$TEST_DIR/.staging/$sid/baselines/LOADER_TRUST_TIME_BOOT_MAX_MS")" = "int 90000" ]; then
+    pass "baseline add stores '<type> <value>'"
+  else
+    fail "baseline record wrong: $(ls -R "$TEST_DIR/.staging/$sid" 2>&1)"
+  fi
+  if run_elebake stage baseline add unitbl LOADER_TRUST_TIME_BOOT_MAX_MS int 90000 | grep -q "unchanged"; then
+    pass "identical re-add is a no-op"
+  else
+    fail "identical re-add not idempotent"
+  fi
+  if run_elebake stage baseline add unitbl LOADER_TRUST_TIME_BOOT_MAX_MS int 1 | grep -q "immutable"; then
+    pass "differing re-add is refused"
+  else
+    fail "differing re-add accepted"
+  fi
+  if run_elebake stage baseline add unitbl FOO int 1 | grep -q "LOADER_TRUST_<NAME>" \
+     && run_elebake stage baseline add unitbl LOADER_TRUST_X digest abc | grep -q "does not fit" \
+     && run_elebake stage baseline add unitbl LOADER_TRUST_Y int 1x | grep -q "does not fit"; then
+    pass "macro name and typed values are validated"
+  else
+    fail "validation gap"
+  fi
+  local mk; mk=$(run_elebake stage site mk baselines unitbl)
+  if printf '%s\n' "$mk" | grep -q '^CFLAGS+= -DLOADER_TRUST_TIME_BOOT_MAX_MS=90000$' \
+     && printf '%s\n' "$mk" | grep -q '^CFLAGS+= -DLOADER_TRUST_BOOTLOCK_SECRET=\\"9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08\\"$' \
+     && printf '%s\n' "$mk" | grep -q "^CFLAGS+= -DLOADER_TRUST_IMAGES_DIGEST='0x9f,0x86,"; then
+    pass "site mk baselines renders int bare, string as C string, digest as byte list"
+  else
+    fail "site mk baselines rendering: $mk"
+  fi
+  if run_elebake stage baseline show unitbl | grep -q "LOADER_TRUST_IMAGES_DIGEST (digest)"; then
+    pass "baseline show lists the records"
+  else
+    fail "baseline show: $(run_elebake stage baseline show unitbl)"
+  fi
+  if run_elebake stage dump unitbl | grep -q "stage baseline add 'unitbl' 'LOADER_TRUST_BOOTLOCK_SECRET' 'string' '9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08'"; then
+    pass "stage dump replays the baselines"
+  else
+    fail "dump replay missing"
+  fi
+  if run_elebake stage baseline learn unitbl LOADER_TRUST_ACPI_DIGEST loader.trust.platform.acpi.sha256 | grep -q "not a published 64-hex digest"; then
+    pass "baseline learn fails early when this machine published no such digest"
+  else
+    fail "learn accepted an unpublished value"
+  fi
+  run_elebake stage baseline drop unitbl LOADER_TRUST_TIME_BOOT_MAX_MS > /dev/null
+  if [ ! -f "$TEST_DIR/.staging/$sid/baselines/LOADER_TRUST_TIME_BOOT_MAX_MS" ]; then
+    pass "baseline drop removes the record"
+  else
+    fail "drop left the record"
+  fi
+}
+
+test_stage_disks_records() {
+  test_header "stage disks: add/show/drop, validation, dump; site mk disks silent without records"
+  test_setup
+  run_elebake stage add unitdk > /dev/null 2>&1
+  if [ -z "$(run_elebake stage site mk disks unitdk)" ]; then
+    pass "site mk disks prints nothing without a disks record"
+  else
+    fail "site mk disks printed without records: $(run_elebake stage site mk disks unitdk)"
+  fi
+  run_elebake stage disks add unitdk nda0p1 > /dev/null
+  run_elebake stage disks add unitdk nda2p1 > /dev/null
+  run_elebake stage disks add unitdk nda0p1 > /dev/null
+  local sid; sid=$(basename "$(readlink "$TEST_DIR/stage/unitdk")")
+  if [ "$(grep -c . "$TEST_DIR/.staging/$sid/disks")" = "2" ]; then
+    pass "disks add is an idempotent append in order"
+  else
+    fail "disks record wrong: $(cat "$TEST_DIR/.staging/$sid/disks" 2>&1)"
+  fi
+  if run_elebake stage disks add unitdk bogus | grep -q "not a GPT partition name"; then
+    pass "partition names are validated"
+  else
+    fail "bogus device accepted"
+  fi
+  if run_elebake stage disks show unitdk | grep -q "#   nda2p1"; then
+    pass "disks show lists the partitions"
+  else
+    fail "disks show wrong"
+  fi
+  if run_elebake stage dump unitdk | grep -q "stage disks add 'unitdk' 'nda2p1'"; then
+    pass "stage dump replays the disks"
+  else
+    fail "dump replay missing"
+  fi
+  run_elebake stage disks drop unitdk nda0p1 > /dev/null
+  if run_elebake stage disks show unitdk | grep -q nda0p1; then
+    fail "drop left the entry"
+  else
+    pass "disks drop removes the entry"
+  fi
+  # render hygiene: a part that cannot measure says so on stderr, never on stdout
+  # run_elebake merges the streams; here the two streams ARE the assertion
+  run_elebake setintp stage_site_mk_origin sh > /dev/null
+  local oo oe; oo=$(ELEBAKE_BASE="$TEST_DIR" "$TEST_SCRIPT" stage site mk origin unitdk 2>/dev/null); oe=$(ELEBAKE_BASE="$TEST_DIR" "$TEST_SCRIPT" stage site mk origin unitdk 2>&1 >/dev/null)
+  if [ -z "$oo" ] && printf '%s\n' "$oe" | grep -q "LoadOrigin stays asleep"; then
+    pass "site mk origin: unreadable origin is a stderr note, stdout stays empty (site.mk data only)"
+  else
+    fail "site mk origin hygiene: stdout='$oo' stderr='$oe'"
+  fi
+  local smk="$TEST_DIR/.staging/$sid/site.mk"
+  run_elebake setintp stage_site_mk_place cat > /dev/null
+  printf '# header\nCFLAGS.foundation.c += -DLOADER_TRUST_KEYS_DIGEST=1\nprintf %s bogus >&2\n' > "$smk.new"
+  if run_elebake stage site mk install unitdk "$smk" 2>&1 | grep -q "neither comment nor CFLAGS"; then
+    pass "site mk install refuses a render carrying a command line"
+  else
+    fail "site mk install accepted a poisoned render: $(run_elebake stage site mk install unitdk "$smk" 2>&1)"
+  fi
+  printf '# header\nCFLAGS.foundation.c += -DLOADER_TRUST_KEYS_DIGEST=1\n' > "$smk.new"
+  if run_elebake stage site mk install unitdk "$smk" | grep -q "mv '$smk.new' '$smk'"; then
+    pass "site mk install accepts a clean render"
+  else
+    fail "site mk install refused a clean render: $(run_elebake stage site mk install unitdk "$smk" 2>&1)"
+  fi
+}
+
+test_stage_conf_require_loaderconf() {
+  test_header "stage conf / require / loaderconf: bound actions demand keys, mk refuses, writes, check detects drift"
+  test_setup
+  run_elebake stage add unitcf > /dev/null 2>&1
+  fixture_worktree unitcf
+  local fix="$TEST_BASE_DIR/fix-work-$TESTS_RUN-unitcf/stand/efi/loader/local"
+  printf 'extern const struct action\ttest_act;\nextern const struct action\task_act;\n' > "$fix/action.h"
+  printf 'static void\naction_ask(const struct appraisal *a)\n{\n\tconst char *q = kenv(a, "question");\n\tconst char *r = kenv(a, "rescue");\n}\nstatic void\naction_test(const struct appraisal *a)\n{\n}\n' > "$fix/action.c"
+  run_elebake expectation add e1 byte A 1 > /dev/null
+  run_elebake claim add c1 measure_alpha - - e1 > /dev/null
+  run_elebake gate add kernellock > /dev/null
+  run_elebake gate claim add kernellock c1 > /dev/null
+  run_elebake trigger add t-ask when_always ask_act > /dev/null
+  run_elebake policy add p-ask kernellock > /dev/null
+  run_elebake policy trigger add p-ask t-ask > /dev/null
+  run_elebake stage phase policy add unitcf PHASE_TWO p-ask > /dev/null 2>&1
+  local req; req=$(run_elebake stage require unitcf)
+  if printf '%s\n' "$req" | grep -q "loader.trust.kernellock.question  (ask_act)  MISSING" \
+     && printf '%s\n' "$req" | grep -q "loader.trust.kernellock.rescue  (ask_act)  MISSING"; then
+    pass "require attributes the action's kenv leafs to the bound gate"
+  else
+    fail "require wrong: $req"
+  fi
+  local sid; sid=$(basename "$(readlink "$TEST_DIR/stage/unitcf")")
+  mkdir -p "$TEST_DIR/.staging/$sid/boot"
+  printf 'loader_conf_files="loader.conf.local loader.trust.conf"\n' > "$TEST_DIR/.staging/$sid/boot/loader.conf"
+  if run_elebake stage loaderconf mk unitcf | grep -q "no value for loader.trust.kernellock.question"; then
+    pass "loaderconf mk refuses while a required key has no value"
+  else
+    fail "mk did not refuse: $(run_elebake stage loaderconf mk unitcf)"
+  fi
+  run_elebake stage conf add unitcf loader.trust.kernellock.question "Lieblingsspielzeug:" > /dev/null
+  run_elebake stage conf add unitcf loader.trust.kernellock.rescue zfs:zcard/ROOT/rescue > /dev/null
+  if run_elebake stage conf add unitcf loader.trust.kernellock.question "anders" | grep -q "immutable" \
+     && run_elebake stage conf add unitcf bad.key x | grep -q "loader.trust" \
+     && run_elebake stage conf add unitcf loader.trust.k.v 'a"b' | grep -q "one loader.conf line"; then
+    pass "conf add: immutable, key and value validated"
+  else
+    fail "conf validation gap: $(run_elebake stage conf add unitcf loader.trust.k.v 'a"b'; run_elebake stage conf add unitcf bad.key x)"
+  fi
+  run_elebake stage loaderconf mk unitcf > /dev/null
+  if grep -q '^loader.trust.kernellock.question="Lieblingsspielzeug:"$' "$TEST_DIR/.staging/$sid/boot/loader.trust.conf" \
+     && grep -q '^loader.trust.kernellock.rescue="zfs:zcard/ROOT/rescue"$' "$TEST_DIR/.staging/$sid/boot/loader.trust.conf"; then
+    pass "loaderconf mk writes boot/loader.trust.conf from the records"
+  else
+    fail "loader.trust.conf wrong: $(cat "$TEST_DIR/.staging/$sid/boot/loader.trust.conf" 2>&1)"
+  fi
+  if run_elebake stage loaderconf check unitcf | grep -q "agrees with the records"; then
+    pass "loaderconf check agrees right after mk"
+  else
+    fail "check disagrees: $(run_elebake stage loaderconf check unitcf)"
+  fi
+  printf 'loader.trust.kernellock.rescue="zfs:evil/ROOT"\n' >> "$TEST_DIR/.staging/$sid/boot/loader.trust.conf"
+  if run_elebake stage loaderconf check unitcf | grep -q "DRIFT"; then
+    pass "loaderconf check reports drift on the medium copy"
+  else
+    fail "drift not detected"
+  fi
+  if run_elebake stage dump unitcf | grep -q "stage conf add 'unitcf' 'loader.trust.kernellock.question' 'Lieblingsspielzeug:'"; then
+    pass "stage dump replays the conf records"
+  else
+    fail "dump replay missing"
+  fi
+  printf 'x\n' > "$TEST_DIR/.staging/$sid/boot/loader.conf"
+  if run_elebake stage loaderconf mk unitcf | grep -q "loader_conf_files"; then
+    pass "loaderconf mk refuses while loader.conf does not name the file"
+  else
+    fail "mk accepted a loader.conf without loader_conf_files"
+  fi
+}
+
+test_gate_duress_slot() {
+  test_header "gate add: the duress slot renders, dumps, and is immutable"
+  test_setup
+  run_elebake gate add kl LOADER_TRUST_KL_SECRET LOADER_TRUST_KL_DURESS > /dev/null
+  run_elebake gate add plain > /dev/null
+  run_elebake gate add sec LOADER_TRUST_SEC_SECRET > /dev/null
+  if run_elebake gate show kl | grep -q 'GATE_DEFINE(kl, KL_SECRET, KL_DURESS)' \
+     && run_elebake gate show plain | grep -q 'GATE_DEFINE(plain, NULL, NULL)' \
+     && run_elebake gate show sec | grep -q 'GATE_DEFINE(sec, SEC_SECRET, NULL)'; then
+    pass "GATE_DEFINE renders secret and duress slots (NULL when absent)"
+  else
+    fail "gate show: $(run_elebake gate show kl; run_elebake gate show plain; run_elebake gate show sec)"
+  fi
+  if run_elebake gate add kl LOADER_TRUST_KL_SECRET LOADER_TRUST_KL_DURESS | grep -q "unchanged" \
+     && run_elebake gate add kl LOADER_TRUST_KL_SECRET | grep -q "immutable"; then
+    pass "identical re-add is a no-op, a changed slot set is refused"
+  else
+    fail "gate immutability gap"
+  fi
+  local d; d=$(run_elebake dump)
+  if printf '%s\n' "$d" | grep -q "gate add 'kl' 'LOADER_TRUST_KL_SECRET' 'LOADER_TRUST_KL_DURESS'" \
+     && printf '%s\n' "$d" | grep -q "gate add 'sec' 'LOADER_TRUST_SEC_SECRET' '-'$" \
+     && printf '%s\n' "$d" | grep -q "gate add 'plain' '-' '-'$"; then
+    pass "dump replays the slots exactly as recorded"
+  else
+    fail "dump: $(printf '%s\n' "$d" | grep 'gate add')"
+  fi
+}
+
+# fixture_containers <stage> - shared helper: the loader headers of
+# fixture_worktree plus minimal earlboot/elvbootd catalog sources
+fixture_containers() {
+  fixture_worktree "$1"
+  local fix="$TEST_BASE_DIR/fix-work-$TESTS_RUN-$1/stand/efi/loader/local"
+  printf 'extern const struct action\ttest_act;\nextern const struct action\thandover_act;\n' > "$fix/action.h"
+  mkdir -p "$fix/earlboot" "$fix/elvbootd"
+  printf 'earlboot.measure earlboot/measure.sh ^%%s() not in the earlboot catalog of this checkout\nearlboot.diagnose earlboot/measure.sh ^%%s() not in the earlboot catalog of this checkout\nearlboot.when earlboot/policy.sh ^%%s() not in the earlboot catalog of this checkout\nearlboot.action earlboot/action.sh ^%%s() not in the earlboot catalog of this checkout\nelvbootd.measure elvbootd/measure.sh ^%%s() not in the elvbootd catalog of this checkout\nelvbootd.measure earlboot/measure.sh ^%%s() not in the elvbootd catalog of this checkout\nelvbootd.diagnose elvbootd/measure.sh ^%%s() not in the elvbootd catalog of this checkout\nelvbootd.diagnose earlboot/measure.sh ^%%s() not in the elvbootd catalog of this checkout\nelvbootd.when elvbootd/policy.sh ^%%s() not in the elvbootd catalog of this checkout\nelvbootd.action elvbootd/action.sh ^%%s() not in the elvbootd catalog of this checkout\nelvbootd.action earlboot/action.sh ^%%s() not in the elvbootd catalog of this checkout\n' >> "$fix/catalog.tbl"
+  printf '#!/bin/sh\nKENV=/bin/kenv # test:kenv\nMKDIR=/bin/mkdir\nSHUTDOWN=/sbin/shutdown # test:note\n' > "$fix/earlboot/tools.sh"
+  printf '#!/bin/sh\nPHASES="SYSINIT MOUNTED"\nelv_word_check() { ELV_WORD_OK=1; ELV_TAINT=0; ELV_DURESS=0; ELV_PROMPTED=0; }\nelv_prologue() { elv_word_check; }\nwhen_always() { return 0; }\nwhen_fail() { [ "$GATE_VERDICT" = fail ]; }\n' > "$fix/earlboot/policy.sh"
+  printf '#!/bin/sh\nmeasure_kenv() { $KENV -q "$1" 2>/dev/null; }\ndiagnose_kenv() { :; }\n# measure_word <gate> -- 1 iff the handover word verifies\nmeasure_word() { printf "%%s\\n" "$ELV_WORD_OK"; }\nmeasure_bootlock() { :; }\n' > "$fix/earlboot/measure.sh"
+  printf '#!/bin/sh\nlog_act() { :; }\npersist_act() { $MKDIR -p "$ELV_STATE"; printf "gate=%%s verdict=%%s\\npassed=%%s\\nfailed=%%s\\n" "$1" "$GATE_VERDICT" "$PASSED" "$FAILED" > "$ELV_STATE/appraisal-$1"; }\n' > "$fix/earlboot/action.sh"
+  printf '#!/bin/sh\nPHASES="STARTUP PERIODIC RESUME MEDIA"\nelv_flags_load() { :; }\nelv_prologue() { elv_flags_load; }\nwhen_always() { return 0; }\nwhen_fail() { [ "$GATE_VERDICT" = fail ]; }\n' > "$fix/elvbootd/policy.sh"
+  printf '#!/bin/sh\nmeasure_media_serial() { :; }\n' > "$fix/elvbootd/measure.sh"
+  printf '#!/bin/sh\nheartbeat_act() { :; }\nquarantine_act() { :; }\n' > "$fix/elvbootd/action.sh"
+}
+
+test_container_catalogs_and_binding() {
+  test_header "containers: phases per container, catalogs, binding checks per container"
+  test_setup
+  run_elebake stage add unitco > /dev/null 2>&1
+  fixture_containers unitco
+  local ps; ps=$(run_elebake stage phase show unitco)
+  if printf '%s\n' "$ps" | grep -q '\[loader\]' && printf '%s\n' "$ps" | grep -q '\[earlboot\]' \
+     && printf '%s\n' "$ps" | grep -q '^#   SYSINIT' && printf '%s\n' "$ps" | grep -q '^#   MEDIA'; then
+    pass "stage phase show lists every container with its phases"
+  else
+    fail "phase show: $ps"
+  fi
+  if run_elebake stage measure unitco earlboot | grep -q "measure_word" \
+     && run_elebake stage measure unitco earlboot | grep -q "1 iff the handover word verifies" \
+     && run_elebake stage measure unitco earlboot | grep -q "no description in the catalog source" \
+     && run_elebake stage action unitco elvbootd | grep -q "container elvbootd: earlboot/action.sh" \
+     && run_elebake stage when unitco elvbootd | grep -q "when_fail"; then
+    pass "container catalogs are parsed from the sh sources (elvbootd inherits earlboot)"
+  else
+    fail "catalogs: $(run_elebake stage measure unitco earlboot; run_elebake stage action unitco elvbootd)"
+  fi
+  run_elebake expectation add clean string loader.trust.bootlock.failed "" > /dev/null
+  run_elebake claim add clean measure_kenv diagnose_kenv - clean > /dev/null
+  run_elebake gate add custody > /dev/null
+  run_elebake gate claim add custody clean > /dev/null
+  run_elebake trigger add log-always when_always log_act > /dev/null
+  run_elebake policy add custody-watch custody > /dev/null
+  run_elebake policy trigger add custody-watch log-always > /dev/null
+  if run_elebake stage phase policy add unitco SYSINIT custody-watch 2>&1 | grep -q "bound to SYSINIT"; then
+    pass "an earlboot chain binds to an earlboot phase"
+  else
+    fail "earlboot binding refused: $(run_elebake stage phase policy add unitco SYSINIT custody-watch 2>&1)"
+  fi
+  if run_elebake stage phase policy add unitco PHASE_ONE custody-watch 2>&1 | grep -q "not in the loader catalog"; then
+    pass "the same chain is refused for a loader phase (measure_kenv is not C)"
+  else
+    fail "loader accepted an sh chain: $(run_elebake stage phase policy add unitco PHASE_ONE custody-watch 2>&1)"
+  fi
+  run_elebake expectation add e1 byte A 1 > /dev/null
+  run_elebake claim add c1 measure_alpha - - e1 > /dev/null
+  run_elebake gate add g1 > /dev/null
+  run_elebake gate claim add g1 c1 > /dev/null
+  run_elebake trigger add t1 when_always test_act > /dev/null
+  run_elebake policy add p1 g1 > /dev/null
+  run_elebake policy trigger add p1 t1 > /dev/null
+  if run_elebake stage phase policy add unitco MOUNTED p1 2>&1 | grep -q "not in the earlboot catalog"; then
+    pass "a loader chain is refused for an earlboot phase"
+  else
+    fail "earlboot accepted a C chain"
+  fi
+  run_elebake macro add BOARD_DIGEST sha256 BoardIdentity > /dev/null
+  run_elebake expectation add bexp macro - BOARD_EXPECTED > /dev/null
+  run_elebake claim add bclaim measure_kenv - - bexp > /dev/null
+  run_elebake gate add bg > /dev/null
+  run_elebake gate claim add bg bclaim > /dev/null
+  run_elebake policy add bp bg > /dev/null
+  if run_elebake stage phase policy add unitco SYSINIT bp 2>&1 | grep -q "macro expectations exist only in the loader"; then
+    pass "macro expectations are refused outside the loader"
+  else
+    fail "macro expectation accepted in earlboot"
+  fi
+  if run_elebake stage foundation check unitco | grep -q "1 binding(s) across 1 phase(s)"; then
+    pass "foundation check covers container phases"
+  else
+    fail "foundation check: $(run_elebake stage foundation check unitco)"
+  fi
+}
+
+test_answer_family() {
+  test_header "answer hash add / drop / show: one sentinel answer class as one batch"
+  test_setup
+  run_elebake stage add unitan > /dev/null 2>&1
+  fixture_containers unitan
+  local fix="$TEST_BASE_DIR/fix-work-$TESTS_RUN-unitan/stand/efi/loader/local"
+  printf 'measure_answer() { /bin/kenv -q "loader.trust.$1.answer" 2>/dev/null; }\n' >> "$fix/earlboot/measure.sh"
+  printf 'spool_act() { :; }\n' >> "$fix/earlboot/action.sh"
+  printf 'when_pass() { [ "$GATE_VERDICT" = pass ]; }\n' >> "$fix/earlboot/policy.sh"
+  run_elebake gate add tg > /dev/null
+  run_elebake trigger add note-pass when_pass spool_act > /dev/null
+  run_elebake trigger add log-pass when_pass log_act > /dev/null
+  run_elebake policy add react-note tg > /dev/null
+  run_elebake policy trigger add react-note log-pass > /dev/null
+  run_elebake policy trigger add react-note note-pass > /dev/null
+  local sid h; sid=$(basename "$(readlink "$TEST_DIR/stage/unitan")")
+  h=$(printf '%s' saltword | sha256 -q)
+  run_elebake answer hash add unitan SYSINIT kl fish-1 "$h" react-note > /dev/null 2>&1
+  if [ "$(cat "$TEST_DIR/foundation/expectations/fish-1")" = "string kl $h" ] \
+     && grep -q "^measure_answer " "$TEST_DIR/foundation/claims/fish-1" \
+     && [ "$(cat "$TEST_DIR/foundation/gates/fish_1/claims")" = "fish-1" ] \
+     && grep -q "^gate fish_1$" "$TEST_DIR/foundation/policies/fish-1" \
+     && [ "$(sed -n 's/^trigger //p' "$TEST_DIR/foundation/policies/fish-1" | tr '\n' ' ')" = "log-pass note-pass " ] \
+     && grep -qx "fish-1" "$TEST_DIR/.staging/$sid/phases/SYSINIT"; then
+    pass "answer hash add rolls out expectation, claim, gate (fish_1), policy with the template's triggers, binding"
+  else
+    fail "answer hash add: $(ls -R "$TEST_DIR/foundation" 2>&1 | head -30)"
+  fi
+  if run_elebake answer show unitan | grep -q "fish-1 *SYSINIT *log-pass note-pass"; then
+    pass "answer show lists the class with its phase and triggers"
+  else
+    fail "answer show: $(run_elebake answer show unitan 2>&1)"
+  fi
+  if run_elebake answer hash add unitan SYSINIT kl fish-2 deadbeef react-note 2>&1 | grep -q "64 lower-case hex"; then
+    pass "a malformed hash is refused"
+  else
+    fail "malformed hash accepted"
+  fi
+  if run_elebake answer hash add unitan SYSINIT kl fish-2 "$h" no-such 2>&1 | grep -q "no such policy"; then
+    pass "a missing template policy is refused"
+  else
+    fail "missing template accepted"
+  fi
+  if run_elebake stage earlboot mk unitan > /dev/null 2>&1 \
+     && grep -q "^GATE='fish_1'" "$TEST_DIR/.staging/$sid/hooks/earlboot" \
+     && grep -q "_m=\$(measure_answer 'kl' 2>/dev/null); _want='$h'" "$TEST_DIR/.staging/$sid/hooks/earlboot"; then
+    pass "the class renders into the earlboot script with its salted hash as the want"
+  else
+    fail "earlboot render of the class: $(grep -n "fish_1\|measure_answer" "$TEST_DIR/.staging/$sid/hooks/earlboot" 2>&1 | head -4)"
+  fi
+  run_elebake answer drop unitan SYSINIT fish-1 > /dev/null 2>&1
+  if [ ! -f "$TEST_DIR/foundation/expectations/fish-1" ] && [ ! -f "$TEST_DIR/foundation/claims/fish-1" ] \
+     && [ ! -d "$TEST_DIR/foundation/gates/fish_1" ] && [ ! -f "$TEST_DIR/foundation/policies/fish-1" ] \
+     && ! grep -qx "fish-1" "$TEST_DIR/.staging/$sid/phases/SYSINIT" 2>/dev/null; then
+    pass "answer drop removes binding, policy, gate, claim and expectation"
+  else
+    fail "answer drop left: $(ls -R "$TEST_DIR/foundation" 2>&1 | grep fish; cat "$TEST_DIR/.staging/$sid/phases/SYSINIT" 2>&1)"
+  fi
+  printf 'measure_answer_matched() { printf "%%s\\n" "${ELV_ANSWER_MATCHED:-0}"; }\n' >> "$fix/earlboot/measure.sh"
+  printf 'answer_matched_act() { ELV_ANSWER_MATCHED=1; }\nspool_act() { :; }\n' >> "$fix/earlboot/action.sh"
+  run_elebake trigger add note-fail when_fail spool_act > /dev/null
+  run_elebake policy add react-miss tg > /dev/null
+  run_elebake policy trigger add react-miss note-fail > /dev/null
+  run_elebake answer hash add unitan SYSINIT kl fish-1 "$h" react-note > /dev/null 2>&1
+  run_elebake answer catchall add unitan SYSINIT kl fish-any react-miss > /dev/null 2>&1
+  if [ "$(cat "$TEST_DIR/foundation/expectations/fish-any")" = "byte kl 1" ] \
+     && grep -q "^measure_answer_matched " "$TEST_DIR/foundation/claims/fish-any" \
+     && [ "$(sed -n 's/^trigger //p' "$TEST_DIR/foundation/policies/fish-any")" = "note-fail" ] \
+     && [ "$(tail -1 "$TEST_DIR/.staging/$sid/phases/SYSINIT")" = "fish-any" ] \
+     && run_elebake answer show unitan | grep -q "fish-any *SYSINIT *note-fail (catch-all)"; then
+    pass "answer catchall add: byte 1 over measure_answer_matched, when_fail template, bound last, shown as catch-all"
+  else
+    fail "catchall: $(cat "$TEST_DIR/foundation/expectations/fish-any" "$TEST_DIR/foundation/claims/fish-any" 2>&1; run_elebake answer show unitan 2>&1)"
+  fi
+  run_elebake answer drop unitan SYSINIT fish-any > /dev/null 2>&1
+  run_elebake answer drop unitan SYSINIT fish-1 > /dev/null 2>&1
+  if run_elebake answer add unitan SYSINIT kl fish-3 react-note 2>&1 | grep -q "no salt"; then
+    pass "answer add refuses without the stage's salt before touching the terminal"
+  else
+    fail "answer add without salt: $(run_elebake answer add unitan SYSINIT kl fish-3 react-note 2>&1 | head -2)"
+  fi
+  run_elebake stage conf add unitan loader.trust.kl.salt abc > /dev/null 2>&1
+  local tf="$TEST_BASE_DIR/answers-$TESTS_RUN.txt"
+  printf '# name template word\nfish-7  react-note  tuesday only\nfish-8  react-note\n' > "$tf"
+  chmod 0644 "$tf"
+  if run_elebake answer file add unitan SYSINIT kl "$tf" 2>&1 | grep -q "owner only"; then
+    pass "answer file add refuses a table readable by others"
+  else
+    fail "world-readable table accepted"
+  fi
+  chmod 0600 "$tf"
+  run_elebake answer file add unitan SYSINIT kl "$tf" > /dev/null 2>&1
+  local h7 h8; h7=$(printf '%s' "abctuesday only" | sha256 -q); h8=$(printf '%s' abc | sha256 -q)
+  if [ "$(cat "$TEST_DIR/foundation/expectations/fish-7")" = "string kl $h7" ] \
+     && [ "$(cat "$TEST_DIR/foundation/expectations/fish-8")" = "string kl $h8" ] \
+     && grep -qx "fish-7" "$TEST_DIR/.staging/$sid/phases/SYSINIT" && grep -qx "fish-8" "$TEST_DIR/.staging/$sid/phases/SYSINIT"; then
+    pass "answer file add: the word is the rest of the line with its spaces, an absent word is the empty answer, salt from stage conf"
+  else
+    fail "answer file add: $(cat "$TEST_DIR/foundation/expectations/fish-7" "$TEST_DIR/foundation/expectations/fish-8" 2>&1)"
+  fi
+  run_elebake answer file drop unitan SYSINIT "$tf" > /dev/null 2>&1
+  if [ ! -f "$TEST_DIR/foundation/expectations/fish-7" ] && [ ! -f "$TEST_DIR/foundation/policies/fish-8" ] \
+     && ! grep -q "fish-" "$TEST_DIR/.staging/$sid/phases/SYSINIT" 2>/dev/null; then
+    pass "answer file drop removes every class of the table"
+  else
+    fail "answer file drop left: $(ls "$TEST_DIR/foundation/expectations" "$TEST_DIR/foundation/policies" 2>&1 | grep fish)"
+  fi
+  rm -f "$tf"
+}
+
+test_container_test_run() {
+  test_header "stage earlboot test: replay a captured kenv through the generated script with mocks"
+  test_setup
+  run_elebake stage add unitrt > /dev/null 2>&1
+  fixture_containers unitrt
+  run_elebake expectation add clean string loader.trust.bootlock.failed "" > /dev/null
+  run_elebake claim add clean measure_kenv diagnose_kenv - clean > /dev/null
+  run_elebake expectation add wordok byte kl 1 > /dev/null
+  run_elebake claim add wordok measure_word - - wordok > /dev/null
+  run_elebake expectation add ex string loader.trust.kl.x 42 > /dev/null
+  run_elebake claim add cx measure_kenv - - ex > /dev/null
+  run_elebake gate add custody > /dev/null
+  for c in clean wordok cx; do run_elebake gate claim add custody $c > /dev/null; done
+  run_elebake trigger add persist-always when_always persist_act > /dev/null
+  run_elebake policy add custody-watch custody > /dev/null
+  run_elebake policy trigger add custody-watch persist-always > /dev/null
+  run_elebake stage phase policy add unitrt SYSINIT custody-watch > /dev/null 2>&1
+  local dump="$TEST_BASE_DIR/dump-$TESTS_RUN.kenv"
+  printf 'loader.trust.kl.x="42"\nloader.trust.bootlock.failed=""\n' > "$dump"
+  local out sid; sid=$(basename "$(readlink "$TEST_DIR/stage/unitrt")")
+  out=$(run_elebake stage earlboot test unitrt "$dump" 2>&1)
+  if printf '%s\n' "$out" | grep -q "^== appraisal-custody" \
+     && printf '%s\n' "$out" | grep -q "^gate=custody verdict=fail" \
+     && printf '%s\n' "$out" | grep -q "^passed= wordok cx" \
+     && printf '%s\n' "$out" | grep -q "^failed= clean" \
+     && printf '%s\n' "$out" | grep -q "earlboot test run of unitrt: exit 0"; then
+    pass "the replay measures from the dump (kenv mock), an empty publication fails, the appraisal is printed"
+  else
+    fail "earlboot test run: $out"
+  fi
+  if [ ! -d "$TEST_DIR/.staging/$sid/hooks/earlboot.test.state" ] && [ ! -f "$TEST_DIR/.staging/$sid/hooks/earlboot.test" ]; then
+    pass "the run leaves nothing behind: no test state, no test script"
+  else
+    fail "leftovers: $(ls "$TEST_DIR/.staging/$sid/hooks/" 2>&1)"
+  fi
+  run_elebake stage earlboot mk unitrt > /dev/null 2>&1
+  if grep -q "^readonly KENV='/bin/kenv'$" "$TEST_DIR/.staging/$sid/hooks/earlboot" \
+     && grep -q "^readonly ELV_STATE='/var/db/elvboot'$" "$TEST_DIR/.staging/$sid/hooks/earlboot" \
+     && ! grep -q "elv_mock" "$TEST_DIR/.staging/$sid/hooks/earlboot"; then
+    pass "the real script carries the tools table as readonly absolute paths and no mock"
+  else
+    fail "real script constants: $(grep -n "readonly" "$TEST_DIR/.staging/$sid/hooks/earlboot" | head -12)"
+  fi
+  rm -f "$dump"
+}
+
+test_container_emitters() {
+  test_header "earlboot mk / elvbootd mk: hardened scripts from the bindings, constants from the records, glue"
+  test_setup
+  run_elebake stage add unitem > /dev/null 2>&1
+  fixture_containers unitem
+  run_elebake expectation add clean string loader.trust.bootlock.failed "" > /dev/null
+  run_elebake claim add clean measure_kenv diagnose_kenv - clean > /dev/null
+  run_elebake expectation add wordok byte kl 1 > /dev/null
+  run_elebake claim add wordok measure_word - - wordok > /dev/null
+  run_elebake gate add custody > /dev/null
+  run_elebake gate claim add custody clean > /dev/null
+  run_elebake gate claim add custody wordok > /dev/null
+  run_elebake trigger add log-always when_always log_act > /dev/null
+  run_elebake trigger add persist-fail when_fail persist_act > /dev/null
+  run_elebake policy add custody-watch custody > /dev/null
+  run_elebake policy trigger add custody-watch log-always > /dev/null
+  run_elebake policy trigger add custody-watch persist-fail > /dev/null
+  run_elebake stage phase policy add unitem SYSINIT custody-watch > /dev/null 2>&1
+  run_elebake expectation add e1 byte A 1 > /dev/null
+  run_elebake claim add c1 measure_alpha - - e1 > /dev/null
+  run_elebake gate add kl > /dev/null
+  run_elebake gate claim add kl c1 > /dev/null
+  run_elebake trigger add hand when_always handover_act > /dev/null
+  run_elebake policy add kp kl > /dev/null
+  run_elebake policy trigger add kp hand > /dev/null
+  run_elebake stage phase policy add unitem PHASE_TWO kp > /dev/null 2>&1
+  run_elebake stage baseline add unitem LOADER_TRUST_WORD_SECRET string 00112233445566778899aabbccddeeff > /dev/null
+  run_elebake stage device unitem t /dev/testda9p1 /mnt > /dev/null 2>&1
+  run_elebake stage earlboot mk unitem > /dev/null 2>&1
+  local hk; hk="$TEST_DIR/.staging/$(basename "$(readlink "$TEST_DIR/stage/unitem")")/hooks"
+  if grep -q "^readonly ELV_ESP='testda9p1'$" "$hk/earlboot"; then
+    pass "ELV_ESP is the medium's node without /dev/ (the ESP partition, never node+p1)"
+  else
+    fail "ELV_ESP rendering: $(grep ELV_ESP "$hk/earlboot" 2>&1)"
+  fi
+  local sid; sid=$(basename "$(readlink "$TEST_DIR/stage/unitem")")
+  local f="$TEST_DIR/.staging/$sid/hooks/earlboot"
+  if [ -f "$f" ] && sh -n "$f" && grep -q '^# PROVIDE: earlboot' "$f" && grep -q '^PATH=.*readonly PATH' "$f" \
+     && grep -q "^readonly ELV_WORD_SECRET='00112233445566778899aabbccddeeff'" "$f" \
+     && grep -q "^readonly ELV_GATE_LOADER='kl'" "$f" \
+     && grep -q '^# ===== phase SYSINIT' "$f" && grep -q "^_m=\$(measure_kenv 'loader.trust.bootlock.failed'" "$f" \
+     && grep -q '^if when_fail; then persist_act "\$GATE"; fi' "$f" && grep -q '^exit 0' "$f"; then
+    pass "earlboot mk writes a parsing, hardened rc.d script with constants, gate appraisal and bindings"
+  else
+    fail "earlboot script wrong: $(sed -n 1,30p "$f" 2>&1)"
+  fi
+  if [ "$(stat -f %Lp "$f")" = "500" ]; then
+    pass "the generated script is 0500"
+  else
+    fail "mode: $(stat -f %Lp "$f")"
+  fi
+  run_elebake expectation add locked string mac_bootlock 1 > /dev/null
+  run_elebake claim add locked measure_bootlock - - locked > /dev/null
+  run_elebake gate add lockg > /dev/null
+  run_elebake gate claim add lockg locked > /dev/null
+  run_elebake policy add lock-watch lockg > /dev/null
+  run_elebake policy trigger add lock-watch log-always > /dev/null
+  run_elebake stage phase policy add unitem MOUNTED lock-watch > /dev/null 2>&1
+  if run_elebake stage earlboot mk unitem 2>&1 | grep -q "demand.*mac_bootlock" \
+     && run_elebake stage require unitem earlboot | grep -q "boot/kernel/mac_bootlock.ko  MISSING"; then
+    pass "earlboot mk refuses while a bound measurement's demand on the boot tree is unmet (measure_bootlock)"
+  else
+    fail "require: $(run_elebake stage require unitem earlboot 2>&1; run_elebake stage earlboot mk unitem 2>&1 | tail -2)"
+  fi
+  mkdir -p "$TEST_DIR/.staging/$sid/boot/kernel"
+  printf 'mac_bootlock_load="YES"\n' >> "$TEST_DIR/.staging/$sid/boot/loader.conf"
+  : > "$TEST_DIR/.staging/$sid/boot/kernel/mac_bootlock.ko"
+  run_elebake stage earlboot mk unitem > /dev/null 2>&1
+  if [ "$(run_elebake stage require unitem earlboot | grep -c '  ok$')" = "2" ] \
+     && grep -q '^# ===== phase MOUNTED' "$f" && grep -q "^_m=\$(measure_bootlock 'mac_bootlock'" "$f"; then
+    pass "with loader.conf and the module in the boot tree, earlboot mk proceeds and MOUNTED appraises the lock"
+  else
+    fail "require after fix: $(run_elebake stage require unitem earlboot 2>&1; grep -c measure_bootlock "$f")"
+  fi
+  if run_elebake stage elvbootd mk unitem 2>&1 | grep -q "no runtime phase bound"; then
+    pass "elvbootd mk refuses without a bound runtime phase"
+  else
+    fail "elvbootd mk did not refuse"
+  fi
+  run_elebake expectation add serial string da1 ABC > /dev/null
+  run_elebake claim add serial measure_media_serial - - serial > /dev/null
+  run_elebake gate add medium > /dev/null
+  run_elebake gate claim add medium serial > /dev/null
+  run_elebake trigger add q-fail when_fail quarantine_act > /dev/null
+  run_elebake trigger add hb when_always heartbeat_act > /dev/null
+  run_elebake policy add media-watch medium > /dev/null
+  run_elebake policy trigger add media-watch q-fail > /dev/null
+  run_elebake policy trigger add media-watch hb > /dev/null
+  run_elebake stage phase policy add unitem MEDIA media-watch > /dev/null 2>&1
+  run_elebake stage phase policy add unitem PERIODIC custody-watch > /dev/null 2>&1
+  run_elebake stage phase policy add unitem STARTUP custody-watch > /dev/null 2>&1
+  run_elebake stage elvbootd mk unitem > /dev/null 2>&1
+  local h="$TEST_DIR/.staging/$sid/hooks"
+  if [ -f "$h/hook.media.sh" ] && [ -f "$h/hook.periodic.sh" ] && [ -f "$h/hook.startup.sh" ] && [ ! -f "$h/hook.resume.sh" ] \
+     && sh -n "$h/hook.media.sh" && grep -q '^# ===== phase MEDIA' "$h/hook.media.sh" \
+     && grep -q "^_m=\$(measure_media_serial 'da1'" "$h/hook.media.sh" \
+     && grep -q '^elv_prologue$' "$h/hook.media.sh" && grep -q '^log_act()' "$h/hook.periodic.sh"; then
+    pass "elvbootd mk writes one hook per BOUND runtime phase, inheriting the earlboot palette"
+  else
+    fail "hooks wrong: $(ls "$h" 2>&1)"
+  fi
+  if grep -q 'match "cdev" "da\[0-9\]+"' "$h/elvboot.devd.conf" && grep -q 'hook.media.sh \$cdev' "$h/elvboot.devd.conf"; then
+    pass "the devd glue for MEDIA is written"
+  else
+    fail "devd glue: $(cat "$h/elvboot.devd.conf" 2>&1)"
+  fi
+  if [ -f "$h/elvbootd" ] && sh -n "$h/elvbootd" && grep -q "^# PROVIDE: elvbootd$" "$h/elvbootd" \
+     && grep -q "^start_cmd=\"/usr/local/etc/elvboot/hook.startup.sh\"$" "$h/elvbootd"; then
+    pass "the rc.d glue for STARTUP is written"
+  else
+    fail "rc.d glue: $(cat "$h/elvbootd" 2>&1)"
+  fi
+  if [ "$(stat -f %Lp "$h/elvbootd")" = 500 ]; then
+    pass "the rc.d glue lands in hooks/ with 0500 like the hooks"
+  else
+    fail "rc.d glue mode: $(stat -f %Lp "$h/elvbootd")"
+  fi
+  if run_elebake stage elvbootd mk unitem 2>&1 | grep -q "Permission denied"; then
+    fail "a second elvbootd mk cannot overwrite the 0500 glue"
+  elif [ -f "$h/elvbootd" ] && [ "$(stat -f %Lp "$h/elvbootd")" = 500 ] && [ ! -f "$h/elvbootd.new" ]; then
+    pass "a second elvbootd mk replaces the glue via .new + mv"
+  else
+    fail "second mk left: $(ls -la "$h" 2>&1)"
+  fi
+  if run_elebake stage dump unitem | grep -q "hooks of unitem are generated"; then
+    pass "the dump notes that hooks are regenerated, never replayed"
+  else
+    fail "dump hooks note missing"
+  fi
+  for pin in stage_earlboot_place stage_state_dir_mk stage_elvbootd_startup_place stage_elvbootd_periodic_place stage_elvbootd_resume_place stage_elvbootd_media_place; do
+    run_elebake setenv ELEBAKE_INTERPRETER_$pin cat > /dev/null 2>&1
+  done
+  if run_elebake stage earlboot install unitem | grep -q "install -o root -g wheel -m 0500 '.*/hooks/earlboot' /etc/rc.d/earlboot" \
+     && run_elebake stage elvbootd install unitem | grep -q "devd/elvboot.conf" \
+     && run_elebake stage elvbootd install unitem | grep -q "install -o root -g wheel -m 0500 '.*/hooks/elvbootd' /usr/local/etc/rc.d/elvbootd"; then
+    pass "install emits the root-side copies and glue (displayed here, sudo sh in the profile)"
+  else
+    fail "install emission: $(run_elebake stage earlboot install unitem)"
+  fi
+}
+
+test_dispatch_wrong_arity() {
+  test_header "dispatch: a known command path with the wrong argument count says so (not 'unknown', not swallowed)"
+  test_setup
+  if run_elebake stage build kernel 2>&1 | grep -q "wrong number of arguments for 'stage build kernel'" \
+     && run_elebake stage build kernel 2>&1 | grep -q "elebake stage build kernel <stage>"; then
+    pass "'stage build kernel' without the stage is a usage error, not a stage named kernel"
+  else
+    fail "stage build kernel: $(run_elebake stage build kernel 2>&1 | head -3)"
+  fi
+  if run_elebake stage filter uncurated unitem 2>&1 | grep -q "wrong number of arguments for 'stage filter uncurated'"; then
+    pass "'stage filter uncurated <stage>' without the source dir names the command, not 'stage'"
+  else
+    fail "stage filter uncurated: $(run_elebake stage filter uncurated unitem 2>&1 | head -2)"
+  fi
+  if run_elebake stage nosuch 2>&1 | grep -q "unknown command: stage nosuch"; then
+    pass "an unknown path is still unknown"
+  else
+    fail "unknown: $(run_elebake stage nosuch 2>&1 | head -2)"
+  fi
+  run_elebake stage add unitem > /dev/null 2>&1
+  if run_elebake stage add unitem 2>&1 | grep -q "already"; then
+    pass "a correct call still resolves (stage add)"
+  else
+    fail "stage add: $(run_elebake stage add unitem 2>&1 | head -2)"
+  fi
+}
+
+test_filter_prune_orphans_only() {
+  test_header "stage filter prune: removes what is neither curated nor generated, displays first"
+  test_setup
+  run_elebake stage add unitp > /dev/null 2>&1
+  local sid; sid=$(basename "$(readlink "$TEST_DIR/stage/unitp")")
+  local b="$TEST_DIR/.staging/$sid/boot"
+  mkdir -p "$b/kernel" "$b/lua"
+  : > "$b/kernel/kernel"; : > "$b/lua/loader.lua"; : > "$b/boot0"; : > "$b/loader.conf"
+  : > "$b/loader.trust.conf"; : > "$b/manifest"; : > "$b/loader.efi.signed"
+  run_elebake stage filter add unitp kernel > /dev/null
+  run_elebake stage filter add unitp loader.conf > /dev/null
+  run_elebake setenv ELEBAKE_INTERPRETER_stage_filter_prune_rm cat > /dev/null 2>&1   # the suite executes terminals; production displays
+  local out; out=$(run_elebake stage filter prune unitp 2>&1)
+  if printf '%s\n' "$out" | grep -q "rm -rf '$b/boot0'" && printf '%s\n' "$out" | grep -q "rm -rf '$b/lua'" \
+     && ! printf '%s\n' "$out" | grep -q "rm -rf '$b/kernel'" && ! printf '%s\n' "$out" | grep -q "loader.conf'" \
+     && ! printf '%s\n' "$out" | grep -q "loader.trust.conf\|manifest\|signed" \
+     && [ -e "$b/boot0" ]; then
+    pass "prune emits rm for the orphans only (curated, generated and manifest untouched) and does not act by itself"
+  else
+    fail "prune emission: $out"
+  fi
+  run_elebake stage filter prune unitp | sh 2>/dev/null
+  if [ ! -e "$b/boot0" ] && [ ! -e "$b/lua" ] && [ -e "$b/kernel/kernel" ] && [ -e "$b/loader.conf" ] && [ -e "$b/loader.trust.conf" ]; then
+    pass "piped to sh, the orphans are gone and the rest stays"
+  else
+    fail "after prune: $(ls "$b")"
+  fi
+  if run_elebake stage filter orphaned unitp | grep -q "(none)"; then
+    pass "stage filter orphaned reports none afterwards"
+  else
+    fail "orphaned after prune: $(run_elebake stage filter orphaned unitp)"
+  fi
+}
+
 test_filter_stdin_and_include_source() {
   test_header "filter add - (frozen snapshot) and include from a chosen source"
   test_setup
@@ -1863,6 +2630,24 @@ test_filter_stdin_and_include_source() {
   else
     fail "filter show delta wrong: $out"
   fi
+  # the adopt rule: an entry the source does not deliver survives from boot/
+  printf 'adopted\n' > "$TEST_DIR/.staging/$sid/boot/adopted.conf"
+  run_elebake stage filter add units adopted.conf > /dev/null
+  local inc; inc=$(run_elebake stage include units "$TEST_BASE_DIR/binsrc-$TESTS_RUN" 2>&1)
+  if [ "$(cat "$TEST_DIR/.staging/$sid/boot/adopted.conf")" = "adopted" ] \
+     && printf '%s\n' "$inc" | grep -q "adopted.conf kept from boot/" \
+     && [ -f "$TEST_DIR/.staging/$sid/boot/kernel.bin" ]; then
+    pass "include keeps an adopted entry from boot/ when the source lacks it, and still copies the rest"
+  else
+    fail "adopted entry not kept: $inc $(ls "$TEST_DIR/.staging/$sid/boot" 2>&1)"
+  fi
+  run_elebake stage filter add units ghost.bin > /dev/null
+  if run_elebake stage include units "$TEST_BASE_DIR/binsrc-$TESTS_RUN" 2>&1 | grep -q "neither in .* nor in boot/: ghost.bin"; then
+    pass "include refuses an entry absent from both source and boot/"
+  else
+    fail "ghost entry not refused: $(run_elebake stage include units "$TEST_BASE_DIR/binsrc-$TESTS_RUN" 2>&1)"
+  fi
+  run_elebake stage filter drop units ghost.bin > /dev/null
 }
 
 test_foundation_prereqs_arrays() {
@@ -1966,6 +2751,7 @@ main() {
   should_run_test test_stage_loader_ingest
   should_run_test test_stage_unkey_and_attest
   should_run_test test_batch_fail_fast_default
+  should_run_test test_batch_exit_survives_a_closed_pipe
   should_run_test test_getenv_layer_reporting
   should_run_test test_filter_and_import_path_validation
   should_run_test test_dump_marker_and_backup_blocks
@@ -1994,6 +2780,16 @@ main() {
   should_run_test test_stage_prerequisites_lists
   should_run_test test_filter_stdin_and_include_source
   should_run_test test_foundation_prereqs_arrays
+  should_run_test test_stage_baseline_records
+  should_run_test test_stage_disks_records
+  should_run_test test_stage_conf_require_loaderconf
+  should_run_test test_gate_duress_slot
+  should_run_test test_container_catalogs_and_binding
+  should_run_test test_container_emitters
+  should_run_test test_container_test_run
+  should_run_test test_answer_family
+  should_run_test test_dispatch_wrong_arity
+  should_run_test test_filter_prune_orphans_only
 
   test_summary
 }

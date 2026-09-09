@@ -75,34 +75,77 @@ elebake stage phase show <stage> [<phase>]    phases (with their container)
 
 `<container>` defaults to `loader`. Each catalog is parsed from the
 respective container's source in the stage's checkout (loader:
-`stand/efi/loader/local/*.h`; earlboot/elvbootd: their sources) and
-shows the checkout ref as provenance. No checkout -> fail early
-("stage checkout first"); a container whose source does not exist in
-the checkout offers no phases. The user cannot define catalog entries
-from elebake — new offers are born as code and reviewed as patches.
+`stand/efi/loader/local/*.h`; earlboot and elvbootd:
+`stand/efi/loader/local/<container>/{policy,measure,action}.sh` —
+`PHASES="..."` in policy.sh names the phases, `measure_*()`/
+`diagnose_*()`, `when_*()` and `*_act()` are the offers; elvbootd
+inherits earlboot's providers and palette) and shows the checkout ref
+as provenance. No checkout -> fail early ("stage checkout first"); a
+container whose source does not exist in the checkout offers no
+phases. The user cannot define catalog entries from elebake — new
+offers are born as code and reviewed as patches. `stage phase policy
+add` resolves the container FROM the phase and checks the chain
+against THAT container's catalog; macro expectations exist only in the
+loader (byte and string elsewhere).
 
-Today's loader catalog, for reference in the examples below:
+Today's loader catalog (fork branch platform-trust-gates-15.1, the
+headers in stand/efi/loader/local are the source of truth):
 
-- measurements: `measure_secureboot`, `measure_setupmode`,
+- phases: `PHASE_BOOT`, `PHASE_LOADER`, `PHASE_KERNEL` (exec path,
+  after the interactive window, before ExitBootServices; the ledger
+  carries every earlier appraisal into it)
+- measurements: platform (`measure_secureboot`, `measure_setupmode`,
   `measure_board`, `measure_keys`, `measure_marker`, `measure_strict`,
-  `measure_ve_strict`, `measure_prerequisites_exist`,
-  `measure_prerequisites_verify` (+ `diagnose_*` where offered)
-- actions: `proceed_act`, `publish_act`, `report_act`, `message_act`,
-  `prompt_act`, `confirm_act`, `lock_act`, `unlock_act`, `halt_act`,
-  `panic_act`, `reboot_act`
-- whens: `when_always`, `when_fail`, `when_pass` — planned additions
-  (all containers): `when_skipped` (fires when any claim of the gate
-  was SKIPPED, i.e. its measurement yielded no value — unprovisioned
-  baselines stop being silent), `when_maybe` (fires probabilistically —
-  spot checks an observer cannot time exactly. This is noise, not
-  cryptography: a three-line homegrown PRNG (xorshift), seeded from
-  the TSC at boot, suffices in every container — no EFI RNG protocol
-  needed. Two rules keep it uncritical: seed from the fine-grained
-  cycle counter, never a coarse clock alone; and when_maybe only ever
-  ADDS spot checks — no critical check may exist solely behind it)
-- requires (parsed from the `kenv(a, "...")` calls of each action):
-  `message_act` -> message, `prompt_act`/`confirm_act` -> question,
-  `unlock_act`/`lock_act` -> secret
+  `measure_ve_strict`, `measure_origin`, `measure_origin_verified`,
+  `measure_prerequisites_exist|verify`), inventory (`measure_image`,
+  `measure_images`, `measure_acpi`, `measure_efivars`, `measure_pci`),
+  disks (`measure_geli`, `measure_gpt`), the sealed boot record and its
+  anchors (`measure_record`, `measure_counter_step`, `measure_chain`,
+  `measure_lastboot_gap`, `measure_time_of_day`, `measure_tpm`,
+  `measure_pcr`, `measure_nvme`), time (`measure_time_boot`,
+  `measure_time_prompt`, `measure_time_rtc_tsc`, `measure_attempts`),
+  KERNEL (`measure_howto`, `measure_kenv_guard`, `measure_preload`,
+  `measure_softpcr`, `measure_ledger_failed|prompted|unlocked`);
+  `diagnose_*` where offered. Windows and counters are VERDICT BYTES
+  (1 = within the provisioned window), the raw numbers ride in the
+  diagnosis; the windows are baselines (`stage baseline add`).
+- actions: `proceed_act`, `publish_act`, `silence_act`, `report_act`,
+  `message_act`, `prompt_act`, `sentinel_act`, `record_act`,
+  `confirm_act`, `lock_act`, `unlock_act`, `tarpit_act`, `lockout_act`,
+  `reveal_act`, `taint_act`, `expire_act`, `single_act`, `divert_act`,
+  `nextboot_act`, `handover_act`, `halt_act`, `panic_act`, `reboot_act`,
+  `poweroff_act`
+- whens: `when_always`, `when_fail`, `when_pass`, `when_skipped`,
+  `when_maybe` (xorshift seeded from the TSC; only ever ADDS spot
+  checks), `when_tainted`, `when_duress` (bind SILENT actions only),
+  `when_prompted`
+- requires (parsed from the `kenv(a, "...")` calls of each action, see
+  `stage require`): `message_act` -> message, `prompt_act` -> question,
+  `sentinel_act` -> question, salt, display, `lock_act` -> secret,
+  duress, `lockout_act` -> attempts, `expire_act` -> deadline,
+  `divert_act`/`nextboot_act` -> rescue
+
+Every provider and action states in its header comment what it
+ASSUMES of the threat model (hardware present, what the owner carries,
+which physical protection it relies on); elebake's help repeats the
+assumption for every command that provisions such a feature.
+
+earlboot catalog as committed to the fork (caf7f3a; the sources are
+the truth): `measure_kenv`, `measure_word`, `measure_flag_taint|duress|
+prompted`, `measure_securelevel`, `measure_veriexec`, `measure_bootlock`,
+`measure_rootdev`, `measure_kernel_ident`, `measure_book`,
+`measure_heartbeat`, `measure_efivar`, `measure_file_sha256`,
+`measure_manifest`, `measure_esp_digest`, `measure_smart`,
+`measure_smart_step`, `measure_answer`, `measure_answer_first`; actions
+`log_act`, `console_act`, `spool_act`, `mark_act`, `freeze_act`,
+`persist_act`, `book_act`, `arm_act`, `disarm_act`, `degrade_act`,
+`lock_act`, `courier_act`, `beacon_act`, `attest_act`, `reauth_act`,
+`quarantine_act`, `shutdown_act`, `poweroff_act`; whens as in the
+loader. elvbootd adds `measure_geom`, `measure_rtc_gap`,
+`measure_media_serial|partitions|bootcode|chain`, `measure_degraded`,
+`measure_freeze` and `heartbeat_act`, `verified_act`,
+`compare_media_act`, `sentinel_act`, `fascist_log_act`,
+`reprovision_act`. The original plan, for the record:
 
 Planned earlboot catalog (born as code, §12):
 
@@ -167,7 +210,11 @@ elebake claim add  <claim> <measurement> <diagnose|-> <publish|-> <exp>
 elebake claim drop <claim>
 elebake claim show [<claim>]          # CLAIM(<measurement>, <diagnose>, "<publish>", <exp>)
 
-elebake gate add        <gate> [<secret-slot>]      # slot NAMES the -D macro, never a value;
+elebake gate add        <gate> [<secret-slot>] [<duress-slot>]
+                                                    # slots NAME -D macros, never values;
+                                                    # the duress slot is a second passphrase
+                                                    # that unlocks identically and marks the
+                                                    # boot as coerced in the loader's ledger;
                                                     # gate names land in the C output: C identifier
 elebake gate drop       <gate>
 elebake gate claim add  <gate> <claim> [<position>] # order = evaluation order; default
@@ -227,14 +274,17 @@ Storage — every record CLI-replayable, dump/restore-complete:
 $ELEBAKE_BASE/foundation/macros/<NAME>          "<type> <label> <defined|-> <else...|->"
 $ELEBAKE_BASE/foundation/expectations/<name>    "<type> <label> <value>"
 $ELEBAKE_BASE/foundation/claims/<name>          "<measurement> <diagnose> <publish> <exp>"
-$ELEBAKE_BASE/foundation/gates/<name>/secret    optional -D slot name
+$ELEBAKE_BASE/foundation/gates/<name>/secret    optional -D slot name (unlock hash)
+$ELEBAKE_BASE/foundation/gates/<name>/duress    optional -D slot name (duress hash)
 $ELEBAKE_BASE/foundation/gates/<name>/claims    ordered claim names
 $ELEBAKE_BASE/foundation/triggers/<name>        "<when> <action>"
 $ELEBAKE_BASE/foundation/policies/<name>        "gate <gate>" + ordered "trigger <t>"
 ```
 
-Per stage, only the bindings: `.staging/<id>/phases/<PHASE>` (ordered
-policy names) and `.staging/<id>/conf/<key>` (loaderconf values, §5).
+Per stage: the bindings `.staging/<id>/phases/<PHASE>` (ordered policy
+names), the conf values `.staging/<id>/conf/<key>` (§5), and the
+build-provided VALUES (§5a): `.staging/<id>/baselines/<MACRO>` and
+`.staging/<id>/disks`.
 
 Dump: one foundation section in the database dump (CLI replays per
 family, dependency order: macros, expectations, claims, triggers,
@@ -298,6 +348,70 @@ tables, switch. Regeneration belongs to the post-checkout provisioning
 block (trust anchor / trust mk / site mk / foundation).
 
 
+## 5a. Baselines and disks — where the -D values come from
+
+The gate SLOTS (§3) and the provider windows name `LOADER_TRUST_*`
+macros; site.mk carries the values. Two per-stage record families
+provide them, both dumb stores, both replayed by the dump:
+
+```
+elebake stage baseline add   <stage> <MACRO> <digest|string|int> <value>
+elebake stage baseline drop  <stage> <MACRO>
+elebake stage baseline show  <stage> [<MACRO>]
+elebake stage baseline learn <stage> <MACRO> <kenv-variable>   # -> baseline add ... digest <value>
+elebake stage disks add|drop|show <stage> <partition>           # nda0p1 ...
+```
+
+`stage site mk` renders every baseline as `CFLAGS+= -D<MACRO>=...`
+(digest: byte list; string: C string, e.g. a passphrase hash or the
+kenv guard list; int: a window in ms, an hour, an NV index) and
+measures the recorded disks from userland — the last 512 bytes of each
+provider (GELI metadata) and the GPT header + entry array of each disk
+— into `LOADER_TRUST_GELI_PARTS`, `_GELI_DIGEST`, `_GPT_DIGEST`, the
+same bytes `measure_geli`/`measure_gpt` hash in the loader.
+
+`learn` is for the witnesses userland cannot compute (loaded EFI
+images, ACPI tables, EFI variables, PCI devices, PCR bank, soft PCR,
+guarded kenv): it reads the digest a trusted boot's loader published
+in kenv on THIS machine and rewrites to an ordinary `baseline add`.
+Assumes the boot that published it was the owner's own, on the
+intended firmware — learning on a tampered platform bakes the
+tampering in.
+
+The record KEYS are deliberately NOT baselines. What the loader compiles
+in is one value, `LOADER_TRUST_RECORD_SALT`: 32 random bytes (a stage
+baseline of type string, e.g. the base64 of 32 bytes from an hkdf-tree
+entry), HKDF's salt parameter. The keying material itself comes from
+two places the boot medium never holds (fork commit 91a5453):
+
+- **GELI's derived key.** geliboot computes PBKDF2 over the passphrase
+  and the keyfiles to unlock the root; the SHA256 of that user key is the
+  record's IKM (`geli_ikm_digest`). A guess at a record therefore costs
+  an attacker exactly what a guess at GELI costs -- the record is never
+  the cheaper way to the passphrase. A passphrase change changes the IKM
+  and invalidates the previous record once; a new chain starts.
+- **The boot answer, optional.** With `elvboot_answer_prompt="YES"` in
+  loader.conf the loader asks one hidden line ("Boot answer:") in the
+  KERNEL phase, after GELI unlocked and before the kernel, and appends it
+  to the IKM. It is stored nowhere -- not in kenv, not hashed, not on the
+  medium -- and wiped after `record_commit()`. A record then proves the
+  PAIR (passphrase, answer): a passphrase that was observed opens GELI
+  but not the record, and a wrong answer makes the record invalid without
+  telling which part was wrong. The prompt counts as one attempt in the
+  ledger (`measure_attempts` expects it). Recommended: a Diceware-5 entry
+  in the owner's hkdf-tree inventory (e.g. `enk-ode/illyria/record-answer-v1`).
+
+The threat model behind it names three possessions: the head (passphrase,
+answer), the boot medium (salt, loader), the laptop (record, marker, TPM,
+NVMe). One of them alone yields no oracle for any secret; all of them
+together face GELI's per-guess price. The site salt is not relied upon,
+but it lives where the record does not -- the NVRAM-only attacker lacks
+it. What the record proves and what its anchors catch is in the fork's
+record.h; the elebake side is `stage baseline add <stage>
+LOADER_TRUST_RECORD_SALT string <value>`, the loader.conf line, and the
+`stage require <stage>` / `stage foundation check` demand for the salt
+once a record claim is bound.
+
 ## 5. loaderconf and the require axis
 
 The user's selection implies kenv keys that MUST exist in loader.conf:
@@ -320,15 +434,20 @@ The require axis has two sides with different owners:
 
 The artifact mechanics:
 
+- `elebake stage conf add|drop|show <stage> <key> [<value>]` is the
+  dumb, immutable store (keys `loader.trust.*`, values fit one
+  loader.conf line); `elebake stage require <stage>` lists the keys the
+  bound actions read, each with its value or MISSING.
 - `elebake stage loaderconf mk <stage>` crosses bound phases x
   require catalog x conf records and REFUSES on any missing value
-  (fail early, no implicit defaults). It emits `loader.trust.conf`, a
-  file wholly owned by elebake and hooked in via `loader_conf_files`
-  — the hand-written loader.conf stays untouched, and the veriexec
-  manifest covers the generated file as its own object.
-- `elebake stage loaderconf check <stage>` regenerates and diffs
-  against the boot medium — tamper detection extended to the conf;
-  `report` renders the comparison.
+  (fail early, no implicit defaults), and refuses while the stage's
+  boot/loader.conf does not name the file in `loader_conf_files`. It
+  writes `boot/loader.trust.conf`, a file wholly owned by elebake —
+  the hand-written loader.conf stays untouched, and `stage manifest`
+  covers the generated file as its own object.
+- `elebake stage loaderconf check <stage>` regenerates from the
+  records and diffs against the stage's boot copy — tamper detection
+  extended to the conf.
 - earlboot/elvbootd requires map to an rc.conf.d fragment with the
   same mk/check mechanics.
 
@@ -399,10 +518,21 @@ $ elebake policy trigger add custody-watch console-fail
 $ elebake stage phase policy add smoke1 SYSINIT custody-watch
 ```
 
-`elebake stage earlboot mk smoke1` generates the rc.d script — the
-same gate/claim/policy structure, emitted as sh. The script is
-MAXIMALLY HARDENED, generation-time style: self-contained (no sourcing
-beyond rc.subr), every external command by absolute path, environment
+`elebake stage earlboot mk smoke1` generates the rc.d script into the
+stage's `hooks/earlboot` (batch: prepare, header, constants, functions,
+prologue, one phase section per SYSINIT/MOUNTED, footer, install; every
+part its own cat-pinned terminal, `stage container render ...`). The
+constants come from the records: `ELV_WORD_SECRET` from the baseline
+LOADER_TRUST_WORD_SECRET, `ELV_GATE_LOADER` from the loader policy that
+fires `handover_act`, `ELV_LOADER_DIGEST` from `boot/loader.efi.signed`,
+`ELV_ESP` from the first medium record, `ELV_ARM_DIR`/`ELV_BEACON` from
+the baselines LOADER_TRUST_EARLBOOT_ARM_DIR/_BEACON. The functions are
+the catalog sources verbatim; the phases are gate appraisals (every
+claim measured against its expectation into PASSED/FAILED lists, the
+verdict) followed by `if when_x; then act "$GATE"; fi` per binding.
+`stage earlboot install` (sudo) copies it to /etc/rc.d (the root dataset) and
+enables it. The script is MAXIMALLY HARDENED, generation-time style:
+self-contained, every external command by absolute path, environment
 sealed:
 
 ```sh
@@ -458,14 +588,21 @@ table:
    for it, and every artifact is a manifest-covered file.
 
 "elvbootd" thus names the CONTAINER (the runtime phase family), not a
-process. `elebake stage elvbootd mk <stage>` emits one hook per bound
-phase plus the glue:
+process. `elebake stage elvbootd mk <stage>` emits one self-contained
+hook per BOUND phase into the stage's `hooks/` (same composition as
+earlboot; the prologue loads the flags earlboot persisted) plus the
+glue that plugs a hook into its mechanism, generated as text like
+everything else: the rc.d script `hooks/elvbootd` when STARTUP is
+bound, the devd configuration `hooks/elvboot.devd.conf` when MEDIA is
+bound; `stage elvbootd install` (sudo) copies each into place (rc.d
+elvbootd, periodic/security, rc.resume, devd). Installed layout:
 
 ```
 /usr/local/etc/elvboot/hook.media.sh        MEDIA    (invoked by devd)
 /usr/local/etc/elvboot/hook.resume.sh       RESUME   (rc.resume)
 /usr/local/etc/elvboot/hook.periodic.sh     PERIODIC (periodic/security)
 /usr/local/etc/elvboot/hook.startup.sh      STARTUP  (rc.d one-shot)
+/usr/local/etc/rc.d/elvbootd                rc.d glue for STARTUP (runs hook.startup.sh)
 /usr/local/etc/devd/elvboot.conf            devd glue for MEDIA
 ```
 
@@ -586,29 +723,48 @@ combination of all three layers, each doing what it already does:
   reactions:
 
 ```
-$ elebake expectation add toy-ok      string loader.trust.sentinel.answer "<sha256(Ball)>"
-$ elebake expectation add toy-duress  string loader.trust.sentinel.answer "<sha256(Fahrrad)>"
-$ elebake expectation add toy-doubt   string loader.trust.sentinel.answer "<sha256(Puppe)>"
-$ elebake expectation add toy-missing string loader.trust.sentinel.answer ""
-$ elebake claim add toy-ok      measure_kenv - - toy-ok
-$ elebake claim add toy-duress  measure_kenv - - toy-duress
-$ elebake claim add toy-doubt   measure_kenv - - toy-doubt
-$ elebake claim add toy-missing measure_kenv - - toy-missing
-$ elebake gate add sentinel-duress
-$ elebake gate claim add sentinel-duress toy-duress
-$ elebake trigger add duress-pass when_pass duress_act
-$ elebake policy add on-duress sentinel-duress
-$ elebake policy trigger add on-duress duress-pass
-$ elebake stage phase policy add smoke1 STARTUP on-duress
+$ elebake trigger add log-pass  when_pass log_act
+$ elebake trigger add note-pass when_pass spool_act
+$ elebake trigger add mark-pass when_pass mark_act
+$ elebake trigger add halt-pass when_pass shutdown_act
+$ elebake policy add react-log   custody          # templates: the gate is ignored,
+$ elebake policy add react-note  custody          # only the trigger list is copied
+$ elebake policy add react-halt  custody
+$ elebake policy add react-still custody
+$ elebake policy trigger add react-log   log-pass
+$ elebake policy trigger add react-note  note-pass
+$ elebake policy trigger add react-note  mark-pass
+$ elebake policy trigger add react-halt  note-pass
+$ elebake policy trigger add react-halt  halt-pass
+$ elebake policy trigger add react-still note-pass
+$ elebake answer add daily-v1 SYSINIT kernellock fish-1 react-log     # word read hidden, twice
+$ elebake answer add daily-v1 SYSINIT kernellock fish-2 react-note
+$ elebake answer add daily-v1 SYSINIT kernellock fish-3 react-halt
+$ elebake answer add daily-v1 SYSINIT kernellock fish-4 react-still
+$ elebake answer hash add daily-v1 SYSINIT kernellock fish-0 <sha256(salt)> react-note   # the empty answer
+$ elebake answer show daily-v1
 ```
 
-  ... and equally: a gate per class with its reaction policy
-  (`on-doubt` -> rearm/extra checks, `on-missing` -> the strict
-  action), plus a catch-all gate over ALL known classes whose
-  `when_fail` means "an answer was given, but none we know" — the
-  configured action for an obvious wrong entry. The open answer set is
-  an open set of expectations; the open reaction set is the existing
-  action catalog.
+  One `answer add` is one class: expectation (string, label = the
+  loader gate, value = sha256(salt + word) as the loader publishes it),
+  claim over `measure_answer`, a single-claim gate (`fish-1` ->
+  `fish_1`, gates are C identifiers), a policy carrying the template's
+  triggers, and the binding. `answer add` reads the word hidden from
+  the terminal at generation time, twice, and hashes it with the
+  stage's salt (`stage conf` `loader.trust.<gate>.salt`): the word never
+  reaches argv, trace, history or the batch. `answer hash add` is the
+  same batch for a hash computed elsewhere (a table, a test). `answer
+  drop` reverses, `answer show` lists the classes by trigger set. The
+  names stay neutral: whoever reads the database learns the reaction
+  of `fish-3` from its policy, never from its name, and the words live
+  in the owner's inventory, nowhere on the machine (JB 08.09.: a word
+  set without a written place is lost by the next morning).
+
+  What the family does NOT give: a catch-all "an answer was given but
+  none we know". Gates are AND over their claims, so a gate over all
+  classes fails always; an unknown answer today matches no class and
+  fires nothing but the custody log. That is the safe default (a
+  forgotten spelling must not halt the owner) and an open point.
 
 The division of labor is the custody chain used deliberately: the
 loader MEASURES and publishes (hash only), the userland CLASSIFIES and
@@ -632,8 +788,8 @@ Two operational consequences, spelled out:
   all meaning duress. Gates are AND over their claims, so the OR over
   answers lives one level up, where it already exists: one expectation
   + claim + single-claim gate PER WORD, every gate's policy firing the
-  SAME action. The command block grows linearly, and generating it is
-  an ordinary user script — elebake stays dumb. PATTERN classes
+  SAME action. The command block grows linearly; since 08.09. `answer add`
+  rolls one class out as one batch — elebake stays dumb, the word is hashed outside. PATTERN classes
   ("starts with B") cannot be derived from a full-answer hash; for
   them `sentinel_act` additionally publishes the hash of the FIRST
   character (`loader.trust.sentinel.answer.first`), turning a whole
@@ -651,24 +807,38 @@ Two operational consequences, spelled out:
   media would tie the devices to one owner for anyone who reads two
   of them. Nothing extra to design; the mechanics already decide it.
 
-- **The prompt SHOWS before it asks.** The user is the one measurement
-  instrument the platform cannot enumerate: they often know what
-  SHOULD have been — and that judgement flows back through the answer
-  choice (noticing an oddity, they pick from the probably-series).
-  `sentinel_act` therefore displays a curated context line before the
-  question; WHICH items is per-medium configuration via the require
-  path (`loader.trust.sentinel.display="bootcount lastboot"`).
-  Candidate items, each also usable as an ordinary measurement so the
-  machine cross-checks what the human sees:
-  - `bootcount` — own EFI variable, incremented by the loader; the
-    user remembers "last time plus one", and earlboot verifies the
-    +1 monotonicity as a claim against the persisted last value
-  - `lastboot` / `lastshutdown` — RTC timestamps of the previous boot
-    and whether the shutdown was clean (an unclean one the user does
-    not remember causing is exactly the kind of oddity this exists for)
-  - `wakecount` — resumes since the previous boot
-  - `gates` — the current appraisal in shortest form (n passed/m failed)
-  - `attempts` — sentinel entries since the last accepted one
+- **The loader SHOWS what the owner can recognise.** The user is the
+  one measurement instrument the platform cannot enumerate: they often
+  know what SHOULD have been — and that judgement flows into what they
+  do after the kernel starts. `display_act` (fork b9f9903) prints one
+  context line, not interactive, not counted as prompted in the
+  ledger; WHICH items is per-medium configuration via the require
+  path (`loader.trust.kernellock.display="bootcount lastboot cycles
+  unclean gates attempts"`, shown in that order). The items, each also
+  covered by an ordinary claim so the machine cross-checks what the
+  human sees:
+  - `bootcount` — this boot's number from the record, "last time plus
+    one"; `counter-step` verifies the anchors moved by exactly one
+  - `lastboot` — RTC of the previous boot from the record
+  - `cycles` / `unclean` — NVMe power cycles and unsafe shutdowns since
+    the previous record: an honest boot shows +1 and +0; a power-on the
+    owner does not remember causing is exactly the oddity this exists
+    for (`counter-step` catches the cycle, the human the story)
+  - `gates` — the appraisals so far, n ok / m failed
+  - `attempts` — hidden lines typed this boot (the boot answer is one)
+
+  Without a valid record (the first boot of a chain, or a record that
+  did not verify) the line SAYS which and shows `?` for the record items
+  — an absence is a fact worth reading, never a blank. An unknown item
+  name is echoed with a `?` so a conf typo is visible at boot. Bound to
+  the KERNEL gate the line appears after the boot answer, because the
+  record's keys are gathered while measuring; recognising the honest
+  loader BEFORE typing remains `reveal_act`'s job. `sentinel_act` shows
+  the same line before its question when `.display` names items (fork
+  follow-up): the hidden line keeps it on screen, and the answer's
+  first character carries the owner's judgement to earlboot — the
+  series classes above. Bound at kernellock the attempts claim then
+  expects 2 (the boot answer and the sentinel).
 
   The guardrail: the coercer reads the display too. Only values whose
   knowledge does not help an attacker belong in it, and the selection
@@ -729,12 +899,24 @@ the emitter blocks (that is sequencing, not deferral):
 
 ## 12. Manual C/code prerequisites (patch-series TODOs, not elebake)
 
-- The KERNEL phase (immediately before kernel boot): the enum entry
-  plus its `local_run()` call site are hand-added to the patch series;
-  elebake then lists the phase automatically.
-- `when_skipped` and `when_maybe` (§2) in the loader and their sh
-  equivalents (when_maybe: the three-line xorshift PRNG, TSC-seeded).
-- `sentinel_act` (§10): prompt + hash + publish, reaction-free.
+Done in the fork (0a13804, ffda551): the KERNEL phase and its call
+site, `when_skipped`/`when_maybe`/`when_tainted`/`when_duress`/
+`when_prompted`, `sentinel_act` and the rest of the action catalog of
+§2, the ledger, the sealed boot record with its anchors, the duress
+slot, the new witnesses. Still open:
+
+- (done, caf7f3a) the sh containers earlboot and elvbootd with their
+  whens, measurements and actions; elebake emits and installs them.
+- (done, fork a4c3037 + elebake) mac_bootlock: the loader.trust.* and
+  elvboot.* names are immutable in the kernel (every kenv set/unset under
+  the prefixes refused, root included, attempts counted in
+  security.mac.bootlock.denied). elebake side: a bound measure_bootlock
+  claim DEMANDS loader.conf mac_bootlock_load="YES" and
+  boot/kernel/mac_bootlock.ko in the stage's boot tree (the loader
+  preloads the module from the manifest-covered tree); `stage require
+  <stage> earlboot|elvbootd` lists the demands, `stage earlboot|elvbootd
+  mk` refuse while one is MISSING.
+- mac_veriexec coverage of the installed hooks.
 - The ESP-identity/rollback closure package (from the tutorial control
   pass): (1) `stage esp check <stage> <medium>` — compare BOOTX64.EFI
   and the reserve against the attested manifest hashes at every card

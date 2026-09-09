@@ -1,0 +1,3 @@
+sh
+# Act terminal of 'stage unkey': removes both slots; sh so bookkeeping acts.
+# @see ELEBAKE_INTERPRETER_stage_sign_key_bind

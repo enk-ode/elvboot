@@ -1,0 +1,3 @@
+cat
+# Text terminal of 'stage backup list': the table is shown, never run.
+# @see ELEBAKE_INTERPRETER_stage_backup_take

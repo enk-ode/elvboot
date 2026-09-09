@@ -1,0 +1,4 @@
+sh
+# Interpreter for the 'comment' terminal, pinned to 'sh': a comment line is a no-op
+# under sh, so a batch that has nothing left to do runs through; cat shows the reason.
+# @see ELEBAKE_INTERPRETER_error

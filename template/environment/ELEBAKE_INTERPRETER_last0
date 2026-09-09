@@ -1,0 +1,4 @@
+cat
+# Text terminal of the listing (arity 0 of last): shown. The batch last <n> runs its checks
+# and prints the pager line through the terminal default.
+# @see ELEBAKE_INTERPRETER_help_env0

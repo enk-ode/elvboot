@@ -116,11 +116,11 @@ tutorial that word is taken by the active-DB symlink.)
 The three-step that IS elebake:
 
 ```
-$ ./elebake.sh getintp pem_add
-# Source: .env/default/ELEBAKE_INTERPRETER_pem_add (default)
+$ ./elebake.sh getintp pem_record
+# Source: /home/brj/.elebake/db/.env/default/ELEBAKE_INTERPRETER_pem_record (default)
 sh
-$ ./elebake.sh setintp pem_add cat
-# Set ELEBAKE_INTERPRETER_pem_add (effective next command)
+$ ./elebake.sh setintp pem_record cat
+# Set ELEBAKE_INTERPRETER_pem_record (effective next command)
 $ ./elebake.sh pem add uefi-db /root/secureboot/db.key /root/secureboot/db.crt
 mkdir -p '/home/brj/.elebake/db/pem/uefi-db'
 chmod 0700 '/home/brj/.elebake/db/pem/uefi-db'
@@ -130,8 +130,11 @@ chmod 0600 '/home/brj/.elebake/db/pem/uefi-db/key' '/home/brj/.elebake/db/pem/ue
 printf '# Registered pem key %s (paths only; material stays in place)\n' 'uefi-db' >&2
 ```
 
-Under `cat` NOTHING happened — you read the shell that WOULD run. And
-that emission answers the important question by itself: this works
+Under `cat` NOTHING happened — you read the shell that WOULD run. `pem
+add` is a batch of two lines: the check that the name is a record name,
+and the act terminal `pem record`, whose pin you just set. The check ran
+(it is a combinator: a comment line, else an error line), the act was
+shown. That emission answers the important question by itself: this works
 although `/root/secureboot` is unreadable for the calling user, because
 `pem add` registers PATHS AS PROMISES — no file is read, copied or
 touched. A registration command that could copy a signing key would be
@@ -140,8 +143,8 @@ later, in the right context (`stage sign` under its `sudo sh` pin) and
 checked by the prerequisites. Now let it act:
 
 ```
-$ ./elebake.sh setintp pem_add sh
-# Set ELEBAKE_INTERPRETER_pem_add (effective next command)
+$ ./elebake.sh setintp pem_record sh
+# Set ELEBAKE_INTERPRETER_pem_record (effective next command)
 $ ./elebake.sh pem add uefi-db /root/secureboot/db.key /root/secureboot/db.crt
 # Registered pem key uefi-db (paths only; material stays in place)
 $ ./elebake.sh pem prerequisites
@@ -502,7 +505,7 @@ A deliberate negative first — the contract, snapping shut once:
 
 ```
 $ ./elebake.sh stage phase policy add illyria-boot PHASE_KERNEL watch-strict
-# Error: stage check policy: unknown phase 'PHASE_KERNEL' (stage phase show illyria-boot lists them)
+# Error: stage phase policy resolves: unknown phase PHASE_KERNEL (stage phase show illyria-boot lists them)
 ```
 
 `stage phase policy add` is check-then-act: `check stage` ->

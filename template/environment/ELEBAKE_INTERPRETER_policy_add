@@ -1,2 +1,0 @@
-sh
-# Act terminal 'policy add' -- sh so the policy record lands in the DB.

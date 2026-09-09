@@ -6,7 +6,7 @@ references — and goes into a backup area. They never contain each other,
 and they are bound by content, not by name.
 
 ```
-elebake export <dump> <bundle> <strategy> [<stage>]
+elebake export <strategy> <dump> <bundle> [<stage>|all]
 elebake import <dump> <bundle>
 elebake destroy <name>
 ```
@@ -124,12 +124,12 @@ worktree, phase bindings, markers and rebuild lines stay home.
 ## Rescue
 
 ```
-big:     elebake export ~/rescue/dump.sh ~/rescue/bundle.tar.gz minimized
+big:     elebake export minimized ~/rescue/dump.sh ~/rescue/bundle.tar.gz
 rescue:  elebake openpgp add manifest-attest <fingerprint>; setenv ELEBAKE_ARCHIVE_ATTEST_KEY manifest-attest
          elebake import ~/rescue/dump.sh ~/rescue/bundle.tar.gz
          elebake stage backup list smoke1 a          # the decision view
          elebake stage rollback smoke1 a known-good-p2  # saves the suspect FIRST
-         elebake export ~/rescue/back.sh ~/rescue/back.tar.gz minimized
+         elebake export minimized ~/rescue/back.sh ~/rescue/back.tar.gz
 big:     elebake import ~/rescue/back.sh ~/rescue/back.tar.gz
 ```
 

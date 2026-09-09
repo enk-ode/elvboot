@@ -1,4 +1,0 @@
-cat
-# Arity-specific ON PURPOSE: the 0-arg sibling is a batch (one re-invocation
-# per record) and must keep the batch default.
-# Display terminal 'trigger show' -- the C that WOULD be emitted.

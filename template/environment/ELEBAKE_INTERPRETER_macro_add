@@ -1,3 +1,0 @@
-sh
-# Act terminal 'macro add' -- sh so the baseline-slot record lands in
-# the DB (defines LOADER_TRUST_<MACRO> guard + <STEM>_EXPECTED).

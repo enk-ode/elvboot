@@ -1,0 +1,3 @@
+cat
+# dump block (cat-pinned): the boot/ import lines of the complete dump.
+# @see ELEBAKE_INTERPRETER_stage_dump_backup

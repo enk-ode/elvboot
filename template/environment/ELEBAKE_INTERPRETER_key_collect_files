@@ -1,0 +1,3 @@
+cat
+# Text terminal of 'key collect files' (pem/openpgp/pkcs11 collect <key>): shown, never run.
+# @see ELEBAKE_INTERPRETER_key_import_copy

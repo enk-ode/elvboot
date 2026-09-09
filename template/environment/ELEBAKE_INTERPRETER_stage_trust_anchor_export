@@ -1,0 +1,3 @@
+sudo sh
+# Act terminal of 'stage trust anchor': gpg with the keyring under /root.
+# @see ELEBAKE_INTERPRETER_stage_trust_mk_write

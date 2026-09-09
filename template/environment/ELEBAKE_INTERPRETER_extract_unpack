@@ -1,0 +1,3 @@
+sh
+# Act terminal of 'extract': unpacks with ELEBAKE_EXTRACTOR; sh so it acts.
+# @see ELEBAKE_INTERPRETER_bundle_pack

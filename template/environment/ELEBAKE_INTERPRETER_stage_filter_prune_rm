@@ -1,0 +1,4 @@
+cat
+# Act terminal of 'stage filter prune': the rm lines are SHOWN by default -- the owner reads
+# the list, then pipes it to sh. Never sh here.
+# @see ELEBAKE_INTERPRETER_stage_filter_orphaned_table

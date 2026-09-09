@@ -1,0 +1,4 @@
+# filter full: only the operational directories are dropped.
+# <glob> <reason>
+*/.tmp/* operational
+*/.log/* operational

@@ -1,3 +1,0 @@
-sh
-# Act terminal 'gate add' (both arities) -- sh so the gate record dir
-# is created in the DB.

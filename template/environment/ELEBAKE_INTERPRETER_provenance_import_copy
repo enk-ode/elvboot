@@ -1,0 +1,3 @@
+sh
+# Act terminal of 'provenance import': copies the receipt file; sh so it acts.
+# @see ELEBAKE_INTERPRETER_provenance_file
