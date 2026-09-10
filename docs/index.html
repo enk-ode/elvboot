@@ -15,15 +15,86 @@
   <span class="head-vol">System Manager&#x2019;s Manual</span>
   <span class="head-rtitle">ELEBAKE(8)</span></div>
 <main class="manual-text">
-<p class="Pp">&#x201C;$ELEBAKE_CONTEXT_SCRIPT&quot; help manual part exists
-    'name' &quot;$ELEBAKE_CONTEXT_SCRIPT&#x201D; help manual part print `name'
-    &#x201C;$ELEBAKE_CONTEXT_SCRIPT&quot; help manual part exists 'synopsis'
-    &quot;$ELEBAKE_CONTEXT_SCRIPT&#x201D; help manual part print `synopsis'
-    &#x201C;$ELEBAKE_CONTEXT_SCRIPT&quot; help manual part exists 'description'
-    &quot;$ELEBAKE_CONTEXT_SCRIPT&#x201D; help manual part print `description'
-    &#x201C;$ELEBAKE_CONTEXT_SCRIPT&quot; help manual part exists 'sources'
-    &quot;$ELEBAKE_CONTEXT_SCRIPT&#x201D; help manual part print `sources' #
-    COMMANDS</p>
+<section class="Sh">
+<h2 class="Sh" id="manual_part_name_shipped"><a class="permalink" href="#manual_part_name_shipped">manual
+  part name shipped</a></h2>
+</section>
+<section class="Sh">
+<h2 class="Sh" id="NAME"><a class="permalink" href="#NAME">NAME</a></h2>
+<p class="Pp">elebake - compiler for a verified-boot trust chain: build, sign,
+    attest, deploy, and the tamper-detection loader&#x2019;s decisions</p>
+</section>
+<section class="Sh">
+<h2 class="Sh" id="manual_part_synopsis_shipped"><a class="permalink" href="#manual_part_synopsis_shipped">manual
+  part synopsis shipped</a></h2>
+</section>
+<section class="Sh">
+<h2 class="Sh" id="SYNOPSIS"><a class="permalink" href="#SYNOPSIS">SYNOPSIS</a></h2>
+<p class="Pp"><b>elebake</b> <i>command</i> [<i>args</i> ...]</p>
+<p class="Pp"><b>elebake help</b> [<i>command</i> | <i>group</i> |
+  <i>topic</i>]</p>
+</section>
+<section class="Sh">
+<h2 class="Sh" id="manual_part_description_shipped"><a class="permalink" href="#manual_part_description_shipped">manual
+  part description shipped</a></h2>
+</section>
+<section class="Sh">
+<h2 class="Sh" id="DESCRIPTION"><a class="permalink" href="#DESCRIPTION">DESCRIPTION</a></h2>
+<p class="Pp"><b>elebake</b> maintains the trust chain of a locally built
+    FreeBSD boot loader: checked-out source, measured expectations, Authenticode
+    signature, OpenPGP-attested manifest, deployment to removable boot media,
+    and tamper witnesses read back at boot. Detection, not enforcement: the
+    design assumes the boot medium <i>can</i> be tampered with and concentrates
+    on noticing.</p>
+<p class="Pp">Every <b>elebake</b> command is a <i>generator</i>: it emits shell
+    text describing an action. Whether that text is displayed, piped, or
+    executed is decided by an <i>interpreter</i> the operator controls per
+    function (see ENVIRONMENT). The shipped default displays
+    (<span class="Li">cat</span>): inspect first, then pin an executing
+    interpreter. Batch commands emit an unconditional sequence of further
+    <b>elebake</b> commands; checking is itself a command in the sequence, and
+    the batch machinery stops at the first failure.</p>
+<p class="Pp">The command reference below is generated from the tool&#x2019;s
+    own help corpus and is therefore always current; <span class="Li">elebake
+    help</span> renders the same corpus in the terminal.</p>
+</section>
+<section class="Sh">
+<h2 class="Sh" id="manual_part_sources_shipped"><a class="permalink" href="#manual_part_sources_shipped">manual
+  part sources shipped</a></h2>
+</section>
+<section class="Sh">
+<h2 class="Sh" id="THE_FREEBSD_SOURCES"><a class="permalink" href="#THE_FREEBSD_SOURCES">THE
+  FREEBSD SOURCES</a></h2>
+<p class="Pp"><b>elebake</b> is nothing without the loader it compiles for. The
+    measurement, claim, gate and policy engine that reads the compiled decisions
+    at boot is a FreeBSD patch series &#x2013; <i>platform trust</i>
+    <i>gates</i> &#x2013; and the catalogs <b>elebake</b> offers
+    (<span class="Li">stage measure</span>, <span class="Li">stage
+    action</span>, <span class="Li">stage when</span>, <span class="Li">stage
+    phase show</span>) are parsed from the headers of that series. Against a
+    stock FreeBSD tree the catalogs are empty and no foundation can be
+  built.</p>
+<p class="Pp">Get the tree that carries the series:</p>
+<dl class="Bl-tag">
+  <dt></dt>
+  <dd>
+    <pre>git clone -b platform-trust-gates-15.1 \
+<br/>
+    https://github.com/johannes-bruegmann/freebsd-src.git ~/git/freebsd-src
+elebake setenv ELEBAKE_FREEBSD_SRC ~/git/freebsd-src
+elebake freebsd prerequisites
+    </pre>
+  </dd>
+</dl>
+<p class="Pp">The branch is based on releng/15.1 (15.1-RELEASE); the loader-side
+    engine lives under <span class="Li">stand/efi/loader/local/</span> and its
+    README points back at this project. Parts of the series are on their way
+    upstream. <span class="Li">stage checkout</span> adds a git worktree of that
+    repository per stage, so the source stays one repository and every stage
+    builds from a named ref.</p>
+</section>
+<section class="Sh">
+<h2 class="Sh" id="COMMANDS"><a class="permalink" href="#COMMANDS">COMMANDS</a></h2>
 <p class="Pp">Every command, grouped as <span class="Li">elebake help</span>
     groups it. <span class="Li">elebake help &lt;command&gt;</span> shows
     parameters, environment and examples.</p>
@@ -1240,6 +1311,7 @@
       notes for the caller</dd>
 </dl>
 </section>
+</section>
 <section class="Sh">
 <h2 class="Sh" id="ENVIRONMENT"><a class="permalink" href="#ENVIRONMENT">ENVIRONMENT</a></h2>
 <p class="Pp">All configuration lives in <span class="Li">ELEBAKE_*</span>
@@ -1433,17 +1505,118 @@
       target (ELV_STATE in the scripts: appraisal, book, heartbeat, spool,
       marks, smart counters); created 0700 root by the install steps</dd>
 </dl>
-<p class="Pp">&#x201C;$ELEBAKE_CONTEXT_SCRIPT&quot; help manual part exists
-    'files' &quot;$ELEBAKE_CONTEXT_SCRIPT&#x201D; help manual part print `files'
-    &#x201C;$ELEBAKE_CONTEXT_SCRIPT&quot; help manual part exists 'examples'
-    &quot;$ELEBAKE_CONTEXT_SCRIPT&#x201D; help manual part print `examples'
-    &#x201C;$ELEBAKE_CONTEXT_SCRIPT&quot; help manual part exists 'see-also'
-    &quot;$ELEBAKE_CONTEXT_SCRIPT&#x201D; help manual part print `see-also'
-    &#x201C;$ELEBAKE_CONTEXT_SCRIPT&quot; help manual part exists 'authors'
-    &quot;$ELEBAKE_CONTEXT_SCRIPT&#x201D; help manual part print `authors'</p>
+</section>
+<section class="Sh">
+<h2 class="Sh" id="manual_part_files_shipped"><a class="permalink" href="#manual_part_files_shipped">manual
+  part files shipped</a></h2>
+</section>
+<section class="Sh">
+<h2 class="Sh" id="FILES"><a class="permalink" href="#FILES">FILES</a></h2>
+<dl class="Bl-tag">
+  <dt><span class="Li">~/.elebake/db</span></dt>
+  <dd>the active database (symlink)</dd>
+  <dt><span class="Li">~/.elebake/&lt;name&gt;/.env/{local,default}/</span></dt>
+  <dd>the layered variable store: overrides (<span class="Li">setenv</span>)
+      over the installed profile over the shipped templates</dd>
+  <dt><span class="Li">~/.elebake/&lt;name&gt;/.log/YYYY-MM-DD/</span></dt>
+  <dd>per-invocation traces &#x2013; the debugging ground truth
+      (<span class="Li">elebake last</span>)</dd>
+  <dt><span class="Li">~/.elebake/&lt;name&gt;/stage/&lt;stage&gt;/</span></dt>
+  <dd>a stage record: <span class="Li">boot/</span> (the built tree),
+      <span class="Li">backup/&lt;medium&gt;/&lt;label&gt;/</span> (backup
+      records), <span class="Li">media/</span>,
+    <span class="Li">marker/</span></dd>
+  <dt><span class="Li">~/.elebake/&lt;name&gt;/provenance/</span></dt>
+  <dd>receipts of every admitted import (the lineage)</dd>
+  <dt><span class="Li">~/.elebake/worktree/</span></dt>
+  <dd>git worktrees of the FreeBSD source; build trees live outside the
+    database</dd>
+  <dt><span class="Li">~/.elebake/bundle/</span>,
+    <span class="Li">~/.elebake/incoming/</span></dt>
+  <dd>where an exported bundle is handed to the user, and import&#x2019;s
+      scratch area</dd>
+</dl>
+</section>
+<section class="Sh">
+<h2 class="Sh" id="manual_part_examples_shipped"><a class="permalink" href="#manual_part_examples_shipped">manual
+  part examples shipped</a></h2>
+</section>
+<section class="Sh">
+<h2 class="Sh" id="EXAMPLES"><a class="permalink" href="#EXAMPLES">EXAMPLES</a></h2>
+<p class="Pp">Create a database, connect the sources, register keys, build and
+    publish a stage:</p>
+<dl class="Bl-tag">
+  <dt></dt>
+  <dd>
+    <pre>./elebake.sh bootstrap current minimal | sh
+./elebake.sh setenv ELEBAKE_FREEBSD_SRC ~/git/freebsd-src
+./elebake.sh pkcs11 add db 'pkcs11:token=...;object=db' /root/sb/db.crt
+./elebake.sh openpgp add manifest 4E1F0A2B7C9D8E6F5A4B3C2D1E0F9A8B7C6D5E4F /root/sb/.gnupg
+./elebake.sh stage add smoke1
+./elebake.sh stage sign key smoke1 pkcs11 db
+./elebake.sh stage attest key smoke1 openpgp manifest
+./elebake.sh stage checkout smoke1 platform-trust-gates-15.1^0 | sh
+./elebake.sh stage make smoke1
+./elebake.sh stage push smoke1 b
+    </pre>
+  </dd>
+</dl>
+<p class="Pp">Take the database elsewhere &#x2013; one signed pair, pinned on
+    arrival:</p>
+<dl class="Bl-tag">
+  <dt></dt>
+  <dd>
+    <pre>./elebake.sh setenv ELEBAKE_ARCHIVE_ATTEST_KEY manifest
+./elebake.sh export ~/git/config/dump.sh ~/.elebake/bundle/a1b2c3d.tar.gz full
+# on the receiving machine
+./elebake.sh openpgp add manifest 4E1F0A2B7C9D8E6F5A4B3C2D1E0F9A8B7C6D5E4F
+./elebake.sh setenv ELEBAKE_ARCHIVE_ATTEST_KEY manifest
+./elebake.sh import ~/git/config/dump.sh ~/.elebake/bundle/a1b2c3d.tar.gz
+./elebake.sh provenance list
+    </pre>
+  </dd>
+</dl>
+<p class="Pp">The rescue pair, and a rollback that keeps the evidence:</p>
+<dl class="Bl-tag">
+  <dt></dt>
+  <dd>
+    <pre>./elebake.sh export ~/rescue/dump.sh ~/rescue/bundle.tar.gz minimized
+./elebake.sh stage backup list smoke1 a
+./elebake.sh stage rollback smoke1 a known-good-p2
+    </pre>
+  </dd>
+</dl>
+<p class="Pp">Inspect instead of act (any command): run it while the terminal
+    default is <span class="Li">cat</span>, read the emitted shell, then re-run
+    under an executing pin.</p>
+</section>
+<section class="Sh">
+<h2 class="Sh" id="manual_part_see-also_shipped"><a class="permalink" href="#manual_part_see-also_shipped">manual
+  part see-also shipped</a></h2>
+</section>
+<section class="Sh">
+<h2 class="Sh" id="SEE_ALSO"><a class="permalink" href="#SEE_ALSO">SEE
+  ALSO</a></h2>
+<p class="Pp">uefisign(8), veriexec(8), gpg(1)</p>
+<p class="Pp"><span class="Li">docs/QUICKSTART.md</span>,
+    <span class="Li">docs/TUTORIAL.md</span>,
+    <span class="Li">docs/ARCHITECTURE.md</span>,
+    <span class="Li">docs/DESIGN_DUMP_ARCHIVE.md</span> in the source tree;
+    <a class="Lk" href="https://github.com/enk-ode/elvboot">https://github.com/enk-ode/elvboot</a>;
+    the FreeBSD sources with the platform-trust-gates series:
+    <a class="Lk" href="https://github.com/johannes-bruegmann/freebsd-src">https://github.com/johannes-bruegmann/freebsd-src</a>&#x00A0;(branch
+    <span class="Li">platform-trust-gates-15.1</span>).</p>
+</section>
+<section class="Sh">
+<h2 class="Sh" id="manual_part_authors_shipped"><a class="permalink" href="#manual_part_authors_shipped">manual
+  part authors shipped</a></h2>
 </section>
 <section class="Sh">
 <h2 class="Sh" id="AUTHORS"><a class="permalink" href="#AUTHORS">AUTHORS</a></h2>
+<p class="Pp">Dr.&#x00A0;Johannes Br&#x00FC;gmann</p>
+</section>
+<section class="Sh">
+<h2 class="Sh" id="AUTHORS~2"><a class="permalink" href="#AUTHORS~2">AUTHORS</a></h2>
 <p class="Pp">Dr.&#x00A0;Johannes Br&#x00FC;gmann.</p>
 </section>
 </main>

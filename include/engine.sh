@@ -1409,7 +1409,7 @@ process_arguments() {
   # This is needed before any mktemp calls in the pipeline execution below
   # Note: init also creates .tmp, but dispatch needs it first (chicken-and-egg problem)
   # Mode 0750: allows group access for sudo scenarios (operational directory)
-  if [ ! -d "$ELEBAKE_BASE/.tmp" ]; then
+  if [ ! -d "$ELEBAKE_BASE/.tmp/batch-exits" ]; then
     $MODIFY_DIR_CREATE "$ELEBAKE_BASE/.tmp" "$ELEBAKE_BASE/.tmp/batch-exits" 2>>"$LOG_FILE" || true
     $MODIFY_FILE_PERMS 0750 "$ELEBAKE_BASE/.tmp" 2>>"$LOG_FILE" || true
   fi
