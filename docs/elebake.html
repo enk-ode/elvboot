@@ -1520,20 +1520,21 @@ elebake freebsd prerequisites
 <section class="Sh">
 <h2 class="Sh" id="EXAMPLES"><a class="permalink" href="#EXAMPLES">EXAMPLES</a></h2>
 <p class="Pp">Create a database, connect the sources, register keys, build and
-    publish a stage:</p>
+    publish a stage (every command that changes the database acts by itself; the
+    pins decide what runs as root):</p>
 <dl class="Bl-tag">
   <dt></dt>
   <dd>
-    <pre>./elebake.sh bootstrap current minimal | sh
-./elebake.sh setenv ELEBAKE_FREEBSD_SRC ~/git/freebsd-src
-./elebake.sh pkcs11 add db 'pkcs11:token=...;object=db' /root/sb/db.crt
-./elebake.sh openpgp add manifest 4E1F0A2B7C9D8E6F5A4B3C2D1E0F9A8B7C6D5E4F /root/sb/.gnupg
-./elebake.sh stage add smoke1
-./elebake.sh stage sign key smoke1 pkcs11 db
-./elebake.sh stage attest key smoke1 openpgp manifest
-./elebake.sh stage checkout smoke1 platform-trust-gates-15.1^0 | sh
-./elebake.sh stage make smoke1
-./elebake.sh stage push smoke1 b
+    <pre>elebake bootstrap current minimal
+elebake setenv ELEBAKE_FREEBSD_SRC ~/git/freebsd-src
+elebake pkcs11 add db 'pkcs11:token=...;object=db' /root/sb/db.crt
+elebake openpgp add manifest 4E1F0A2B7C9D8E6F5A4B3C2D1E0F9A8B7C6D5E4F /root/sb/.gnupg
+elebake stage add smoke1
+elebake stage sign key smoke1 pkcs11 db
+elebake stage attest key smoke1 openpgp manifest
+elebake stage checkout smoke1 platform-trust-gates-15.1^0
+elebake stage make smoke1
+elebake stage push smoke1 b
     </pre>
   </dd>
 </dl>
@@ -1542,13 +1543,13 @@ elebake freebsd prerequisites
 <dl class="Bl-tag">
   <dt></dt>
   <dd>
-    <pre>./elebake.sh setenv ELEBAKE_ARCHIVE_ATTEST_KEY manifest
-./elebake.sh export ~/git/config/dump.sh ~/.elebake/bundle/a1b2c3d.tar.gz full
+    <pre>elebake setenv ELEBAKE_ARCHIVE_ATTEST_KEY manifest
+elebake export full ~/git/config/dump.sh ~/.elebake/bundle/a1b2c3d.tar.gz
 # on the receiving machine
-./elebake.sh openpgp add manifest 4E1F0A2B7C9D8E6F5A4B3C2D1E0F9A8B7C6D5E4F
-./elebake.sh setenv ELEBAKE_ARCHIVE_ATTEST_KEY manifest
-./elebake.sh import ~/git/config/dump.sh ~/.elebake/bundle/a1b2c3d.tar.gz
-./elebake.sh provenance list
+elebake openpgp add manifest 4E1F0A2B7C9D8E6F5A4B3C2D1E0F9A8B7C6D5E4F
+elebake setenv ELEBAKE_ARCHIVE_ATTEST_KEY manifest
+elebake import ~/git/config/dump.sh ~/.elebake/bundle/a1b2c3d.tar.gz
+elebake provenance list
     </pre>
   </dd>
 </dl>
@@ -1556,15 +1557,19 @@ elebake freebsd prerequisites
 <dl class="Bl-tag">
   <dt></dt>
   <dd>
-    <pre>./elebake.sh export ~/rescue/dump.sh ~/rescue/bundle.tar.gz minimized
-./elebake.sh stage backup list smoke1 a
-./elebake.sh stage rollback smoke1 a known-good-p2
+    <pre>elebake export minimized ~/rescue/dump.sh ~/rescue/bundle.tar.gz
+elebake stage backup list smoke1 a
+elebake stage rollback smoke1 a known-good-p2
     </pre>
   </dd>
 </dl>
-<p class="Pp">Inspect instead of act (any command): run it while the terminal
-    default is <span class="Li">cat</span>, read the emitted shell, then re-run
-    under an executing pin.</p>
+<p class="Pp">Inspect instead of act (any command): pin its act terminal to
+    <span class="Li">cat</span> (<span class="Li">elebake setintp
+    stage_deploy_write cat</span>), read the emitted shell, then pin it back.
+    <span class="Li">elebake</span> is the wrapper <span class="Li">make
+    install</span> places in <span class="Li">$PREFIX/bin</span>; from a
+    checkout the same commands read <span class="Li">./elebake.sh
+  ...</span>.</p>
 </section>
 <section class="Sh">
 <h2 class="Sh" id="SEE_ALSO"><a class="permalink" href="#SEE_ALSO">SEE

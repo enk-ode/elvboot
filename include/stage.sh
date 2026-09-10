@@ -3263,7 +3263,7 @@ __stage_marker_rotate1() {
 # @command stage site mk <stage>
 # @summary Write local/site.mk of the stage's checkout: the stage and its checkout exist; the header, then the measured parts (board, keys, marker, origin, disks) and the baselines appended in file order to site.mk.new; the install (rendered, clean, placed) and the report. Run under sudo: the key store, the marker and the origin are EFI variables
 # @group   provisioning
-# @example sudo sh elebake.sh stage site mk daily-v1
+# @example elebake stage site mk daily-v1
 # @see     stage site mk report
 # @see     stage baseline add
 # @see     stage disks add

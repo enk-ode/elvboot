@@ -93,7 +93,7 @@ ___stage_earlboot_test2() {
 # @summary Install the generated earlboot script as /etc/rc.d/earlboot (root:wheel 0500; the root dataset, so the earliest userland does not depend on a mounted /usr/local) and enable it in /etc/rc.conf.d/earlboot; refused while none was generated. Run as root
 # @group   foundation
 # @env     ELEBAKE_STATE_DB  the target state directory of the scripts (created 0700 root)
-# @example sudo sh elebake.sh stage earlboot install daily-v1
+# @example elebake stage earlboot install daily-v1
 # @see     stage earlboot mk
 #@end
 ___stage_earlboot_install1() {
@@ -275,7 +275,7 @@ _stage_elvbootd_glue_devd1() {
 # @summary Install the generated hooks under /usr/local/etc/elvboot/ (0500) and wire each into its mechanism with the generated glue: STARTUP as /usr/local/etc/rc.d/elvbootd (enabled), PERIODIC as /usr/local/etc/periodic/security/900.elvboot, RESUME as a line in /etc/rc.resume, MEDIA via /usr/local/etc/devd/elvboot.conf (devd restarted). Refused while nothing was generated. Run as root
 # @group   foundation
 # @env     ELEBAKE_STATE_DB  the target state directory of the hooks (created 0700 root)
-# @example sudo sh elebake.sh stage elvbootd install daily-v1
+# @example elebake stage elvbootd install daily-v1
 # @see     stage elvbootd mk
 #@end
 ___stage_elvbootd_install1() {
