@@ -1541,9 +1541,48 @@ ___stage_foundation_report1() {
 #@end
 ___stage_phase_report2() {
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" log '  $2'"
-        local p="" lines=0
+        local p=""
         grep . "$ELEBAKE_BASE/stage/$1/phases/$2" 2>/dev/null | while read -r p; do
-                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" log '      policy: $p'"
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" policy report '$p'"
         done
         test -s "$ELEBAKE_BASE/stage/$1/phases/$2" || printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" log '      (no policies bound)'"
+}
+
+#@help __stage_report1
+# @command stage report <stage> [<container>]
+# @summary The one reading view of a stage: every container, every phase, the bound policies, each policy's gate with its claims (measurement, diagnose, publish, expectation) and its triggers in firing order (when -> action). Rewrites to 'stage phase show <stage>'; with a container to 'stage phase show <container> <stage>'
+# @group   foundation
+# @example elebake stage report daily-v1
+# @example elebake stage report daily-v1 earlboot
+# @see     stage phase show
+# @see     stage foundation report
+# @see     policy report
+#@end
+__stage_report1() {
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage phase show '$1'"
+}
+
+#@help __stage_report2
+# @internal arity-2 of 'stage report' (one container): rewrite to 'stage phase show <container> <stage>'
+#@end
+__stage_report2() {
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage phase show '$2' '$1'"
+}
+
+#@help ___policy_report1
+# @command policy report <policy>
+# @summary A bound policy in the reading view: its gate with every claim (claim render show), then its triggers in firing order (trigger render show)
+# @group   foundation
+# @internal
+# @see     stage report
+# @see     policy show
+#@end
+___policy_report1() {
+        local t=""
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" log '      policy: $1 (gate $(sed -n "s/^gate //p" "$ELEBAKE_BASE/foundation/policies/$1" 2>/dev/null))'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" gate claims show '$(sed -n "s/^gate //p" "$ELEBAKE_BASE/foundation/policies/$1" 2>/dev/null)'"
+        sed -n 's/^trigger //p' "$ELEBAKE_BASE/foundation/policies/$1" 2>/dev/null | while read -r t; do
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" trigger render show '$t'"
+        done
+        grep -q '^trigger ' "$ELEBAKE_BASE/foundation/policies/$1" 2>/dev/null || printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" log 'policy $1 fires no trigger'"
 }

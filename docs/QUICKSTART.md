@@ -46,13 +46,15 @@ git clone -b platform-trust-gates-15.1 https://github.com/johannes-bruegmann/fre
 ./elebake.sh stage filter smoke1 +loader.efi.signed # curate what boot/ carries
 ```
 
-Provision the measured expectations (machine identity, marker — needs
-root for efivar reads, base explicit because sudo resets $HOME):
+Provision the measured expectations (machine identity, marker; the acts
+that need root -- efivar, the disk measurements, the keyring under /root --
+carry a `sudo sh` pin, so elebake itself runs as you and the database stays
+yours):
 
 ```sh
 ./elebake.sh stage trust anchor smoke1
 ./elebake.sh stage trust mk smoke1
-sudo env ELEBAKE_BASE=$HOME/.elebake/db ./elebake.sh stage site mk smoke1
+./elebake.sh stage site mk smoke1
 ```
 
 ## 3. Build, sign, publish

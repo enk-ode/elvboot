@@ -813,7 +813,7 @@ __stage_populated1() {
         if test -f "$ELEBAKE_BASE/stage/$1/boot/loader.efi"; then
                 printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'stage $1 populated'"
         else
-                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'stage $1: boot/loader.efi not present (stage build / stage loader first)'"
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'stage $1: boot/loader.efi not present (stage build, stage loader, or after stage adopt: stage filter add $1 loader.efi and stage include)'"
         fi
 }
 
@@ -856,6 +856,7 @@ __stage_sign_pem_complete1() {
 _stage_sign_pem_run1() {
         emit_note "elebake stage sign '$1' (Authenticode via file-based key, uefisign)"
         printf '%s\n' "uefisign -c '$(head -n1 "$ELEBAKE_BASE/stage/$1/sign-key/cert" 2>/dev/null)' -k '$(head -n1 "$ELEBAKE_BASE/stage/$1/sign-key/key" 2>/dev/null)' -o '$ELEBAKE_BASE/stage/$1/boot/loader.efi.signed' '$ELEBAKE_BASE/stage/$1/boot/loader.efi' || { rm -f '$ELEBAKE_BASE/stage/$1/boot/loader.efi.signed'; printf '# Error: uefisign failed (input already signed? key unreadable?)\\n' >&2; exit 1; }"
+        printf '%s\n' "chown '$(id -un)' '$ELEBAKE_BASE/stage/$1/boot/loader.efi.signed' 2>/dev/null || true"
         printf '%s\n' "printf '# signed: loader.efi -> loader.efi.signed\\n' >&2"
 }
 
@@ -924,6 +925,7 @@ _stage_sign_pkcs11_run1() {
         printf '%s\n' "  -out '$ELEBAKE_BASE/stage/$1/boot/loader.efi.signed'"
         printf '%s\n' "rc=\$?; rm -f \"\$pf\""
         printf '%s\n' "[ \"\$rc\" -eq 0 ] || { rm -f '$ELEBAKE_BASE/stage/$1/boot/loader.efi.signed'; printf '# Error: osslsigncode failed (PIN? token?)\\n' >&2; exit 1; }"
+        printf '%s\n' "chown '$(id -un)' '$ELEBAKE_BASE/stage/$1/boot/loader.efi.signed' 2>/dev/null || true"
 }
 
 #@help ___stage_attest1
@@ -958,6 +960,7 @@ _stage_detachsign1() {
         printf '%s\n' "rm -f '$ELEBAKE_BASE/stage/$1/boot/manifest.asc'"
         printf '%s\n' "GPG_TTY=\$( { tty </dev/tty; } 2>/dev/null ); export GPG_TTY; ${gpgenv}gpg-connect-agent updatestartuptty /bye >/dev/null 2>&1 || true"
         printf '%s\n' "${gpgenv}gpg --yes --openpgp -a --detach-sign --local-user '$(head -n1 "$ELEBAKE_BASE/stage/$1/attest-key/keyid" 2>/dev/null)' -o '$ELEBAKE_BASE/stage/$1/boot/manifest.asc' '$ELEBAKE_BASE/stage/$1/boot/manifest' || { rm -f '$ELEBAKE_BASE/stage/$1/boot/manifest.asc'; printf '# Error: manifest attestation failed for %s\\n' '$(head -n1 "$ELEBAKE_BASE/stage/$1/attest-key/keyid" 2>/dev/null)' >&2; exit 1; }"
+        printf '%s\n' "chown '$(id -un)' '$ELEBAKE_BASE/stage/$1/boot/manifest.asc' 2>/dev/null || true"
         printf '%s\n' "printf '# manifest attested for stage %s\\n' '$1' >&2"
 }
 
@@ -1459,6 +1462,7 @@ _stage_trust_anchor_export1() {
         printf '%s\n' "[ -s '$ELEBAKE_BASE/stage/$1/work/lib/libsecureboot/ta_openpgp.asc' ] || { printf '# Error: trust anchor export empty -- key %s not in this keyring? (openpgp add <name> <keyid> <gnupghome> for a keyring living elsewhere)\\n' '$keyid' >&2; exit 1; }"
         printf '%s\n' "GPG_TTY=\$( { tty </dev/tty; } 2>/dev/null ); export GPG_TTY; ${gpgenv}gpg-connect-agent updatestartuptty /bye >/dev/null 2>&1 || true"
         printf '%s\n' "${gpgenv}gpg --yes --openpgp -a --detach-sign --local-user '$keyid' -o '$ELEBAKE_BASE/stage/$1/work/lib/libsecureboot/vc_openpgp.asc' '$ELEBAKE_BASE/stage/$1/work/lib/libsecureboot/ta_openpgp.asc' || { printf '# Error: self-test signature failed for %s\\n' '$keyid' >&2; exit 1; }"
+        printf '%s\n' "chown '$(id -un)' '$ELEBAKE_BASE/stage/$1/work/lib/libsecureboot/ta_openpgp.asc' '$ELEBAKE_BASE/stage/$1/work/lib/libsecureboot/vc_openpgp.asc' 2>/dev/null || true"
         printf '%s\n' "printf '# trust anchor + self-test sig placed for stage %s\\n' '$1' >&2"
 }
 
@@ -3197,7 +3201,7 @@ _stage_marker_nvram2() {
         printf '%s\n' "desclen=\$(od -An -tu1 -j6 \"\$t\" | awk '{for (i = 1; i <= NF; i++) v[n++] = \$i} END {for (k = 0; k + 1 < n; k += 2) if (v[k] == 0 && v[k+1] == 0) {print k + 2; exit}}')"
         printf '%s\n' "off=\$((6 + desclen + fplen))"
         printf '%s\n' "{ [ -n \"\$fplen\" ] && [ -n \"\$desclen\" ] && [ \"\$off\" -gt 0 ] && [ \"\$off\" -le \"\$size\" ]; } || { printf '# Error: %s does not parse as an EFI_LOAD_OPTION\\n' \"\$v\" >&2; exit 1; }"
-        printf '%s\n' "[ -f '$ELEBAKE_BASE/stage/$1/backup/$bootvar.orig' ] || cp \"\$t\" '$ELEBAKE_BASE/stage/$1/backup/$bootvar.orig'"
+        printf '%s\n' "[ -f '$ELEBAKE_BASE/stage/$1/backup/$bootvar.orig' ] || { cp \"\$t\" '$ELEBAKE_BASE/stage/$1/backup/$bootvar.orig'; chown '$(id -un)' '$ELEBAKE_BASE/stage/$1/backup/$bootvar.orig' 2>/dev/null || true; }"
         if test "$2" != keep; then
                 printf '%s\n' "m=\$(openssl rand -hex 16) || { printf '# Error: openssl rand failed\\n' >&2; exit 1; }"
                 printf '%s\n' "( umask 077; printf '%s\\n' \"\$m\" > '$mfile' ) || { printf '# Error: cannot write %s\\n' '$mfile' >&2; exit 1; }"

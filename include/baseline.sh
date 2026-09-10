@@ -520,7 +520,7 @@ ___stage_disks_measure1() {
 # @see     stage site mk disks
 #@end
 _stage_disks_scratch_mk1() {
-        printf '%s\n' "rm -rf '$ELEBAKE_BASE/stage/$1/disks.measure' && mkdir -p '$ELEBAKE_BASE/stage/$1/disks.measure' && : > '$ELEBAKE_BASE/stage/$1/disks.measure/parts' && : > '$ELEBAKE_BASE/stage/$1/disks.measure/geli' && : > '$ELEBAKE_BASE/stage/$1/disks.measure/gpt'"
+        printf '%s\n' "rm -rf '$ELEBAKE_BASE/stage/$1/disks.measure' && mkdir -p '$ELEBAKE_BASE/stage/$1/disks.measure' && : > '$ELEBAKE_BASE/stage/$1/disks.measure/parts' && : > '$ELEBAKE_BASE/stage/$1/disks.measure/geli' && : > '$ELEBAKE_BASE/stage/$1/disks.measure/gpt' && chown '$(id -un)' -R '$ELEBAKE_BASE/stage/$1/disks.measure' 2>/dev/null || true"
 }
 
 #@help _stage_disk_uuid_record2

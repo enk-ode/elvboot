@@ -641,7 +641,11 @@ _claim_render_show1() {
         test "$diagnose" != - || diagnose=NULL
         test "$publish" = - && publish=NULL || publish="\"$publish\""
         test "$type" = macro && exp="$value" || exp="MEASUREMENT_$TYPE(\"$label\", $value)"
-        printf '# %s: CLAIM(%s, %s, %s, %s)\n' "$1" "$measurement" "$diagnose" "$publish" "$exp"
+        if test "$type" = string; then
+                printf '# %s (container form): _m=$(%s %s); _want=%s; diagnose %s; publish %s\n' "$1" "$measurement" "$(sq "$label")" "$(sq "$value")" "$diagnose" "$publish"
+        else
+                printf '# %s: CLAIM(%s, %s, %s, %s)\n' "$1" "$measurement" "$diagnose" "$publish" "$exp"
+        fi
 }
 
 #@help __trigger_fields_valid3
@@ -1187,7 +1191,37 @@ ___gate_show0() {
 ___gate_show1() {
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" gate exists '$1'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" gate render show '$1'"
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" gate render c '$1' | sed 's/^/#   /'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" gate render form '$1'"
+}
+
+#@help __gate_render_form1
+# @command gate render form <gate>
+# @summary The gate as its emitter would write it: no claim with a string expectation -> the loader's C form (gate render c, unindented); a string claim -> the container form, one 'claim render show' per claim (the loader has no MEASUREMENT_STRING)
+# @group   foundation
+# @internal
+# @see     gate show
+#@end
+__gate_render_form1() {
+        if grep . "$ELEBAKE_BASE/foundation/gates/$1/claims" 2>/dev/null | while read -r c; do read -r m d p e 2>/dev/null < "$ELEBAKE_BASE/foundation/claims/$c"; read -r t l v 2>/dev/null < "$ELEBAKE_BASE/foundation/expectations/$e"; test "$t" != string || exit 1; done; then
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" gate render c '$1'"
+        else
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" gate claims show '$1'"
+        fi
+}
+
+#@help ___gate_claims_show1
+# @command gate claims show <gate>
+# @summary One 'claim render show' per claim of the gate (the container form of a gate with a string expectation)
+# @group   foundation
+# @internal
+# @see     gate show
+#@end
+___gate_claims_show1() {
+        local c=""
+        grep . "$ELEBAKE_BASE/foundation/gates/$1/claims" 2>/dev/null | while read -r c; do
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" claim render show '$c'"
+        done
+        test -s "$ELEBAKE_BASE/foundation/gates/$1/claims" || printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" log 'gate $1 lists no claim'"
 }
 
 #@help _gate_render_show1
@@ -1497,7 +1531,7 @@ ___policy_show0() {
 ___policy_show1() {
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" policy exists '$1'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" policy render show '$1'"
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" policy render c '$1' | sed 's/^/#   /'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" policy render c '$1'"
 }
 
 #@help _policy_render_show1

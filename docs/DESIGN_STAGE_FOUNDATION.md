@@ -745,6 +745,14 @@ $ elebake answer hash add daily-v1 SYSINIT kernellock fish-0 <sha256(salt)> reac
 $ elebake answer show daily-v1
 ```
 
+Custody of the hashes at run time: the salted answer hashes reach earlboot
+as kenv variables under `mac_bootlock`, and a locked kenv cannot be cleared
+from userland -- root can read the hashes for the rest of the boot. That is
+by design: a hash of salt+word yields no word, the salt lives in the stage
+(not on the medium), and the words themselves exist only in the inventory.
+Rotate the words (`answer drop`, `answer add`) when a hash is suspected to
+have travelled, never expect it to vanish from a running system.
+
   One `answer add` is one class: expectation (string, label = the
   loader gate, value = sha256(salt + word) as the loader publishes it),
   claim over `measure_answer`, a single-claim gate (`fish-1` ->

@@ -201,6 +201,7 @@ ___environment_init1() {
 # @env     ELEBAKE_TEMPLATE_DIR  where the profile and its templates live
 # @env     ELEBAKE_PROFILE_ALL  the profile lists (ELEBAKE_PROFILE_<PROFILE>): line 1 names the variables to install
 # @env     ELEBAKE_CACHE_ENV_ARGS  the environment cache, invalidated by the install
+# @env     ELEBAKE_INTERPRETER_<function>  the pins the profile installs; a default pin the profile no longer lists is removed
 #@end
 _environment_install1() {
         local var="" f=""

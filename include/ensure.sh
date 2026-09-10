@@ -302,13 +302,17 @@ __stage_sha256_ensure3() {
 
 #@help __stage_string_ensure3
 # @command stage string ensure <stage> <container> <value>
-# @summary A string expectation has no prerequisites: rewrites to a comment line saying so. It exists so that the record's type word dispatches totally (lifting)
+# @summary A string expectation is a container type (the loader compares BYTE and SHA256 only): in earlboot or elvbootd a comment line (no prerequisites), in the loader an error line. It exists so that the record's type word dispatches totally (lifting)
 # @group   foundation
 # @internal
 # @see     stage gate ensure
 #@end
 __stage_string_ensure3() {
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'string expectation $3 in $2 of stage $1: no prerequisites'"
+        if test "$2" != loader; then
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'string expectation $3 in $2 of stage $1: no prerequisites'"
+        else
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'stage $1: a string expectation ($3) cannot be bound in the loader -- it compares BYTE and SHA256 only; string expectations belong to earlboot and elvbootd policies'"
+        fi
 }
 
 #@help __macro_exists_in2
