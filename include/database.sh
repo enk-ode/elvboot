@@ -218,8 +218,9 @@ _environment_install1() {
         done
         for f in "$ELEBAKE_BASE"/.env/local/ELEBAKE_INTERPRETER_*; do
                 test -f "$f" || continue
-                pin_names_function "${f##*/}" && continue
-                emit_note "stale local pin ${f##*/}: no such function -- unsetenv ${f##*/}"
+                pin_listed "${f##*/}" "$1" && continue
+                pin_names_terminal "${f##*/}" && continue
+                emit_note "local pin ${f##*/} names no terminal of this version (a rename? it may bind a batch or combinator now) -- check: unsetenv ${f##*/}"
         done
         printf '%s\n' "$MODIFY_FILE_REMOVE '$ELEBAKE_BASE/.env/local/ELEBAKE_CACHE_ENV_ARGS' 2>/dev/null || true"
         emit_note "Installed $1 profile (environment cache invalidated)"

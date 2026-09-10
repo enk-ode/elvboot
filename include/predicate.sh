@@ -461,9 +461,10 @@ pin_listed() {
         head -1 "$ELEBAKE_TEMPLATE_DIR/environment/ELEBAKE_PROFILE_$(printf '%s' "$2" | tr '[:lower:]' '[:upper:]')" 2>/dev/null | tr ' ' '\n' | grep -qx "$1"
 }
 
-# pin_names_function <ELEBAKE_INTERPRETER_x> -- does an anchor of that name (any
-# arity) exist? A pin left behind by a rename names none
-pin_names_function() {
+# pin_names_terminal <ELEBAKE_INTERPRETER_x> -- does a terminal of that name (any
+# arity) exist? A local pin left behind by a rename names none -- and may bind
+# a batch or combinator of the new vocabulary instead
+pin_names_terminal() {
         local stem="${1#ELEBAKE_INTERPRETER_}"
-        printf '%s\n' $ANCHOR_FUNCTIONS | grep -qE "^_+${stem}[0-9]*$"
+        printf '%s\n' $ANCHOR_FUNCTIONS | grep -qE "^_${stem}[0-9]*$"
 }
