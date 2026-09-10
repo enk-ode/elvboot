@@ -82,6 +82,7 @@ test: archtest unittest inttest
 man:
 	@env ELEBAKE_BASE=/var/empty ./elebake.sh help manual > docs/elebake.md.tmp
 	@test $$(grep -c ^\*\* docs/elebake.md.tmp) -gt 100 || { echo "man: help manual produced no command sections -- not overwriting docs/elebake.8" >&2; rm -f docs/elebake.md.tmp; exit 1; }
+	@! grep -q 'CONTEXT_SCRIPT\|^# manual part' docs/elebake.md.tmp || { echo "man: help manual leaked batch or comment lines (a pin of the base coloured it) -- not overwriting docs/elebake.8" >&2; rm -f docs/elebake.md.tmp; exit 1; }
 	pandoc -s -f markdown -t man -o docs/elebake.8 docs/elebake.md.tmp && rm -f docs/elebake.md.tmp
 	@echo "man: docs/elebake.8 ($$(grep -c '^\.SS\|^\.SH' docs/elebake.8) sections)"
 
