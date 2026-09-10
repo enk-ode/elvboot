@@ -79,7 +79,9 @@ test: archtest unittest inttest
 # changing help blocks, templates or prose; commit the result.
 .PHONY: man man-html
 man:
-	./elebake.sh help manual | pandoc -s -f markdown -t man -o docs/elebake.8
+	@env -u ELEBAKE_BASE -u ELEBAKE_ROOT ./elebake.sh help manual > docs/elebake.md.tmp
+	@test $$(grep -c ^\*\* docs/elebake.md.tmp) -gt 100 || { echo "man: help manual produced no command sections -- not overwriting docs/elebake.8" >&2; rm -f docs/elebake.md.tmp; exit 1; }
+	pandoc -s -f markdown -t man -o docs/elebake.8 docs/elebake.md.tmp && rm -f docs/elebake.md.tmp
 	@echo "man: docs/elebake.8 ($$(grep -c '^\.SS\|^\.SH' docs/elebake.8) sections)"
 
 man-html: man
