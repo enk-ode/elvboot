@@ -1685,7 +1685,9 @@ main() {
         # No .env layer yet: the environment is the shipped baseline
         # (template/environment) -- the children of bootstrap's init land
         # here and see the same pins a bootstrapped database installs
-        env_args="${ELEBAKE_CACHE_ENV_ARGS:-$(build_env_args_template)}"
+        # the shipped baseline first, what the parent handed down after (its
+        # values win: env applies the last assignment of a duplicate)
+        env_args="$(build_env_args_template) ${ELEBAKE_CACHE_ENV_ARGS:-}"
         ensure_interpreter_var "ELEBAKE_TERMINAL_INTERPRETER"
         ensure_interpreter_var "ELEBAKE_COMBINATOR_INTERPRETER"
         ensure_interpreter_var "ELEBAKE_BATCH_COMBINATOR_INTERPRETER"
