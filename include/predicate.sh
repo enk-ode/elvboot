@@ -455,3 +455,15 @@ trace_verdict() {
         bits=$(grep -o 'final EXIT_BITS: [0-9.]*' "$1" 2>/dev/null | tail -n1 | sed 's/.*: //')
         case "$bits" in ''|0|0.0|0.0.0) printf 'ok\n' ;; *) printf 'FAIL(%s)\n' "$bits" ;; esac
 }
+
+# pin_listed <ELEBAKE_INTERPRETER_x> <profile> -- does the profile list the pin?
+pin_listed() {
+        head -1 "$ELEBAKE_TEMPLATE_DIR/environment/ELEBAKE_PROFILE_$(printf '%s' "$2" | tr '[:lower:]' '[:upper:]')" 2>/dev/null | tr ' ' '\n' | grep -qx "$1"
+}
+
+# pin_names_function <ELEBAKE_INTERPRETER_x> -- does an anchor of that name (any
+# arity) exist? A pin left behind by a rename names none
+pin_names_function() {
+        local stem="${1#ELEBAKE_INTERPRETER_}"
+        printf '%s\n' $ANCHOR_FUNCTIONS | grep -qE "^_+${stem}[0-9]*$"
+}

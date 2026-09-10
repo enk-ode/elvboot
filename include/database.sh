@@ -194,7 +194,7 @@ ___environment_init1() {
 
 #@help _environment_install1
 # @command environment install <profile>
-# @summary Act terminal: the script that copies every template the profile lists into .env/default (0600), records the profile marker, invalidates the environment cache when one is there and says so
+# @summary Act terminal: the script that copies every template the profile lists into .env/default (0600), removes the default pins the profile no longer lists (a renamed terminal's old pin would bind the wrong function), records the profile marker, invalidates the environment cache when one is there and says so; a local pin that names no function is reported
 # @group   setup
 # @internal
 # @see     environment init
@@ -203,13 +203,24 @@ ___environment_init1() {
 # @env     ELEBAKE_CACHE_ENV_ARGS  the environment cache, invalidated by the install
 #@end
 _environment_install1() {
-        local var=""
+        local var="" f=""
         for var in $(head -1 "$ELEBAKE_TEMPLATE_DIR/environment/ELEBAKE_PROFILE_$(printf '%s' "$1" | tr '[:lower:]' '[:upper:]')" 2>/dev/null); do
                 printf '%s\n' "$MODIFY_FILE_COPY_FORCE '$ELEBAKE_TEMPLATE_DIR/environment/$var' '$ELEBAKE_BASE/.env/default/$var'"
                 printf '%s\n' "$MODIFY_FILE_PERMS 0600 '$ELEBAKE_BASE/.env/default/$var'"
         done
         printf '%s\n' "$MODIFY_FILE_COPY_FORCE '$ELEBAKE_TEMPLATE_DIR/environment/ELEBAKE_PROFILE_$(printf '%s' "$1" | tr '[:lower:]' '[:upper:]')' '$ELEBAKE_BASE/.env/default/ELEBAKE_PROFILE_$(printf '%s' "$1" | tr '[:lower:]' '[:upper:]')'"
         printf '%s\n' "$MODIFY_FILE_PERMS 0600 '$ELEBAKE_BASE/.env/default/ELEBAKE_PROFILE_$(printf '%s' "$1" | tr '[:lower:]' '[:upper:]')'"
+        for f in "$ELEBAKE_BASE"/.env/default/ELEBAKE_INTERPRETER_*; do
+                test -f "$f" || continue
+                pin_listed "${f##*/}" "$1" && continue
+                printf '%s\n' "$MODIFY_FILE_REMOVE '$f'"
+                emit_note "removed the stale default pin ${f##*/} (the profile no longer lists it)"
+        done
+        for f in "$ELEBAKE_BASE"/.env/local/ELEBAKE_INTERPRETER_*; do
+                test -f "$f" || continue
+                pin_names_function "${f##*/}" && continue
+                emit_note "stale local pin ${f##*/}: no such function -- unsetenv ${f##*/}"
+        done
         printf '%s\n' "$MODIFY_FILE_REMOVE '$ELEBAKE_BASE/.env/local/ELEBAKE_CACHE_ENV_ARGS' 2>/dev/null || true"
         emit_note "Installed $1 profile (environment cache invalidated)"
 }

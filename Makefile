@@ -71,7 +71,8 @@ inttest:
 
 test: archtest unittest inttest
 
-# The manual: docs/elebake.8 is GENERATED from `help manual` (prose from
+# The manual: docs/elebake.8 is GENERATED from `help manual` against an EMPTY
+# base (no database's pins colour it; prose from
 # template/manual/, commands from the help corpus, environment from the
 # variable templates) -- pandoc is a contributor-only dependency, the
 # generated page is committed. GitHub Pages serves the HTML rendering
@@ -79,7 +80,7 @@ test: archtest unittest inttest
 # changing help blocks, templates or prose; commit the result.
 .PHONY: man man-html
 man:
-	@env -u ELEBAKE_BASE -u ELEBAKE_ROOT ./elebake.sh help manual > docs/elebake.md.tmp
+	@env ELEBAKE_BASE=/var/empty ./elebake.sh help manual > docs/elebake.md.tmp
 	@test $$(grep -c ^\*\* docs/elebake.md.tmp) -gt 100 || { echo "man: help manual produced no command sections -- not overwriting docs/elebake.8" >&2; rm -f docs/elebake.md.tmp; exit 1; }
 	pandoc -s -f markdown -t man -o docs/elebake.8 docs/elebake.md.tmp && rm -f docs/elebake.md.tmp
 	@echo "man: docs/elebake.8 ($$(grep -c '^\.SS\|^\.SH' docs/elebake.8) sections)"
