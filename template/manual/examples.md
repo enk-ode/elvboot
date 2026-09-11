@@ -35,3 +35,10 @@ Inspect instead of act (any command): pin its act terminal to `cat`
 (`elebake setintp stage_deploy_write cat`), read the emitted shell, then
 pin it back. `elebake` is the wrapper `make install` places in
 `$PREFIX/bin`; from a checkout the same commands read `./elebake.sh ...`.
+
+A trigger whose when is a composition, and one that runs two actions:
+
+    elebake trigger add unlock-measured 'and(when_fail,not(when_skipped))' unlock_act
+    elebake trigger add silence-duress when_duress 'compose(taint_act,silence_act)'
+    elebake trigger show unlock-measured
+    # unlock-measured: FIRE(AND(when_fail, NOT(when_skipped)), unlock_act)

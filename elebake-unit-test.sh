@@ -907,7 +907,7 @@ fixture_worktree() {
   mkdir -p "$fix"
   printf 'loader.measure measurement.h struct[[:space:]]measurement[[:space:]]*%%s( not in the loader catalog of this checkout\nloader.diagnose measurement.h void[[:space:]]*%%s( not in the loader catalog of this checkout\nloader.when policy.h ^bool[[:space:]]*%%s( not in the loader catalog of this checkout\nloader.action action.h extern[[:space:]]const[[:space:]]struct[[:space:]]action[[:space:]]*%%s; not in the loader catalog of this checkout\n' > "$fix/catalog.tbl"
   printf 'struct measurement\tmeasure_alpha(int argc, CHAR16 *argv[]);\nstruct measurement\tmeasure_record(int argc, CHAR16 *argv[]);\nvoid\tdiagnose_alpha(int argc, CHAR16 *argv[], struct diagnosis *);\n' > "$fix/measurement.h"
-  printf 'bool\twhen_always(const struct appraisal *);\nenum phase {\n\tPHASE_ONE,\n\tPHASE_TWO,\n};\n' > "$fix/policy.h"
+  printf 'bool\twhen_always(const struct appraisal *);\nbool\twhen_fail(const struct appraisal *);\nenum phase {\n\tPHASE_ONE,\n\tPHASE_TWO,\n};\n' > "$fix/policy.h"
   printf 'extern const struct action\ttest_act;\nextern const struct action\thandover_act;\n' > "$fix/action.h"
   ln -sfn "$TEST_BASE_DIR/fix-work-$TESTS_RUN-$1" "$TEST_DIR/stage/$1/work"
   printf 'fixture-ref\n' > "$TEST_DIR/stage/$1/checkout"
@@ -969,7 +969,7 @@ test_foundation_claim_trigger_crud() {
     fail "dash-field rendering wrong"
   fi
   run_elebake trigger add publish-always when_always publish_act > /dev/null
-  if run_elebake trigger show publish-always | grep -q 'FIRE(when_always, &publish_act)'; then
+  if run_elebake trigger show publish-always | grep -q 'FIRE(when_always, publish_act)'; then
     pass "trigger show renders the FIRE form"
   else
     fail "trigger show wrong"
@@ -979,6 +979,53 @@ test_foundation_claim_trigger_crud() {
     fail "dropped claim still shown"
   else
     pass "claim drop removes the record"
+  fi
+}
+
+test_foundation_trigger_composition() {
+  test_header "trigger composition: and/or/not and compose render C and sh"
+  test_setup
+  run_elebake trigger add react-quiet 'and(when_fail,not(when_skipped))' 'compose(taint_act,unlock_act)' > /dev/null
+  if run_elebake trigger show react-quiet | grep -q 'FIRE(AND(when_fail, NOT(when_skipped)), COMPOSE(taint_act, unlock_act))'; then
+    pass "trigger show renders AND/NOT and COMPOSE"
+  else
+    fail "trigger show wrong: $(run_elebake trigger show react-quiet)"
+  fi
+  if run_elebake stage trigger render react-quiet | grep -q '^if { when_fail && ! when_skipped; }; then taint_act "\$GATE"; unlock_act "\$GATE"; fi$'; then
+    pass "stage trigger render composes the sh binding"
+  else
+    fail "sh binding wrong: $(run_elebake stage trigger render react-quiet)"
+  fi
+  run_elebake trigger add spot-or 'or(when_maybe,or(when_duress,when_tainted))' spool_act > /dev/null
+  if run_elebake trigger show spot-or | grep -q 'FIRE(OR(when_maybe, OR(when_duress, when_tainted)), spool_act)'; then
+    pass "nested or renders pairwise, a single action as &name"
+  else
+    fail "nested or wrong: $(run_elebake trigger show spot-or)"
+  fi
+  if run_elebake stage trigger render spot-or | grep -q '^if { when_maybe || { when_duress || when_tainted; }; }; then spool_act "\$GATE"; fi$'; then
+    pass "nested or groups in sh"
+  else
+    fail "sh nested or wrong: $(run_elebake stage trigger render spot-or)"
+  fi
+  if run_elebake trigger add broken 'and(when_fail' unlock_act 2>&1 | grep -q "does not parse"; then
+    pass "an unbalanced expression is refused"
+  else
+    fail "unbalanced expression accepted"
+  fi
+  if run_elebake trigger add lonely 'or(when_fail)' unlock_act 2>&1 | grep -q "does not parse"; then
+    pass "or with one argument is refused"
+  else
+    fail "or(one) accepted"
+  fi
+  if run_elebake trigger add spaced 'and(when_fail, when_pass)' unlock_act 2>&1 | grep -q "does not parse"; then
+    pass "whitespace inside an expression is refused"
+  else
+    fail "whitespace accepted"
+  fi
+  if [ ! -f "$TEST_DIR/foundation/triggers/broken" ] && [ ! -f "$TEST_DIR/foundation/triggers/lonely" ] && [ ! -f "$TEST_DIR/foundation/triggers/spaced" ]; then
+    pass "refused expressions leave no record"
+  else
+    fail "refused expression stored"
   fi
 }
 
@@ -1017,9 +1064,9 @@ test_foundation_gate_policy_crud() {
   run_elebake policy trigger add watch t1 > /dev/null
   run_elebake policy trigger add watch t2 > /dev/null
   out=$(run_elebake policy show watch)
-  if printf '%s\n' "$out" | grep -q 'POLICY(strictwatch' \
+  if printf '%s\n' "$out" | grep -q 'POLICY_TABLE_DEFINE(watch_bindings' \
      && [ "$(printf '%s\n' "$out" | grep -c 'FIRE(')" = "2" ]; then
-    pass "policy show renders POLICY with both FIREs"
+    pass "policy show renders POLICY_TABLE_DEFINE with both FIREs"
   else
     fail "policy show wrong: $out"
   fi
@@ -1364,6 +1411,18 @@ test_stage_foundation_emitter() {
     pass "a macro record an expectation names cannot be dropped (the world cannot drift under the bindings)"
   else
     fail "referenced macro dropped: $(run_elebake macro drop ALPHA_DIGEST 2>&1)"
+  fi
+  # a gate bound only in a container phase measures with sh providers: it never enters the loader's C
+  run_elebake gate add shgate > /dev/null
+  run_elebake gate claim add shgate cb > /dev/null
+  run_elebake policy add psh shgate > /dev/null
+  run_elebake policy trigger add psh ta > /dev/null
+  run_elebake stage phase policy append unite SYSINIT psh > /dev/null 2>&1
+  if run_elebake stage foundation render gates unite | grep -q 'GATE_DEFINE(gsec' \
+     && ! run_elebake stage foundation render gates unite | grep -q 'shgate'; then
+    pass "render gates takes the loader phases only (a container-phase gate stays out of foundation.c)"
+  else
+    fail "container gate leaked: $(run_elebake stage foundation render gates unite 2>&1 | grep GATE_DEFINE)"
   fi
 }
 
@@ -1843,6 +1902,38 @@ test_stage_dump_minimized() {
   fi
 }
 
+test_stage_recheckout() {
+  test_header "stage checkout refuses a second worktree; stage recheckout replaces it"
+  test_setup
+  local src="$TEST_BASE_DIR/recheckout-src-$TESTS_RUN"
+  mkdir -p "$src"
+  (cd "$src" && git init -q . && git config user.email t@t && git config user.name t \
+     && echo x > f && git add f && git commit -qm one && echo y > f && git commit -qam two) > /dev/null 2>&1
+  run_elebake setenv ELEBAKE_FREEBSD_SRC "$src" > /dev/null
+  run_elebake stage add rstage > /dev/null 2>&1
+  run_elebake stage checkout rstage HEAD~1 2>/dev/null | sh > /dev/null 2>&1
+  local wt; wt=$(readlink "$TEST_DIR/.staging"/*/work 2>/dev/null)
+  if [ -n "$wt" ] && [ "$(git -C "$wt" rev-parse HEAD)" = "$(git -C "$src" rev-parse HEAD~1)" ]; then
+    pass "first checkout lands at HEAD~1"
+  else
+    fail "first checkout: $wt"
+  fi
+  if run_elebake stage checkout rstage HEAD 2>&1 | grep -q "is checked out at HEAD~1" \
+     && [ "$(sed -n 1p "$TEST_DIR/.staging"/*/checkout)" = "HEAD~1" ]; then
+    pass "a second checkout is refused and the record keeps the first ref"
+  else
+    fail "second checkout: $(run_elebake stage checkout rstage HEAD 2>&1 | tail -3)"
+  fi
+  run_elebake stage recheckout rstage HEAD 2>/dev/null | sh > /dev/null 2>&1
+  if [ "$(git -C "$wt" rev-parse HEAD)" = "$(git -C "$src" rev-parse HEAD)" ] \
+     && [ "$(sed -n 1p "$TEST_DIR/.staging"/*/checkout)" = "HEAD" ] \
+     && [ "$(git -C "$src" worktree list | grep -c "$wt")" = "1" ]; then
+    pass "recheckout replaces the worktree at HEAD, registered once"
+  else
+    fail "recheckout: $(git -C "$src" worktree list 2>&1; cat "$TEST_DIR/.staging"/*/checkout 2>&1)"
+  fi
+}
+
 test_destroy_removes_everything() {
   test_header "destroy: named confirmation, worktree deregistration, nothing left"
   test_setup
@@ -2084,6 +2175,15 @@ test_stage_conf_require_loaderconf() {
   fi
   run_elebake stage conf add unitcf loader.trust.kernellock.question "Lieblingsspielzeug:" > /dev/null
   run_elebake stage conf add unitcf loader.trust.kernellock.rescue zfs:zcard/ROOT/rescue > /dev/null
+  mkdir -p "$TEST_DIR/.tmp/password" && printf '%s\n' 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef > "$TEST_DIR/.tmp/password/unitcf"
+  run_elebake stage password hashed store unitcf > /dev/null
+  if [ "$(cat "$TEST_DIR/stage/unitcf/conf/password_sha256" 2>/dev/null)" = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" ] \
+     && [ ! -f "$TEST_DIR/.tmp/password/unitcf" ] \
+     && run_elebake stage conf add unitcf password x 2>&1 | grep -q "loader.trust"; then
+    pass "the hashed password becomes the conf record password_sha256, the hash file is consumed, other keys stay refused"
+  else
+    fail "password record: $(cat "$TEST_DIR/stage/unitcf/conf/password_sha256" 2>&1)"
+  fi
   if run_elebake stage conf add unitcf loader.trust.kernellock.question "anders" | grep -q "immutable" \
      && run_elebake stage conf add unitcf bad.key x | grep -q "loader.trust" \
      && run_elebake stage conf add unitcf loader.trust.k.v 'a"b' | grep -q "one loader.conf line"; then
@@ -2163,9 +2263,9 @@ fixture_containers() {
   printf '#!/bin/sh\nPHASES="SYSINIT MOUNTED"\nelv_word_check() { ELV_WORD_OK=1; ELV_TAINT=0; ELV_DURESS=0; ELV_PROMPTED=0; }\nelv_prologue() { elv_word_check; }\nwhen_always() { return 0; }\nwhen_fail() { [ "$GATE_VERDICT" = fail ]; }\n' > "$fix/earlboot/policy.sh"
   printf '#!/bin/sh\nmeasure_kenv() { $KENV -q "$1" 2>/dev/null; }\ndiagnose_kenv() { :; }\n# measure_word <gate> -- 1 iff the handover word verifies\nmeasure_word() { printf "%%s\\n" "$ELV_WORD_OK"; }\nmeasure_bootlock() { :; }\n' > "$fix/earlboot/measure.sh"
   printf '#!/bin/sh\nlog_act() { :; }\npersist_act() { $MKDIR -p "$ELV_STATE"; printf "gate=%%s verdict=%%s\\npassed=%%s\\nfailed=%%s\\n" "$1" "$GATE_VERDICT" "$PASSED" "$FAILED" > "$ELV_STATE/appraisal-$1"; }\n' > "$fix/earlboot/action.sh"
-  printf '#!/bin/sh\nPHASES="STARTUP PERIODIC RESUME MEDIA"\nelv_flags_load() { :; }\nelv_prologue() { elv_flags_load; }\nwhen_always() { return 0; }\nwhen_fail() { [ "$GATE_VERDICT" = fail ]; }\n' > "$fix/elvbootd/policy.sh"
-  printf '#!/bin/sh\nmeasure_media_serial() { :; }\n' > "$fix/elvbootd/measure.sh"
-  printf '#!/bin/sh\nheartbeat_act() { :; }\nquarantine_act() { :; }\n' > "$fix/elvbootd/action.sh"
+  printf '#!/bin/sh\nPHASES="STARTUP PERIODIC RESUME MEDIA SHUTDOWN"\nelv_flags_load() { :; }\nelv_prologue() { elv_flags_load; }\nwhen_always() { return 0; }\nwhen_fail() { [ "$GATE_VERDICT" = fail ]; }\n' > "$fix/elvbootd/policy.sh"
+  printf '#!/bin/sh\nmeasure_media_serial() { :; }\nmeasure_marker_digest() { :; }\n' > "$fix/elvbootd/measure.sh"
+  printf '#!/bin/sh\nheartbeat_act() { :; }\nquarantine_act() { :; }\nmarker_heal_act() { :; }\n' > "$fix/elvbootd/action.sh"
 }
 
 test_container_catalogs_and_binding() {
@@ -2531,6 +2631,39 @@ test_container_emitters() {
   else
     fail "install emission: $(run_elebake stage earlboot install unitem)"
   fi
+  run_elebake expectation add marker sha256 Boot0000 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef > /dev/null
+  run_elebake claim add marker measure_marker_digest - - marker > /dev/null
+  run_elebake gate add markerwatch > /dev/null
+  run_elebake gate claim add markerwatch marker > /dev/null
+  run_elebake trigger add heal-fail when_fail 'compose(marker_heal_act,log_act)' > /dev/null
+  run_elebake policy add marker-heal markerwatch > /dev/null
+  run_elebake policy trigger add marker-heal heal-fail > /dev/null
+  run_elebake stage phase policy add unitem SHUTDOWN marker-heal > /dev/null 2>&1
+  run_elebake stage marker record unitem Boot0000 /nonexistent/marker-unitem > /dev/null 2>&1
+  run_elebake stage elvbootd mk unitem > /dev/null 2>&1
+  if [ -f "$h/hook.shutdown.sh" ] && sh -n "$h/hook.shutdown.sh" && grep -q '^# ===== phase SHUTDOWN' "$h/hook.shutdown.sh" \
+     && grep -q "^_m=\$(measure_marker_digest 'Boot0000'" "$h/hook.shutdown.sh" \
+     && grep -q '^if when_fail; then marker_heal_act "\$GATE"; log_act "\$GATE"; fi$' "$h/hook.shutdown.sh" \
+     && grep -q "^readonly ELV_MARKER_VAR='Boot0000'$" "$h/hook.shutdown.sh" \
+     && grep -q "^readonly ELV_MARKER_FILE='/usr/local/etc/elvboot/marker.Boot0000'$" "$h/hook.shutdown.sh"; then
+    pass "elvbootd mk writes the SHUTDOWN hook with the marker constants and the composed heal"
+  else
+    fail "shutdown hook: $(grep -n 'ELV_MARKER\|marker_heal\|phase SHUTDOWN' "$h/hook.shutdown.sh" 2>&1 | head -5)"
+  fi
+  if grep -q '^# KEYWORD: nojail shutdown$' "$h/elvbootd" && grep -q '^stop_cmd="/usr/local/etc/elvboot/hook.shutdown.sh"$' "$h/elvbootd" \
+     && grep -q '^start_cmd="/usr/local/etc/elvboot/hook.startup.sh"$' "$h/elvbootd"; then
+    pass "the rc.d glue runs the SHUTDOWN hook as its stop method (KEYWORD shutdown) and keeps start"
+  else
+    fail "rc.d stop glue: $(grep -n 'KEYWORD\|_cmd' "$h/elvbootd" 2>&1)"
+  fi
+  run_elebake setenv ELEBAKE_INTERPRETER_stage_elvbootd_shutdown_place cat > /dev/null 2>&1
+  run_elebake setenv ELEBAKE_INTERPRETER_stage_marker_install cat > /dev/null 2>&1
+  if run_elebake stage elvbootd install unitem | grep -q "install -o root -g wheel -m 0500 '.*/hooks/hook.shutdown.sh' /usr/local/etc/elvboot/hook.shutdown.sh" \
+     && run_elebake stage elvbootd install unitem | grep -q "install -o root -g wheel -m 0400 '/nonexistent/marker-unitem' '/usr/local/etc/elvboot/marker.Boot0000'"; then
+    pass "install places the shutdown hook and the marker value (0400 root) beside it"
+  else
+    fail "shutdown install emission: $(run_elebake stage elvbootd install unitem 2>&1 | tail -4)"
+  fi
 }
 
 test_dispatch_wrong_arity() {
@@ -2635,7 +2768,7 @@ test_filter_stdin_and_include_source() {
   run_elebake stage filter add units adopted.conf > /dev/null
   local inc; inc=$(run_elebake stage include units "$TEST_BASE_DIR/binsrc-$TESTS_RUN" 2>&1)
   if [ "$(cat "$TEST_DIR/.staging/$sid/boot/adopted.conf")" = "adopted" ] \
-     && printf '%s\n' "$inc" | grep -q "adopted.conf kept from boot/" \
+     && printf '%s\n' "$inc" | grep -q "adopted.conf not in .* -- boot/ keeps its copy" \
      && [ -f "$TEST_DIR/.staging/$sid/boot/kernel.bin" ]; then
     pass "include keeps an adopted entry from boot/ when the source lacks it, and still copies the rest"
   else
@@ -2760,6 +2893,7 @@ main() {
   should_run_test test_foundation_catalogs
   should_run_test test_foundation_expectation_crud
   should_run_test test_foundation_claim_trigger_crud
+  should_run_test test_foundation_trigger_composition
   should_run_test test_foundation_gate_policy_crud
   should_run_test test_foundation_immutability_idempotence
   should_run_test test_foundation_position
@@ -2769,6 +2903,7 @@ main() {
   should_run_test test_foundation_macro_crud
   should_run_test test_stage_foundation_emitter
   should_run_test test_stage_kernel_build_emissions
+  should_run_test test_stage_recheckout
   should_run_test test_destroy_removes_everything
   should_run_test test_collect_speaks_archive_base
   should_run_test test_filter_strategies

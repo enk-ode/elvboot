@@ -80,10 +80,11 @@ disk_name_ok() {
         return 0
 }
 
-# conf_key_ok <key> -- a loader.trust.* kenv name
+# conf_key_ok <key> -- a loader.trust.* kenv name, or password_sha256 (the
+# loader prompt password, stage password set)
 conf_key_ok() {
         case "$1" in
-                loader.trust.[a-z]*) ;;
+                loader.trust.[a-z]*|password_sha256) ;;
                 *) return 1 ;;
         esac
         case "$1" in *[!a-z0-9._]*) return 1 ;; esac
@@ -467,4 +468,29 @@ pin_listed() {
 pin_names_terminal() {
         local stem="${1#ELEBAKE_INTERPRETER_}"
         printf '%s\n' $ANCHOR_FUNCTIONS | grep -qE "^_${stem}[0-9]*$"
+}
+
+# gate_has_string_claim <gate> -- does any claim of the gate compare a string
+# expectation? Such a gate has no C form (the loader knows BYTE and SHA256)
+gate_has_string_claim() {
+        local c="" m="" d="" p="" e="" ty="" l="" v=""
+        grep . "$ELEBAKE_BASE/foundation/gates/$1/claims" 2>/dev/null | while read -r c; do
+                read -r m d p e 2>/dev/null < "$ELEBAKE_BASE/foundation/claims/$c"
+                read -r ty l v 2>/dev/null < "$ELEBAKE_BASE/foundation/expectations/$e"
+                test "$ty" != string || printf 'string\n'
+        done | grep -q string
+}
+
+# fnd_expr_ok <when|action> <expression> -- the trigger expression parses
+# (template/awk/when-expr.awk): a catalog name, or and(a,b)/or(a,b)/not(a)
+# for a when, compose(a,b) for an action; no whitespace
+fnd_expr_ok() {
+        awk -v e="$2" -v kind="$1" -v mode=check -f "$ELEBAKE_TEMPLATE_DIR/awk/when-expr.awk" 2>/dev/null
+}
+
+# fnd_expr_render <when|action> <c|sh|leaves> <expression> -- the expression
+# in one of its forms (template/awk/when-expr.awk): the loader's C, the
+# containers' sh, or one catalog name per line
+fnd_expr_render() {
+        awk -v e="$3" -v kind="$1" -v mode="$2" -f "$ELEBAKE_TEMPLATE_DIR/awk/when-expr.awk" 2>/dev/null
 }

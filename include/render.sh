@@ -141,7 +141,7 @@ _stage_state_dir_mk0() {
 
 #@help ___stage_elvbootd_mk1
 # @command stage elvbootd mk <stage>
-# @summary Generate the elvbootd hooks of the stage into its hooks/: the stage and its checkout exist, the bound measurements' demands on the boot tree are met, at least one runtime phase is bound; then one self-contained hook.<phase>.sh per BOUND runtime phase (STARTUP rc.d, PERIODIC periodic/security, RESUME rc.resume, MEDIA devd with $1 = the cdev), each with header, constants, state, tools, the catalog functions (earlboot's palette inherited), the prologue and its phase; plus the glue that plugs a hook into its mechanism: hooks/elvbootd (rc.d) when STARTUP is bound, hooks/elvboot.devd.conf (devd) when MEDIA is bound
+# @summary Generate the elvbootd hooks of the stage into its hooks/: the stage and its checkout exist, the bound measurements' demands on the boot tree are met, at least one runtime phase is bound; then one self-contained hook.<phase>.sh per BOUND runtime phase (STARTUP rc.d start, PERIODIC periodic/security, RESUME rc.resume, MEDIA devd with $1 = the cdev, SHUTDOWN rc.d stop), each with header, constants, state, tools, the catalog functions (earlboot's palette inherited), the prologue and its phase; plus the glue that plugs a hook into its mechanism: hooks/elvbootd (rc.d) when STARTUP or SHUTDOWN is bound, hooks/elvboot.devd.conf (devd) when MEDIA is bound
 # @group   foundation
 # @example elebake stage elvbootd mk daily-v1
 # @see     stage elvbootd install
@@ -158,22 +158,23 @@ ___stage_elvbootd_mk1() {
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage elvbootd hook mk '$1' PERIODIC"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage elvbootd hook mk '$1' RESUME"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage elvbootd hook mk '$1' MEDIA"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage elvbootd hook mk '$1' SHUTDOWN"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage elvbootd glue rcd mk '$1'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage elvbootd glue devd mk '$1'"
 }
 
 #@help __stage_elvbootd_bound1
 # @command stage elvbootd bound <stage>
-# @summary At least one runtime phase of the stage binds a policy (STARTUP, PERIODIC, RESUME, MEDIA): a comment line, else an error line
+# @summary At least one runtime phase of the stage binds a policy (STARTUP, PERIODIC, RESUME, MEDIA, SHUTDOWN): a comment line, else an error line
 # @group   foundation
 # @internal
 # @see     stage elvbootd mk
 #@end
 __stage_elvbootd_bound1() {
-        if cat "$ELEBAKE_BASE/stage/$1/phases/STARTUP" "$ELEBAKE_BASE/stage/$1/phases/PERIODIC" "$ELEBAKE_BASE/stage/$1/phases/RESUME" "$ELEBAKE_BASE/stage/$1/phases/MEDIA" 2>/dev/null | grep -q .; then
+        if cat "$ELEBAKE_BASE/stage/$1/phases/STARTUP" "$ELEBAKE_BASE/stage/$1/phases/PERIODIC" "$ELEBAKE_BASE/stage/$1/phases/RESUME" "$ELEBAKE_BASE/stage/$1/phases/MEDIA" "$ELEBAKE_BASE/stage/$1/phases/SHUTDOWN" 2>/dev/null | grep -q .; then
                 printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'stage $1 binds a runtime phase'"
         else
-                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'stage elvbootd mk $1: no runtime phase bound (stage phase policy add $1 STARTUP|PERIODIC|RESUME|MEDIA <policy>)'"
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'stage elvbootd mk $1: no runtime phase bound (stage phase policy add $1 STARTUP|PERIODIC|RESUME|MEDIA|SHUTDOWN <policy>)'"
         fi
 }
 
@@ -214,16 +215,16 @@ ___stage_elvbootd_hook_render2() {
 
 #@help ___stage_elvbootd_glue_rcd_mk1
 # @command stage elvbootd glue rcd mk <stage>
-# @summary STARTUP binds a policy: the one line that writes hooks/elvbootd from 'stage elvbootd glue rcd' (.new then mv: the installed file is 0500), else a comment line -- a batch, because the line carries a redirection
+# @summary STARTUP or SHUTDOWN binds a policy: the one line that writes hooks/elvbootd from 'stage elvbootd glue rcd' (.new then mv: the installed file is 0500), else a comment line -- a batch, because the line carries a redirection
 # @group   foundation
 # @internal
 # @see     stage elvbootd glue rcd
 #@end
 ___stage_elvbootd_glue_rcd_mk1() {
-        if test -s "$ELEBAKE_BASE/stage/$1/phases/STARTUP"; then
+        if cat "$ELEBAKE_BASE/stage/$1/phases/STARTUP" "$ELEBAKE_BASE/stage/$1/phases/SHUTDOWN" 2>/dev/null | grep -q .; then
                 printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage elvbootd glue rcd '$1' > '$ELEBAKE_BASE/stage/$1/hooks/elvbootd.new' && mv '$ELEBAKE_BASE/stage/$1/hooks/elvbootd.new' '$ELEBAKE_BASE/stage/$1/hooks/elvbootd' && chmod 0500 '$ELEBAKE_BASE/stage/$1/hooks/elvbootd'"
         else
-                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'stage $1: STARTUP binds no policy, no rcd glue'"
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'stage $1: neither STARTUP nor SHUTDOWN binds a policy, no rcd glue'"
         fi
 }
 
@@ -244,16 +245,19 @@ ___stage_elvbootd_glue_devd_mk1() {
 
 #@help _stage_elvbootd_glue_rcd1
 # @command stage elvbootd glue rcd <stage>
-# @summary Print the rc.d glue for the STARTUP hook: the one-shot rc script /usr/local/etc/rc.d/elvbootd (PROVIDE elvbootd, REQUIRE NETWORKING) whose start runs /usr/local/etc/elvboot/hook.startup.sh
+# @summary Print the rc.d glue of the STARTUP and SHUTDOWN hooks: the rc script /usr/local/etc/rc.d/elvbootd (PROVIDE elvbootd, REQUIRE NETWORKING, KEYWORD shutdown) whose start runs hook.startup.sh and whose stop runs hook.shutdown.sh -- each ':' when its phase binds nothing
 # @group   foundation
 # @internal
 # @see     stage elvbootd mk
 # @see     stage elvbootd glue devd
 #@end
 _stage_elvbootd_glue_rcd1() {
+        local start=":" stop=":"
+        test -s "$ELEBAKE_BASE/stage/$1/phases/STARTUP" && start=/usr/local/etc/elvboot/hook.startup.sh
+        test -s "$ELEBAKE_BASE/stage/$1/phases/SHUTDOWN" && stop=/usr/local/etc/elvboot/hook.shutdown.sh
         printf '#!/bin/sh\n# generated by elebake stage elvbootd mk (stage %s) -- do not edit\n' "$1"
-        printf '# PROVIDE: elvbootd\n# REQUIRE: NETWORKING\n# KEYWORD: nojail\n\n. /etc/rc.subr\n\n'
-        printf 'name=elvbootd\nrcvar=elvbootd_enable\nstart_cmd="/usr/local/etc/elvboot/hook.startup.sh"\nstop_cmd=":"\n\n'
+        printf '# PROVIDE: elvbootd\n# REQUIRE: NETWORKING\n# KEYWORD: nojail shutdown\n\n. /etc/rc.subr\n\n'
+        printf 'name=elvbootd\nrcvar=elvbootd_enable\nstart_cmd="%s"\nstop_cmd="%s"\n\n' "$start" "$stop"
         printf 'load_rc_config $name\nrun_rc_command "$1"\n'
 }
 
@@ -285,6 +289,8 @@ ___stage_elvbootd_install1() {
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage elvbootd hook install '$1' periodic"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage elvbootd hook install '$1' resume"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage elvbootd hook install '$1' media"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage elvbootd hook install '$1' shutdown"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage marker place '$1'"
 }
 
 #@help _stage_elvbootd_generated1
@@ -299,7 +305,7 @@ _stage_elvbootd_generated1() {
 }
 
 #@help __stage_elvbootd_hook_install2
-# @command stage elvbootd hook install <stage> <startup|periodic|resume|media>
+# @command stage elvbootd hook install <stage> <startup|periodic|resume|media|shutdown>
 # @summary The hook was generated: rewrite to 'stage elvbootd <phase> place <stage>' (dispatch binds the phase's own act terminal), else a comment line
 # @group   foundation
 # @internal
@@ -370,6 +376,22 @@ _stage_elvbootd_media_place1() {
         printf '%s\n' "printf '# elvbootd: media hook installed from stage %s\\n' '$1' >&2"
 }
 
+#@help _stage_elvbootd_shutdown_place1
+# @command stage elvbootd shutdown place <stage>
+# @summary Act terminal: install the SHUTDOWN hook as /usr/local/etc/elvboot/hook.shutdown.sh and its rc.d glue hooks/elvbootd as /usr/local/etc/rc.d/elvbootd (the stop method runs the hook), enabled in /etc/rc.conf.d/elvbootd
+# @group   foundation
+# @internal
+# @see     stage elvbootd install
+# @see     stage marker place
+#@end
+_stage_elvbootd_shutdown_place1() {
+        printf '%s\n' "mkdir -p /usr/local/etc/elvboot"
+        printf '%s\n' "install -o root -g wheel -m 0500 '$ELEBAKE_BASE/stage/$1/hooks/hook.shutdown.sh' /usr/local/etc/elvboot/hook.shutdown.sh"
+        printf '%s\n' "install -o root -g wheel -m 0500 '$ELEBAKE_BASE/stage/$1/hooks/elvbootd' /usr/local/etc/rc.d/elvbootd"
+        printf '%s\n' "mkdir -p /etc/rc.conf.d && printf 'elvbootd_enable=\\"YES\\"\\n' > /etc/rc.conf.d/elvbootd"
+        printf '%s\n' "printf '# elvbootd: shutdown hook installed from stage %s\\n' '$1' >&2"
+}
+
 #@help _stage_container_render_header_earlboot1
 # @command stage container render header earlboot <stage>
 # @summary Print the hardened prologue of a generated earlboot script: rc.d keywords, readonly PATH, sealed IFS/umask, set -f, DETERMINISTIC provenance (stage, checkout ref, worktree HEAD)
@@ -430,6 +452,7 @@ ___stage_container_render_constants1() {
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage constant esp '$1'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage constant arm dir '$1'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage constant beacon '$1'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage constant marker '$1'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage constant verdicts"
 }
 
@@ -480,9 +503,9 @@ _stage_constant_beacon1() {
 # @see     stage container render constants
 #@end
 _stage_constant_loader_gate1() {
-        local bound="" firing="" t="" p="" gate=""
+        local bound="" firing="" t="" p="" gate="" when="" action=""
         bound=$(cat "$ELEBAKE_BASE/stage/$1"/phases/* 2>/dev/null)
-        firing=$(grep -l " handover_act$" "$ELEBAKE_BASE"/foundation/triggers/* 2>/dev/null | sed "s|.*/||")
+        firing=$(for t in "$ELEBAKE_BASE"/foundation/triggers/*; do [ -f "$t" ] || continue; read -r when action 2>/dev/null < "$t"; fnd_expr_render action leaves "$action" | grep -qx handover_act && printf '%s\n' "${t##*/}"; done)
         p=$(for t in $firing; do grep -lx "trigger $t" "$ELEBAKE_BASE"/foundation/policies/* 2>/dev/null; done | sed "s|.*/||" | grep -Fx "${bound:-/}" | head -1)
         gate=$(sed -n "s/^gate //p" "$ELEBAKE_BASE/foundation/policies/${p:-/}" 2>/dev/null)
         printf 'readonly ELV_GATE_LOADER=%s\n' "$(sq "$gate")"
@@ -512,6 +535,21 @@ _stage_constant_esp1() {
         local node=""
         node=$(cat "$ELEBAKE_BASE/stage/$1"/media/*/node 2>/dev/null | sed -n 1p)
         printf 'readonly ELV_ESP=%s\n' "$(sq "${node#/dev/}")"
+}
+
+#@help _stage_constant_marker1
+# @command stage constant marker <stage>
+# @summary Print readonly ELV_MARKER_VAR and ELV_MARKER_FILE: the load option the stage's marker record names and the root-side copy of its value (/usr/local/etc/elvboot/marker.<BootXXXX>, placed by stage marker install) that marker_heal_act writes back; both empty without a marker record
+# @group   foundation
+# @internal
+# @see     stage container render constants
+# @see     stage marker record
+#@end
+_stage_constant_marker1() {
+        local bootvar=""
+        bootvar=$(head -n1 "$ELEBAKE_BASE/stage/$1/marker/bootvar" 2>/dev/null)
+        printf 'readonly ELV_MARKER_VAR=%s\n' "$(sq "$bootvar")"
+        printf 'readonly ELV_MARKER_FILE=%s\n' "$(sq "${bootvar:+/usr/local/etc/elvboot/marker.$bootvar}")"
 }
 
 #@help _stage_constant_verdicts0
@@ -817,7 +855,7 @@ _stage_claim_render_diagnose_line1() {
 
 #@help _stage_trigger_render1
 # @command stage trigger render <trigger>
-# @summary Print the binding line of one trigger: if <when>; then <action> "$GATE"; fi
+# @summary Print the binding line of one trigger: if <when>; then <action> "$GATE"; fi -- a composed when as { a && b; }, { a || b; }, ! a, composed actions in order
 # @group   foundation
 # @internal
 # @see     stage policy render
@@ -825,7 +863,7 @@ _stage_claim_render_diagnose_line1() {
 _stage_trigger_render1() {
         local when="" action=""
         read -r when action 2>/dev/null < "$ELEBAKE_BASE/foundation/triggers/$1"
-        printf 'if %s; then %s "$GATE"; fi\n' "$when" "$action"
+        printf 'if %s; then %s; fi\n' "$(fnd_expr_render when sh "$when")" "$(fnd_expr_render action sh "$action")"
 }
 
 #@help __stage_checkout_exists1
@@ -967,7 +1005,7 @@ ___stage_requirements_report_earlboot1() {
 
 #@help ___stage_requirements_ensure_elvbootd1
 # @command stage requirements ensure elvbootd <stage>
-# @summary The demands of elvbootd's bound measurements on the stage's boot tree are met, phase by phase (STARTUP, PERIODIC, RESUME, MEDIA): the chain ends in an error line at the first missing demand
+# @summary The demands of elvbootd's bound measurements on the stage's boot tree are met, phase by phase (STARTUP, PERIODIC, RESUME, MEDIA, SHUTDOWN): the chain ends in an error line at the first missing demand
 # @group   foundation
 # @internal
 # @see     stage require
@@ -977,11 +1015,12 @@ ___stage_requirements_ensure_elvbootd1() {
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage phase requirements '$1' PERIODIC require"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage phase requirements '$1' RESUME require"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage phase requirements '$1' MEDIA require"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage phase requirements '$1' SHUTDOWN require"
 }
 
 #@help ___stage_requirements_report_elvbootd1
 # @command stage requirements report elvbootd <stage>
-# @summary The demands of elvbootd's bound measurements on the stage's boot tree, phase by phase (STARTUP, PERIODIC, RESUME, MEDIA), each ok (a comment) or MISSING with its remedy (a note)
+# @summary The demands of elvbootd's bound measurements on the stage's boot tree, phase by phase (STARTUP, PERIODIC, RESUME, MEDIA, SHUTDOWN), each ok (a comment) or MISSING with its remedy (a note)
 # @group   foundation
 # @internal
 # @see     stage require
@@ -991,6 +1030,7 @@ ___stage_requirements_report_elvbootd1() {
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage phase requirements '$1' PERIODIC demand"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage phase requirements '$1' RESUME demand"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage phase requirements '$1' MEDIA demand"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage phase requirements '$1' SHUTDOWN demand"
 }
 
 #@help __stage_requirements_ensure2
@@ -1351,14 +1391,14 @@ _stage_prerequisites_render_c_kind2() {
 
 #@help ___stage_foundation_render_gates1
 # @command stage foundation render gates <stage>
-# @summary The GATE_DEFINEs of foundation.c: every gate a bound policy references, sorted, once -- one 'gate render c <gate>' each
+# @summary The GATE_DEFINEs of foundation.c: every gate a policy bound to a LOADER phase (enum phase of the checkout's policy.h) references, sorted, once -- one 'gate render c <gate>' each; the gates of the sh containers' phases (SYSINIT, STARTUP, ...) measure with sh providers and never enter the loader
 # @group   foundation
 # @internal
 # @see     gate render c
 #@end
 ___stage_foundation_render_gates1() {
-        local g=""
-        for g in $(cat "$ELEBAKE_BASE/stage/$1"/phases/* 2>/dev/null | sort -u | while read -r p; do sed -n "s/^gate //p" "$ELEBAKE_BASE/foundation/policies/$p"; done | sort -u); do
+        local g="" ph="" loc="$ELEBAKE_BASE/stage/$1/work/stand/efi/loader/local"
+        for g in $(for ph in $(sed -n '/enum phase {/,/};/p' "$loc/policy.h" 2>/dev/null | grep -o 'PHASE_[A-Z_]*'); do cat "$ELEBAKE_BASE/stage/$1/phases/$ph" 2>/dev/null; done | sort -u | while read -r p; do sed -n "s/^gate //p" "$ELEBAKE_BASE/foundation/policies/$p"; done | sort -u); do
                 printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" gate render c '$g'"
         done
 }
@@ -1439,16 +1479,19 @@ ___stage_foundation_render_phases1() {
 
 #@help ___stage_phase_render_c2
 # @command stage phase render c <stage> <phase>
-# @summary One <phase>_policies[] table: the head, one POLICY entry per bound policy (none for an unbound phase), the POLICY_END tail
+# @summary One phase of foundation.c: per bound policy its POLICY_TABLE_DEFINE ('policy render c'), then the <phase>_policies[] table -- the head, one POLICY(gate, table) row per bound policy ('policy render c row'), the POLICY_END tail; an unbound phase is the empty table
 # @group   foundation
 # @internal
 # @see     policy render c
 #@end
 ___stage_phase_render_c2() {
         local p=""
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage phase render c head '$2'"
         grep . "$ELEBAKE_BASE/stage/$1/phases/$2" 2>/dev/null | while read -r p; do
                 printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" policy render c '$p'"
+        done
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage phase render c head '$2'"
+        grep . "$ELEBAKE_BASE/stage/$1/phases/$2" 2>/dev/null | while read -r p; do
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" policy render c row '$p'"
         done
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage phase render c tail"
 }
@@ -1477,21 +1520,35 @@ _stage_phase_render_c_tail0() {
 
 #@help _policy_render_c1
 # @command policy render c <policy>
-# @summary Print one POLICY(gate, FIRE(when, &action)...) table entry (tab indented, trailing comma) from the policy record and its triggers
+# @summary Print the policy's binding table: POLICY_TABLE_DEFINE(<policy>_bindings, FIRE(when, action)...) from the policy record and its triggers, one FIRE per trigger in order; a trigger's when and action expressions render as AND/OR/NOT and COMPOSE, the preprocessor turns them into objects (policy.h). The policy name's hyphens become underscores
 # @group   foundation
 # @internal
+# @see     policy render c row
 # @see     stage phase render c
 # @see     policy show
 #@end
 _policy_render_c1() {
-        local gate="" t="" when="" action=""
-        gate=$(sed -n "s/^gate //p" "$ELEBAKE_BASE/foundation/policies/$1" 2>/dev/null)
-        printf '\tPOLICY(%s' "$gate"
+        local t="" when="" action="" sep=""
+        printf '\nPOLICY_TABLE_DEFINE(%s_bindings' "$(printf '%s' "$1" | tr '-' '_')"
         sed -n "s/^trigger //p" "$ELEBAKE_BASE/foundation/policies/$1" 2>/dev/null | while read -r t; do
                 read -r when action 2>/dev/null < "$ELEBAKE_BASE/foundation/triggers/$t"
-                printf ',\n\t    FIRE(%s, &%s)' "$when" "$action"
+                printf ',\n    FIRE(%s, %s)' "$(fnd_expr_render when c "$when")" "$(fnd_expr_render action c "$action")"
         done
-        printf '),\n'
+        printf ');\n'
+}
+
+#@help _policy_render_c_row1
+# @command policy render c row <policy>
+# @summary Print the policy's row of a phase table: POLICY(<gate>, <policy>_bindings), tab indented, trailing comma -- the gate from the record, the table 'policy render c' defines
+# @group   foundation
+# @internal
+# @see     policy render c
+# @see     stage phase render c
+#@end
+_policy_render_c_row1() {
+        local gate=""
+        gate=$(sed -n "s/^gate //p" "$ELEBAKE_BASE/foundation/policies/$1" 2>/dev/null)
+        printf '\tPOLICY(%s, %s_bindings),\n' "$gate" "$(printf '%s' "$1" | tr '-' '_')"
 }
 
 #@help _stage_foundation_render_dispatch1
@@ -1521,7 +1578,7 @@ _stage_foundation_render_dispatch1() {
 ___stage_foundation_report1() {
         local ref="" gates="" ph=""
         ref=$(sed -n 1p "$ELEBAKE_BASE/stage/$1/checkout" 2>/dev/null)
-        gates=$(cat "$ELEBAKE_BASE/stage/$1"/phases/* 2>/dev/null | sort -u | while read -r p; do sed -n "s/^gate //p" "$ELEBAKE_BASE/foundation/policies/$p"; done | sort -u | tr "\n" " ")
+        gates=$(for ph in $(sed -n '/enum phase {/,/};/p' "$ELEBAKE_BASE/stage/$1/work/stand/efi/loader/local/policy.h" 2>/dev/null | grep -o 'PHASE_[A-Z_]*'); do cat "$ELEBAKE_BASE/stage/$1/phases/$ph" 2>/dev/null; done | sort -u | while read -r p; do sed -n "s/^gate //p" "$ELEBAKE_BASE/foundation/policies/$p"; done | sort -u | tr "\n" " ")
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage check stage '$1'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage checkout exists '$1'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" log 'foundation report of stage $1 (checkout: ${ref:--})'"

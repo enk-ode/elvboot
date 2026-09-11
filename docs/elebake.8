@@ -1055,10 +1055,18 @@ Show every claim record (or one) as the C that WOULD be emitted: one
 `claim show <claim>' per record; none is a note
 .TP
 \f[B]trigger add <trigger> <when> <action>\f[R]
-Store a named, reusable FIRE(<when>, &<action>) pair.
-when and action are catalog names, checked when a policy binds: no
-arsenal record is referenced, the chain is write only \(en an identical
-re\-add is a no\-op, a different one is refused (immutable; drop first)
+Store a named, reusable FIRE(<when>, <action>) pair.
+Each field is a catalog name or a composition without whitespace: the
+when may be and(a,b,\&...), or(a,b,\&...)
+or not(a), nested at will; the action may be compose(a,b,\&...)
+to run several in order.
+The loader sees AND/OR/NOT and COMPOSE, the sh containers { a && b; }, {
+a || b; }, !
+a and a; b.
+The leaves are checked against the container\(cqs catalog when a policy
+binds: no arsenal record is referenced, the chain is write only \(en an
+identical re\-add is a no\-op, a different one is refused (immutable;
+drop first)
 .TP
 \f[B]trigger drop <trigger>\f[R]
 Remove a trigger: it exists, no policy lists it (a referenced record is
@@ -1225,12 +1233,13 @@ Run as root
 Generate the elvbootd hooks of the stage into its hooks/: the stage and
 its checkout exist, the bound measurements\(cq demands on the boot tree
 are met, at least one runtime phase is bound; then one self\-contained
-hook.<phase>.sh per BOUND runtime phase (STARTUP rc.d, PERIODIC
-periodic/security, RESUME rc.resume, MEDIA devd with $1 = the cdev),
-each with header, constants, state, tools, the catalog functions
-(earlboot\(cqs palette inherited), the prologue and its phase; plus the
-glue that plugs a hook into its mechanism: hooks/elvbootd (rc.d) when
-STARTUP is bound, hooks/elvboot.devd.conf (devd) when MEDIA is bound
+hook.<phase>.sh per BOUND runtime phase (STARTUP rc.d start, PERIODIC
+periodic/security, RESUME rc.resume, MEDIA devd with $1 = the cdev,
+SHUTDOWN rc.d stop), each with header, constants, state, tools, the
+catalog functions (earlboot\(cqs palette inherited), the prologue and
+its phase; plus the glue that plugs a hook into its mechanism:
+hooks/elvbootd (rc.d) when STARTUP or SHUTDOWN is bound,
+hooks/elvboot.devd.conf (devd) when MEDIA is bound
 .TP
 \f[B]stage elvbootd install <stage>\f[R]
 Install the generated hooks under /usr/local/etc/elvboot/ (0500) and
@@ -1256,6 +1265,14 @@ The foundation batch: check, make, report
 Summarize the foundation of a stage: the checkout, per enum phase its
 bound policies, the referenced gates and the emission target \(en notes
 for the caller
+.TP
+\f[B]stage report <stage> [<container>]\f[R]
+The one reading view of a stage: every container, every phase, the bound
+policies, each policy\(cqs gate with its claims (measurement, diagnose,
+publish, expectation) and its triggers in firing order (when \->
+action).
+Rewrites to `stage phase show <stage>'; with a container to `stage phase
+show <container> <stage>'
 .SH ENVIRONMENT
 All configuration lives in \f[CR]ELEBAKE_*\f[R] variables, layered as
 \f[CR].env/local\f[R] (override, written by \f[CR]setenv\f[R]),
@@ -1557,6 +1574,15 @@ the emitted shell, then pin it back.
 \f[CR]elebake\f[R] is the wrapper \f[CR]make install\f[R] places in
 \f[CR]$PREFIX/bin\f[R]; from a checkout the same commands read
 \f[CR]./elebake.sh ...\f[R].
+.PP
+A trigger whose when is a composition, and one that runs two actions:
+.IP
+.EX
+elebake trigger add unlock\-measured \(aqand(when_fail,not(when_skipped))\(aq unlock_act
+elebake trigger add silence\-duress when_duress \(aqcompose(taint_act,silence_act)\(aq
+elebake trigger show unlock\-measured
+# unlock\-measured: FIRE(AND(when_fail, NOT(when_skipped)), unlock_act)
+.EE
 .SH SEE ALSO
 uefisign(8), veriexec(8), gpg(1)
 .PP

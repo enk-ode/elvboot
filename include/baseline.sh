@@ -625,7 +625,7 @@ __stage_conf_rewrite3() {
 
 #@help __stage_conf_store3
 # @command stage conf store <stage> <key> <value>
-# @summary The key is loader.trust.<gate>.<leaf> (a-z, 0-9, ., _) and the value fits one loader.conf line (no double quotes, backslashes or newlines): rewrite to 'stage conf record', else an error line
+# @summary The key is loader.trust.<gate>.<leaf> (a-z, 0-9, ., _) or password_sha256 (stage password set) and the value fits one loader.conf line (no double quotes, backslashes or newlines): rewrite to 'stage conf record', else an error line
 # @group   provisioning
 # @internal
 # @see     stage conf add
@@ -651,6 +651,54 @@ _stage_conf_record3() {
         printf '%s\n' "printf '%s\\n' $(sq "$3") > '$ELEBAKE_BASE/stage/$1/conf/$2'"
         printf '%s\n' "$MODIFY_FILE_PERMS 0600 '$ELEBAKE_BASE/stage/$1/conf/$2'"
         emit_note "conf $2 of $1 recorded (stage loaderconf mk writes it)"
+}
+
+#@help ___stage_password_set1
+# @command stage password set <stage>
+# @summary Set the loader prompt password of the stage: the word is read HIDDEN from the terminal when the batch runs -- twice, both must match -- and its sha256 becomes the conf record password_sha256, which stage loaderconf mk writes into boot/loader.trust.conf (the loader reads that file like loader.conf). With it set, Lua boots at once and asks the word only after a key during the autoboot; the compiled-in loaderlock secret guards the prompt in C besides, so the word is the second lock, not the only one. The word reaches neither argv, history nor the batch text; the hash is what the card carries anyway. The record is immutable: stage conf drop <stage> password_sha256 first to change it
+# @group   provisioning
+# @example elebake stage password set daily-v1
+# @see     stage conf drop
+# @see     stage loaderconf mk
+#@end
+___stage_password_set1() {
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage check stage '$1'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage password prompt '$1'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage password hashed store '$1'"
+}
+
+#@help _stage_password_prompt1
+# @command stage password prompt <stage>
+# @summary Act terminal: the script that asks for the loader prompt password twice on /dev/tty with echo off, refuses empty or differing entries, hashes it with sha256 (no salt: that is what password.lua compares) and writes the hash to .tmp/password/<stage> of the database -- the word never leaves the script
+# @group   provisioning
+# @internal
+# @see     stage password set
+#@end
+_stage_password_prompt1() {
+        cat <<EOF
+{ : < /dev/tty; } 2>/dev/null || { printf '# Error: %s\\n' 'stage password set: needs a terminal to read the word hidden' >&2; exit 1; }
+printf 'Loader prompt password for $1 (hidden): ' > /dev/tty; stty -echo < /dev/tty; IFS= read -r a < /dev/tty; stty echo < /dev/tty; printf '\\n' > /dev/tty
+printf 'Again: ' > /dev/tty; stty -echo < /dev/tty; IFS= read -r b < /dev/tty; stty echo < /dev/tty; printf '\\n' > /dev/tty
+[ -n "\$a" ] && [ "\$a" = "\$b" ] || { unset a b; printf '# Error: %s\\n' 'stage password set: the two entries differ or are empty -- nothing done' >&2; exit 1; }
+mkdir -p '$ELEBAKE_BASE/.tmp/password' && chmod 0700 '$ELEBAKE_BASE/.tmp/password' && printf '%s' "\$a" | sha256 -q > '$ELEBAKE_BASE/.tmp/password/$1' && chmod 0600 '$ELEBAKE_BASE/.tmp/password/$1'; unset a b
+EOF
+}
+
+#@help __stage_password_hashed_store1
+# @command stage password hashed store <stage>
+# @summary The hash file .tmp/password/<stage> the prompt script left is there: rewrite to 'stage conf write <stage> password_sha256 <hash>' and remove the file, else an error line
+# @group   provisioning
+# @internal
+# @see     stage password set
+#@end
+__stage_password_hashed_store1() {
+        local hash=""
+        hash=$(sed -n 1p "$ELEBAKE_BASE/.tmp/password/$1" 2>/dev/null); rm -f "$ELEBAKE_BASE/.tmp/password/$1"
+        if printf '%s\n' "$hash" | grep -qx '[0-9a-f]\{64\}'; then
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage conf write '$1' password_sha256 '$hash'"
+        else
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'stage password set: no hash for $1 (the prompt script left none)'"
+        fi
 }
 
 #@help ___stage_conf_drop2
@@ -808,17 +856,19 @@ ___stage_policy_leafs3() {
         grep -qs "^trigger " "$ELEBAKE_BASE/foundation/policies/$2" || printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'policy $2 fires no trigger: no leaf demanded'"
 }
 
-#@help __stage_trigger_leafs4
+#@help ___stage_trigger_leafs4
 # @command stage trigger leafs <stage> <gate> <trigger> <require|demand>
-# @summary The trigger's action: rewrite to 'stage action leafs <stage> <gate> <action> <verb>'
+# @summary Every action the trigger names: one 'stage action leafs <stage> <gate> <action> <verb>' per leaf of its action expression
 # @group   provisioning
 # @internal
 # @see     stage policy leafs
 #@end
-__stage_trigger_leafs4() {
-        local when="" action=""
+___stage_trigger_leafs4() {
+        local when="" action="" a=""
         read -r when action 2>/dev/null < "$ELEBAKE_BASE/foundation/triggers/$3"
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage action leafs '$1' '$2' '$action' '$4'"
+        for a in $(fnd_expr_render action leaves "$action"); do
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage action leafs '$1' '$2' '$a' '$4'"
+        done
 }
 
 #@help ___stage_action_leafs4

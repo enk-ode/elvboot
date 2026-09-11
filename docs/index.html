@@ -1095,10 +1095,15 @@ elebake freebsd prerequisites
       `claim show &lt;claim&gt;' per record; none is a note</dd>
   <dt id="trigger"><a class="permalink" href="#trigger"><b>trigger add
     &lt;trigger&gt; &lt;when&gt; &lt;action&gt;</b></a></dt>
-  <dd>Store a named, reusable FIRE(&lt;when&gt;, &amp;&lt;action&gt;) pair. when
-      and action are catalog names, checked when a policy binds: no arsenal
-      record is referenced, the chain is write only &#x2013; an identical re-add
-      is a no-op, a different one is refused (immutable; drop first)</dd>
+  <dd>Store a named, reusable FIRE(&lt;when&gt;, &lt;action&gt;) pair. Each
+      field is a catalog name or a composition without whitespace: the when may
+      be and(a,b,...), or(a,b,...) or not(a), nested at will; the action may be
+      compose(a,b,...) to run several in order. The loader sees AND/OR/NOT and
+      COMPOSE, the sh containers { a &amp;&amp; b; }, { a || b; }, ! a and a; b.
+      The leaves are checked against the container&#x2019;s catalog when a
+      policy binds: no arsenal record is referenced, the chain is write only
+      &#x2013; an identical re-add is a no-op, a different one is refused
+      (immutable; drop first)</dd>
   <dt id="trigger~2"><a class="permalink" href="#trigger~2"><b>trigger drop
     &lt;trigger&gt;</b></a></dt>
   <dd>Remove a trigger: it exists, no policy lists it (a referenced record is
@@ -1264,12 +1269,13 @@ elebake freebsd prerequisites
   <dd>Generate the elvbootd hooks of the stage into its hooks/: the stage and
       its checkout exist, the bound measurements&#x2019; demands on the boot
       tree are met, at least one runtime phase is bound; then one self-contained
-      hook.&lt;phase&gt;.sh per BOUND runtime phase (STARTUP rc.d, PERIODIC
-      periodic/security, RESUME rc.resume, MEDIA devd with $1 = the cdev), each
-      with header, constants, state, tools, the catalog functions
-      (earlboot&#x2019;s palette inherited), the prologue and its phase; plus
-      the glue that plugs a hook into its mechanism: hooks/elvbootd (rc.d) when
-      STARTUP is bound, hooks/elvboot.devd.conf (devd) when MEDIA is bound</dd>
+      hook.&lt;phase&gt;.sh per BOUND runtime phase (STARTUP rc.d start,
+      PERIODIC periodic/security, RESUME rc.resume, MEDIA devd with $1 = the
+      cdev, SHUTDOWN rc.d stop), each with header, constants, state, tools, the
+      catalog functions (earlboot&#x2019;s palette inherited), the prologue and
+      its phase; plus the glue that plugs a hook into its mechanism:
+      hooks/elvbootd (rc.d) when STARTUP or SHUTDOWN is bound,
+      hooks/elvboot.devd.conf (devd) when MEDIA is bound</dd>
   <dt id="stage~92"><a class="permalink" href="#stage~92"><b>stage elvbootd
     install &lt;stage&gt;</b></a></dt>
   <dd>Install the generated hooks under /usr/local/etc/elvboot/ (0500) and wire
@@ -1293,6 +1299,13 @@ elebake freebsd prerequisites
   <dd>Summarize the foundation of a stage: the checkout, per enum phase its
       bound policies, the referenced gates and the emission target &#x2013;
       notes for the caller</dd>
+  <dt id="stage~96"><a class="permalink" href="#stage~96"><b>stage report
+    &lt;stage&gt; [&lt;container&gt;]</b></a></dt>
+  <dd>The one reading view of a stage: every container, every phase, the bound
+      policies, each policy&#x2019;s gate with its claims (measurement,
+      diagnose, publish, expectation) and its triggers in firing order (when
+      -&gt; action). Rewrites to `stage phase show &lt;stage&gt;'; with a
+      container to `stage phase show &lt;container&gt; &lt;stage&gt;'</dd>
 </dl>
 </section>
 </section>
@@ -1570,6 +1583,18 @@ elebake stage rollback smoke1 a known-good-p2
     install</span> places in <span class="Li">$PREFIX/bin</span>; from a
     checkout the same commands read <span class="Li">./elebake.sh
   ...</span>.</p>
+<p class="Pp">A trigger whose when is a composition, and one that runs two
+    actions:</p>
+<dl class="Bl-tag">
+  <dt></dt>
+  <dd>
+    <pre>elebake trigger add unlock-measured 'and(when_fail,not(when_skipped))' unlock_act
+elebake trigger add silence-duress when_duress 'compose(taint_act,silence_act)'
+elebake trigger show unlock-measured
+# unlock-measured: FIRE(AND(when_fail, NOT(when_skipped)), unlock_act)
+    </pre>
+  </dd>
+</dl>
 </section>
 <section class="Sh">
 <h2 class="Sh" id="SEE_ALSO"><a class="permalink" href="#SEE_ALSO">SEE

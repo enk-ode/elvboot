@@ -38,14 +38,23 @@ location.
 
 | container | runs                     | phases                       | emits                  |
 |-----------|--------------------------|------------------------------|------------------------|
-| loader    | EFI, before the kernel   | BOOT, LOADER, KERNEL         | foundation.c           |
-|           |                          | (pre-kernel, via local_run())| (C initializers)       |
+| loader    | EFI, before the kernel   | BOOT, LOADER, KERNEL, each   | foundation.c           |
+|           |                          | with a _POST after-phase     | (C initializers)       |
+|           |                          | (pre-kernel, via local_run())|                        |
 | earlboot  | one-shot rc.d, earliest  | SYSINIT (kenv + read-only    | hardened rc.d          |
 |           | userland                 | root), MOUNTED (file/        | script (sh)            |
 |           |                          | manifest measurements)       |                        |
 | elvbootd  | runtime hooks in native  | STARTUP (rc.d), PERIODIC     | hardened hook          |
 |           | mechanisms (§8)          | (periodic), RESUME           | scripts (sh) +         |
-|           |                          | (rc.resume), MEDIA (devd)    | devd/periodic glue     |
+|           |                          | (rc.resume), MEDIA (devd),   | devd/periodic glue     |
+|           |                          | SHUTDOWN (rc.d stop)         |                        |
+
+Every loader phase has an after-phase, `PHASE_<x>_POST`, that runs
+once the actions of `PHASE_<x>` are done: its claims measure what those
+actions produced -- the prompt's attempts and dwell, the ledger, the
+duress tell -- which the phase itself cannot see, because it measures
+before it acts. `PHASE_KERNEL_POST` is the last thing before the boot
+record is committed. Bind the consequence claims there.
 
 The elvbootd phases map to the real threat windows: RESUME pairs with
 the lock/wake regime, MEDIA with the one-port removable-media
@@ -222,16 +231,32 @@ elebake gate claim add  <gate> <claim> [<position>] # order = evaluation order; 
 elebake gate claim drop <gate> <claim>              # unlink only, the claim survives
 elebake gate show       [<gate>]      # GATE_DEFINE(<gate>, <secret>, <claims...>)
 
-elebake trigger add  <trigger> <when> <action>
+elebake trigger add  <trigger> <when> <action>   # each a catalog name or a composition:
+                                                 # and(a,b,...) or(a,b,...) not(a) / compose(a,b,...)
 elebake trigger drop <trigger>
-elebake trigger show [<trigger>]      # FIRE(<when>, &<action>)
+elebake trigger show [<trigger>]      # FIRE(<when>, <actions>): AND/OR/NOT, COMPOSE
 
 elebake policy add          <policy> <gate>
 elebake policy trigger add  <policy> <trigger> [<position>]   # a FIRE; default append,
                                                               # 1-based insert otherwise
 elebake policy trigger drop <policy> <trigger>
 elebake policy drop         <policy>
-elebake policy show         [<policy>]              # POLICY(<gate>, <FIREs...>)
+elebake policy show         [<policy>]              # POLICY_TABLE_DEFINE(<policy>_bindings, <FIREs...>)
+```
+
+A trigger's two fields are expressions, written without whitespace. The
+when composes the catalog's predicates: `and(a,b,...)`, `or(a,b,...)`,
+`not(a)`, nested at will; the action names one action or
+`compose(a,b,...)`, several in order. The loader sees `AND(a, b)`,
+`OR(a, b)`, `NOT(a)` (pairwise from the left) and `COMPOSE(a, b)`; the
+sh containers see `{ a && b; }`, `{ a || b; }`, `! a` and `a "$GATE"; b
+"$GATE"`. The leaves are what the bind-time catalog check resolves. One
+trigger, one intent:
+
+```
+$ elebake trigger add unlock-measured 'and(when_fail,not(when_skipped))' unlock_act
+$ elebake trigger show unlock-measured
+# unlock-measured: FIRE(AND(when_fail, NOT(when_skipped)), unlock_act)
 ```
 
 `show` always renders what emission WOULD produce; a dangling
@@ -496,9 +521,13 @@ $ elebake gate show strictwatch
 ```
 
 `elebake stage foundation smoke1` then generates a foundation.c whose
-strictwatch gate and `POLICY(strictwatch, FIRE(when_always,
-&publish_act))` line in `loader_policies[]` are diff-identical to the
-hand-written file. Compile-provided baselines stay macro expectations
+strictwatch gate, its `POLICY_TABLE_DEFINE(watch_strict_bindings,
+FIRE(when_always, publish_act))` and the `POLICY(strictwatch,
+watch_strict_bindings)` row of `loader_policies[]` are diff-identical
+to the hand-written file. The compositions of a trigger -- `AND`, `OR`,
+`NOT`, `COMPOSE` -- stay in the table as written; the preprocessor
+generates the objects behind them (policy.h), the runtime sees function
+and action pointers as before. Compile-provided baselines stay macro expectations
 (`elebake expectation add board-expected macro - BOARD_EXPECTED`), so
 the `-D`/site.mk mechanism is untouched.
 
@@ -592,22 +621,51 @@ process. `elebake stage elvbootd mk <stage>` emits one self-contained
 hook per BOUND phase into the stage's `hooks/` (same composition as
 earlboot; the prologue loads the flags earlboot persisted) plus the
 glue that plugs a hook into its mechanism, generated as text like
-everything else: the rc.d script `hooks/elvbootd` when STARTUP is
-bound, the devd configuration `hooks/elvboot.devd.conf` when MEDIA is
-bound; `stage elvbootd install` (sudo) copies each into place (rc.d
-elvbootd, periodic/security, rc.resume, devd). Installed layout:
+everything else: the rc.d script `hooks/elvbootd` when STARTUP or
+SHUTDOWN is bound (its start runs the STARTUP hook, its stop the
+SHUTDOWN hook, each `:` when unbound), the devd configuration
+`hooks/elvboot.devd.conf` when MEDIA is bound; `stage elvbootd install`
+(sudo) copies each into place (rc.d elvbootd, periodic/security,
+rc.resume, devd) and, when the stage records a marker, the marker value
+beside the hooks. Installed layout:
 
 ```
 /usr/local/etc/elvboot/hook.media.sh        MEDIA    (invoked by devd)
 /usr/local/etc/elvboot/hook.resume.sh       RESUME   (rc.resume)
 /usr/local/etc/elvboot/hook.periodic.sh     PERIODIC (periodic/security)
-/usr/local/etc/elvboot/hook.startup.sh      STARTUP  (rc.d one-shot)
-/usr/local/etc/rc.d/elvbootd                rc.d glue for STARTUP (runs hook.startup.sh)
+/usr/local/etc/elvboot/hook.startup.sh      STARTUP  (rc.d start)
+/usr/local/etc/elvboot/hook.shutdown.sh     SHUTDOWN (rc.d stop, KEYWORD shutdown)
+/usr/local/etc/elvboot/marker.<BootXXXX>    the marker value, 0400 root (stage marker install)
+/usr/local/etc/rc.d/elvbootd                rc.d glue: start = STARTUP hook, stop = SHUTDOWN hook
 /usr/local/etc/devd/elvboot.conf            devd glue for MEDIA
 ```
 
 The runtime watch leaves a heartbeat under /var/db/elvboot/ that
 earlboot claims at the next boot — the watchdog is itself watched.
+
+The SHUTDOWN phase prepares the next boot while the system can still
+act. Its use: the boot marker. `measure_marker_digest <BootXXXX>` reads
+the marker token of the load option (the firmware shortens the entry
+after a boot from another medium), and `marker_heal_act` writes the
+recorded value back when the claim fails, spooling the finding. The
+value comes from `/usr/local/etc/elvboot/marker.<BootXXXX>` (0400 root,
+placed by `stage marker install`, which `stage elvbootd install` runs
+when the stage records a marker) -- never from the hook, which is
+dumped and published. A tamper is still measured by the loader at
+boot, before any heal; the heal only keeps a legitimate boot silent.
+The expectation is the digest `stage marker write` printed, the same
+one the loader's BootMarker claim carries:
+
+```
+$ elebake expectation add marker sha256 Boot0000 <digest of the marker value>
+$ elebake claim add marker measure_marker_digest - - marker
+$ elebake gate add markerwatch
+$ elebake gate claim add markerwatch marker
+$ elebake trigger add heal-fail when_fail 'compose(marker_heal_act,spool_act)'
+$ elebake policy add marker-heal markerwatch
+$ elebake policy trigger add marker-heal heal-fail
+$ elebake stage phase policy add smoke1 SHUTDOWN marker-heal
+```
 
 The MEDIA phase guards the one-port discipline — when a removable
 medium appears, verify it is THE boot anchor:

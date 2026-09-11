@@ -252,7 +252,7 @@ __stage_claim_diagnose_ensure3() {
 
 #@help ___stage_trigger_ensure3
 # @command stage trigger ensure <stage> <container> <trigger>
-# @summary The trigger's prerequisites in the container: its when and its action exist in the container's catalog of the stage's checkout
+# @summary The trigger's prerequisites in the container: every leaf of its when and of its action exists in the container's catalog of the stage's checkout
 # @group   foundation
 # @internal
 # @example elebake stage trigger ensure daily-v1 earlboot react-halt
@@ -260,10 +260,14 @@ __stage_claim_diagnose_ensure3() {
 # @see     stage action exists in earlboot
 #@end
 ___stage_trigger_ensure3() {
-        local when="" action=""
+        local when="" action="" w="" a=""
         read -r when action 2>/dev/null < "$ELEBAKE_BASE/foundation/triggers/$3"
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage when exists in '$2' '$1' '$when'"
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage action exists in '$2' '$1' '$action'"
+        for w in $(fnd_expr_render when leaves "$when"); do
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage when exists in '$2' '$1' '$w'"
+        done
+        for a in $(fnd_expr_render action leaves "$action"); do
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage action exists in '$2' '$1' '$a'"
+        done
 }
 
 #@help __stage_macro_ensure3
@@ -468,17 +472,19 @@ __stage_gate_slot_demand3() {
         fi
 }
 
-#@help __stage_trigger_baselines_report2
+#@help ___stage_trigger_baselines_report2
 # @command stage trigger baselines report <stage> <trigger>
-# @summary The trigger's action may demand a baseline: rewrite to 'stage demands <stage> <action>'
+# @summary Every action the trigger names may demand a baseline: one 'stage demands <stage> <action>' per leaf of its action expression
 # @group   foundation
 # @internal
 # @see     stage demands
 #@end
-__stage_trigger_baselines_report2() {
-        local when="" action=""
+___stage_trigger_baselines_report2() {
+        local when="" action="" a=""
         read -r when action 2>/dev/null < "$ELEBAKE_BASE/foundation/triggers/$2"
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage demands '$1' '$action'"
+        for a in $(fnd_expr_render action leaves "$action"); do
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage demands '$1' '$a'"
+        done
 }
 
 #@help ___stage_claim_baselines_report2

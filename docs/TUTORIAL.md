@@ -399,7 +399,7 @@ $ ./elebake.sh gate show strictwatch
 #     CLAIM(measure_ve_strict, NULL, "strict.marker", MEASUREMENT_BYTE("VeStrictPresent", 1)));
 ```
 
-A TRIGGER is a named FIRE(when, &action) pair; the POLICY ties gate
+A TRIGGER is a named FIRE(when, action) pair; the POLICY ties gate
 and triggers together — the detection core in one line: measure,
 compare, publish — never halt:
 
@@ -411,14 +411,28 @@ $ ./elebake.sh policy add watch-strict strictwatch
 $ ./elebake.sh policy trigger add watch-strict publish-always
 # policy 'watch-strict': trigger 'publish-always' appended
 $ ./elebake.sh policy show watch-strict
-# watch-strict: POLICY(strictwatch,
-#     FIRE(when_always, &publish_act)),
+# policy watch-strict:
+#
+#   POLICY_TABLE_DEFINE(watch_strict_bindings,
+#       FIRE(when_always, publish_act));
 ```
 
 Everything here is idempotent-immutable: an identical re-add is a
 silent no-op (that is what makes replays safe), a DIFFERING re-add
 under the same name is refused — change is drop + add, a name's
 meaning never shifts under its users.
+
+A when can be a composition -- `and(a,b)`, `or(a,b)`, `not(a)`, nested --
+and an action `compose(a,b)`, several in order; the C form shows
+`AND(...)`, `NOT(...)`, `COMPOSE(...)`, the sh containers get
+`{ a && b; }` and `! a`:
+
+```
+$ ./elebake.sh trigger add unlock-measured 'and(when_fail,not(when_skipped))' unlock_act
+# trigger 'unlock-measured' stored
+$ ./elebake.sh trigger show unlock-measured
+# unlock-measured: FIRE(AND(when_fail, NOT(when_skipped)), unlock_act)
+```
 
 ## 9. bootlock & loaderlock: diagnose, baseline macros, the backstop
 
@@ -531,12 +545,16 @@ $ ./elebake.sh stage phase show illyria-boot PHASE_LOADER
 #   policy: backstop-loaderlock
 #   policy: watch-strict
 #
+# POLICY_TABLE_DEFINE(backstop_loaderlock_bindings,
+#     FIRE(when_always, publish_act),
+#     FIRE(when_fail, unlock_act));
+#
+# POLICY_TABLE_DEFINE(watch_strict_bindings,
+#     FIRE(when_always, publish_act));
+#
 # static const struct policy loader_policies[] = {
-# 	POLICY(loaderlock,
-# 	    FIRE(when_always, &publish_act),
-# 	    FIRE(when_fail, &unlock_act)),
-# 	POLICY(strictwatch,
-# 	    FIRE(when_always, &publish_act)),
+# 	POLICY(loaderlock, backstop_loaderlock_bindings),
+# 	POLICY(strictwatch, watch_strict_bindings),
 # 	POLICY_END,
 # };
 ```

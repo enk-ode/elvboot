@@ -665,15 +665,49 @@ __trigger_fields_valid3() {
 
 #@help ___trigger_add3
 # @command trigger add <trigger> <when> <action>
-# @summary Store a named, reusable FIRE(<when>, &<action>) pair. when and action are catalog names, checked when a policy binds: no arsenal record is referenced, the chain is write only -- an identical re-add is a no-op, a different one is refused (immutable; drop first)
+# @summary Store a named, reusable FIRE(<when>, <action>) pair. Each field is a catalog name or a composition without whitespace: the when may be and(a,b,...), or(a,b,...) or not(a), nested at will; the action may be compose(a,b,...) to run several in order. The loader sees AND/OR/NOT and COMPOSE, the sh containers { a && b; }, { a || b; }, ! a and a; b. The leaves are checked against the container's catalog when a policy binds: no arsenal record is referenced, the chain is write only -- an identical re-add is a no-op, a different one is refused (immutable; drop first)
 # @group   foundation
 # @example elebake trigger add react-halt when_fail react_halt_act
+# @example elebake trigger add unlock-measured 'and(when_fail,not(when_skipped))' unlock_act
+# @example elebake trigger add silence-duress when_duress 'compose(taint_act,silence_act)'
 # @see     trigger drop
 # @see     policy trigger add
 #@end
 ___trigger_add3() {
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" trigger fields valid $(sq "$1") $(sq "$2") $(sq "$3")"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" trigger when valid $(sq "$2")"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" trigger action valid $(sq "$3")"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" trigger write $(sq "$1") $(sq "$2") $(sq "$3")"
+}
+
+#@help __trigger_when_valid1
+# @command trigger when valid <when>
+# @summary The when expression parses (a catalog name, or and(a,b,...), or(a,b,...), not(a), nested at will, no whitespace): a comment line, else an error line
+# @group   foundation
+# @internal
+# @see     trigger add
+#@end
+__trigger_when_valid1() {
+        if fnd_expr_ok when "$1"; then
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'trigger when parses: $1'"
+        else
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'trigger add: the when does not parse: $1 (a catalog name, and(a,b), or(a,b), not(a); no whitespace)'"
+        fi
+}
+
+#@help __trigger_action_valid1
+# @command trigger action valid <action>
+# @summary The action expression parses (a catalog name, or compose(a,b,...), no whitespace): a comment line, else an error line
+# @group   foundation
+# @internal
+# @see     trigger add
+#@end
+__trigger_action_valid1() {
+        if fnd_expr_ok action "$1"; then
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'trigger action parses: $1'"
+        else
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'trigger add: the action does not parse: $1 (a catalog name or compose(a,b); no whitespace)'"
+        fi
 }
 
 #@help __trigger_write3
@@ -808,7 +842,7 @@ ___trigger_show0() {
 }
 
 #@help ___trigger_show1
-# @internal 1-arg sibling of 'trigger show': the record exists, then its C form FIRE(when, &action)
+# @internal 1-arg sibling of 'trigger show': the record exists, then its C form FIRE(<when>, <actions>)
 #@end
 ___trigger_show1() {
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" trigger exists '$1'"
@@ -817,7 +851,7 @@ ___trigger_show1() {
 
 #@help _trigger_render_show1
 # @command trigger render show <trigger>
-# @summary Print the display line of one trigger record: its C form FIRE(when, &action)
+# @summary Print the display line of one trigger record: its C form FIRE(<when>, <actions>) with AND/OR/NOT and COMPOSE composed
 # @group   foundation
 # @internal
 # @see     trigger show
@@ -825,7 +859,7 @@ ___trigger_show1() {
 _trigger_render_show1() {
         local when="" action=""
         read -r when action 2>/dev/null < "$ELEBAKE_BASE/foundation/triggers/$1"
-        printf '# %s: FIRE(%s, &%s)\n' "$1" "$when" "$action"
+        printf '# %s: FIRE(%s, %s)\n' "$1" "$(fnd_expr_render when c "$when")" "$(fnd_expr_render action c "$action")"
 }
 
 #@help __gate_add1
@@ -1186,26 +1220,15 @@ ___gate_show0() {
 }
 
 #@help ___gate_show1
-# @internal 1-arg sibling of 'gate show': the record exists, then GATE_DEFINE with its slot expressions and every claim it lists, as the emission writes it, prefixed
+# @internal 1-arg sibling of 'gate show': the record exists, then the gate as its emitter writes it, prefixed -- the loader's C form (gate render c) for a gate without a string claim, the container form (gate claims show) for a gate with one: the loader has no MEASUREMENT_STRING
 #@end
 ___gate_show1() {
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" gate exists '$1'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" gate render show '$1'"
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" gate render form '$1'"
-}
-
-#@help __gate_render_form1
-# @command gate render form <gate>
-# @summary The gate as its emitter would write it: no claim with a string expectation -> the loader's C form (gate render c, unindented); a string claim -> the container form, one 'claim render show' per claim (the loader has no MEASUREMENT_STRING)
-# @group   foundation
-# @internal
-# @see     gate show
-#@end
-__gate_render_form1() {
-        if grep . "$ELEBAKE_BASE/foundation/gates/$1/claims" 2>/dev/null | while read -r c; do read -r m d p e 2>/dev/null < "$ELEBAKE_BASE/foundation/claims/$c"; read -r t l v 2>/dev/null < "$ELEBAKE_BASE/foundation/expectations/$e"; test "$t" != string || exit 1; done; then
-                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" gate render c '$1'"
-        else
+        if gate_has_string_claim "$1"; then
                 printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" gate claims show '$1'"
+        else
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" gate render c '$1' | sed 's/^/#   /'"
         fi
 }
 
@@ -1526,17 +1549,17 @@ ___policy_show0() {
 }
 
 #@help ___policy_show1
-# @internal 1-arg sibling of 'policy show': the record exists, then its POLICY(gate, FIRE...) table entry as the emission writes it, prefixed
+# @internal 1-arg sibling of 'policy show': the record exists, then its POLICY_TABLE_DEFINE(...) as the emission writes it, prefixed
 #@end
 ___policy_show1() {
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" policy exists '$1'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" policy render show '$1'"
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" policy render c '$1'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" policy render c '$1' | sed 's/^/#   /'"
 }
 
 #@help _policy_render_show1
 # @command policy render show <policy>
-# @summary Print the display line of one policy record: its POLICY(gate, FIRE...) table entry as the emission writes it, prefixed
+# @summary Print the display line of one policy record: its name, before the POLICY_TABLE_DEFINE the emission writes
 # @group   foundation
 # @internal
 # @see     policy show

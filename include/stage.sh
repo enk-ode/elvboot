@@ -976,8 +976,61 @@ _stage_detachsign1() {
 ___stage_checkout2() {
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" freebsd prerequisites"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage check stage '$1'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage not checked out '$1'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" freebsd source set"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage worktree '$1' '$2'"
+}
+
+#@help __stage_not_checked_out1
+# @command stage not checked out <stage>
+# @summary The stage has no worktree yet (no work link): a comment line, else an error line naming the checkout it has and 'stage recheckout' -- git refuses a second worktree on the same path, and a record written past that refusal would lie
+# @group   stage
+# @internal
+# @see     stage checkout
+# @see     stage recheckout
+#@end
+__stage_not_checked_out1() {
+        if test -L "$ELEBAKE_BASE/stage/$1/work"; then
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'stage $1 is checked out at $(sed -n 1p "$ELEBAKE_BASE/stage/$1/checkout" 2>/dev/null) (worktree $(readlink "$ELEBAKE_BASE/stage/$1/work")): stage recheckout $1 <ref> replaces it'"
+        else
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'stage $1 has no worktree yet'"
+        fi
+}
+
+#@help ___stage_recheckout2
+# @command stage recheckout <stage> <ref>
+# @summary Replace the stage's worktree by a fresh DETACHED one at <ref>: the toolchain is there, the stage exists and is checked out, the source repo is set; then 'stage worktree remove' (git worktree remove --force and prune, the work link), then 'stage worktree'. The old worktree holds generated files only -- site.mk, secret.mk, foundation.c -- which stage site mk and stage foundation make write again; the build outputs live in destdir/ and obj/ of the stage
+# @group   stage
+# @env     ELEBAKE_FREEBSD_SRC  the source repo the worktree is added from
+# @example elebake stage recheckout daily-v1 ptg-15.1-next^0
+# @see     stage checkout
+# @see     stage site mk
+# @see     stage foundation make
+#@end
+___stage_recheckout2() {
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" freebsd prerequisites"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage check stage '$1'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage checked out '$1'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" freebsd source set"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage worktree remove '$1'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage worktree '$1' '$2'"
+}
+
+#@help _stage_worktree_remove1
+# @command stage worktree remove <stage>
+# @summary Act terminal: git worktree remove --force of the stage's worktree (generated files inside are expendable), git worktree prune, the work link removed; the checkout record stays until 'stage worktree' rewrites it
+# @group   stage
+# @internal
+# @env     ELEBAKE_FREEBSD_SRC  the source repo that registers the worktree
+# @see     stage recheckout
+#@end
+_stage_worktree_remove1() {
+        local wt=""
+        wt=$(readlink "$ELEBAKE_BASE/stage/$1/work" 2>/dev/null)
+        printf '%s\n' "git -C '${ELEBAKE_FREEBSD_SRC:-}' worktree remove --force '$wt' || exit 1"
+        printf '%s\n' "git -C '${ELEBAKE_FREEBSD_SRC:-}' worktree prune"
+        printf '%s\n' "$MODIFY_FILE_REMOVE '$ELEBAKE_BASE/stage/$1/work'"
+        printf '%s\n' "printf '# Removed the worktree of %s (%s)\\n' '$1' '$wt' >&2"
 }
 
 #@help _stage_worktree2
@@ -992,7 +1045,7 @@ _stage_worktree2() {
         local wt=""
         wt="$ELEBAKE_ROOT/worktree/$(basename "$(readlink "$ELEBAKE_BASE/stage/$1")")"
         printf '%s\n' "$MODIFY_DIR_CREATE '$ELEBAKE_ROOT/worktree'"
-        printf '%s\n' "git -C '${ELEBAKE_FREEBSD_SRC:-}' worktree add --detach '$wt' '$2'"
+        printf '%s\n' "git -C '${ELEBAKE_FREEBSD_SRC:-}' worktree add --detach '$wt' '$2' || exit 1"
         printf '%s\n' "$MODIFY_LINK_FORCE '$wt' '$ELEBAKE_BASE/stage/$1/work'"
         printf '%s\n' "echo '$2' > '$ELEBAKE_BASE/stage/$1/checkout'"
         printf '%s\n' "$MODIFY_FILE_PERMS 0600 '$ELEBAKE_BASE/stage/$1/checkout'"
@@ -1884,7 +1937,7 @@ __stage_include_entries_valid2() {
 
 #@help _stage_include_copy2
 # @command stage include copy <stage> <srcdir>
-# @summary Act terminal: per filter entry present in the source, mkdir of its parent, rm -rf of the old and cp -a of the new (adopted trees carry 0555 files, directory entries must be replaced whole); an entry absent from the source is kept from boot/ and noted; the count line last
+# @summary Act terminal: per filter entry present in the source, mkdir of its parent, rm -rf of the old and cp -a of the new (adopted trees carry 0555 files, directory entries must be replaced whole); an entry absent from the source stays as boot/ has it and is noted (whether the build never delivers it or a stage clean emptied destdir/ is not known here)d; the count line last
 # @group   stage
 # @internal
 # @see     stage include
@@ -1898,11 +1951,11 @@ _stage_include_copy2() {
                         printf '%s\n' "$MODIFY_DIR_CREATE '$ELEBAKE_BASE/stage/$1/$(dirname "boot/$rel")'"
                         printf '%s\n' "rm -rf '$ELEBAKE_BASE/stage/$1/boot/$rel' && cp -a '$2/$rel' '$ELEBAKE_BASE/stage/$1/boot/$rel' || { printf '# Error: include failed for %s\\n' '$rel' >&2; exit 1; }"
                 else
-                        emit_note "stage include '$1': $rel kept from boot/ (not in $2 -- adopted, the build does not deliver it)"
+                        emit_note "stage include '$1': $rel not in $2 -- boot/ keeps its copy"
                 fi
         done
         k=$(grep . "$ELEBAKE_BASE/stage/$1/filter" 2>/dev/null | while IFS= read -r rel; do test -e "$2/$rel" || printf 'x\n'; done | wc -l | tr -d ' ')
-        printf '%s\n' "printf '# Included %s filter entries into boot/ of stage %s (source: %s; %s kept from boot/)\\n' '$((n - k))' '$1' '$2' '$k' >&2"
+        printf '%s\n' "printf '# Included %s filter entries into boot/ of stage %s (source: %s; %s not in the source, unchanged in boot/)\\n' '$((n - k))' '$1' '$2' '$k' >&2"
 }
 
 #@help ___stage_import2
@@ -3079,6 +3132,39 @@ ___stage_marker_record3() {
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage marker bootvar valid '$2'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage marker file absolute '$3'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage marker store '$1' '$2' '$3'"
+}
+
+#@help __stage_marker_place1
+# @command stage marker place <stage>
+# @summary The stage records a marker value file: rewrite to 'stage marker install <stage>' (the root-side copy the SHUTDOWN hook of elvbootd heals from), else a comment line
+# @group   provisioning
+# @internal
+# @see     stage elvbootd install
+# @see     stage marker record
+#@end
+__stage_marker_place1() {
+        if test -s "$ELEBAKE_BASE/stage/$1/marker/file"; then
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage marker install '$1'"
+        else
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'stage $1 records no marker: nothing for elvbootd to heal'"
+        fi
+}
+
+#@help _stage_marker_install1
+# @command stage marker install <stage>
+# @summary Act terminal: copy the recorded marker value file to /usr/local/etc/elvboot/marker.<BootXXXX> (root:wheel 0400) -- what marker_heal_act of the SHUTDOWN hook writes back into the load option. The value lives in one redacted place per host and never inside a hook; root reads it there as it reads the database, on the same encrypted root. Pinned sudo sh
+# @group   provisioning
+# @internal
+# @see     stage marker place
+# @see     stage marker write
+#@end
+_stage_marker_install1() {
+        local bootvar="" mfile=""
+        bootvar=$(head -n1 "$ELEBAKE_BASE/stage/$1/marker/bootvar" 2>/dev/null)
+        mfile=$(head -n1 "$ELEBAKE_BASE/stage/$1/marker/file" 2>/dev/null)
+        printf '%s\n' "mkdir -p /usr/local/etc/elvboot"
+        printf '%s\n' "install -o root -g wheel -m 0400 '$mfile' '/usr/local/etc/elvboot/marker.$bootvar'"
+        printf '%s\n' "printf '# marker value of stage %s placed for %s (0400 root)\\n' '$1' '$bootvar' >&2"
 }
 
 #@help __stage_marker_bootvar_valid1
