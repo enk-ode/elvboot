@@ -1,0 +1,3 @@
+cat
+# Text terminal: prints the ELV_IMAGES_EXPECTED constant of a generated hook; cat so the emitter collects the text.
+# @see ELEBAKE_INTERPRETER_stage_constant_marker

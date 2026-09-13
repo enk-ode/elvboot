@@ -533,6 +533,22 @@ __stage_expectation_demands2() {
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage $type demands '$1' '$value'"
 }
 
+#@help __stage_key_ensure3
+# @command stage key ensure <stage> <container> <value>
+# @summary A key expectation is a loader type (the loader reads loader.trust.<gate>.<key> from its conf at run time): in the loader a comment line, in earlboot or elvbootd an error line -- the hooks compare constants, not the loader's kenv. Lifting: the record's type word dispatches totally
+# @group   foundation
+# @internal
+# @see     stage gate ensure
+# @see     expectation add
+#@end
+__stage_key_ensure3() {
+        if test "$2" = loader; then
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'key expectation $3 in the loader of stage $1: read at run time, recorded by stage kenv learn'"
+        else
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'stage $1: a key expectation ($3) is bound in $2 -- only the loader reads loader.trust.<gate>.<key> at run time'"
+        fi
+}
+
 #@help __stage_macro_demands2
 # @command stage macro demands <stage> <MACRO>
 # @summary The macro record that defines the macro (template/awk/macro-defines.awk -v stem=1 prints its stem) names the baseline LOADER_TRUST_<stem>: rewrite to 'stage macro demand', else an error line
@@ -570,6 +586,18 @@ __stage_byte_demands2() {
 #@end
 __stage_sha256_demands2() {
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'sha256 expectation $2: no baseline demanded'"
+}
+
+#@help __stage_key_demands2
+# @command stage key demands <stage> <value>
+# @summary A key expectation demands no baseline: its value is a kenv record, loader.trust.<gate>.<key> (stage require names it, stage kenv learn records it) -- a comment line
+# @group   foundation
+# @internal
+# @see     stage expectation demands
+# @see     stage kenv learn
+#@end
+__stage_key_demands2() {
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'key expectation $2: no baseline -- a kenv record (stage require names it, stage kenv learn records it)'"
 }
 
 #@help __stage_string_demands2

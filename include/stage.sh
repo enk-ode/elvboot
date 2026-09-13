@@ -1124,7 +1124,7 @@ _stage_reset1() {
 
 #@help ___stage_build1
 # @command stage build <stage>
-# @summary The isolated stand/ build: the toolchain, the build gate (keys bound), clean, then one 'stage build stand <stage> <component>' per curated component
+# @summary The isolated stand/ build: the trust anchor in the worktree (stage trust) first -- the cheapest check, local to the stage -- then the toolchain, the build gate (keys bound), clean, then one 'stage build stand <stage> <component>' per curated component
 # @group   stage
 # @env     ELEBAKE_STAND_BUILD_SUBDIRS  curated components in SUBDIR_DEPEND order (see the template)
 # @env     ELEBAKE_MAKEARGS  extra make(1) arguments per component (e.g. -j16); empty = none
@@ -1134,10 +1134,28 @@ _stage_reset1() {
 # @see     stage checkout
 #@end
 ___stage_build1() {
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage trust anchored '$1'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" freebsd prerequisites"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage build ready '$1'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage clean '$1'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage build stand '$1'"
+}
+
+#@help __stage_trust_anchored1
+# @command stage trust anchored <stage>
+# @summary The worktree carries the root of trust: lib/libsecureboot/ta_openpgp.asc and site.trust.mk, both non-empty (stage trust wrote them): a comment line, else an error line -- a loader built without them verifies no manifest, and in strict mode it then opens nothing, not even loader.lua (daily-v1, 11.09., after a fresh recheckout)
+# @group   stage
+# @internal
+# @see     stage build
+# @see     stage trust
+#@end
+__stage_trust_anchored1() {
+        local lib="$ELEBAKE_BASE/stage/$1/work/lib/libsecureboot"
+        if test -s "$lib/ta_openpgp.asc" && test -s "$lib/site.trust.mk"; then
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'stage $1: trust anchor in the worktree'"
+        else
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'stage build $1: no trust anchor in the worktree (stage trust $1 exports it; a loader without it verifies no manifest and opens nothing)'"
+        fi
 }
 
 #@help ___stage_build_stand1
@@ -2101,7 +2119,7 @@ _stage_collect_files1() {
                 test -f "$d/$part" || test -L "$d/$part" || continue
                 printf '"$ELEBAKE_ARCHIVE_BASE"/%s\n' "${d#"$ELEBAKE_BASE/"}/$part"
         done
-        for part in marker backup boot phases prereqs baselines conf hooks media; do
+        for part in marker backup boot phases prereqs baselines kenv inventory hooks media; do
                 test -d "$d/$part" || continue
                 find "$d/$part" \( -type f -o -type l \) 2>/dev/null | sort | sed "s|^$ELEBAKE_BASE/|\"\$ELEBAKE_ARCHIVE_BASE\"/|"
         done
@@ -3214,7 +3232,7 @@ _stage_marker_store3() {
 
 #@help __stage_marker_write2
 # @command stage marker write <stage> <restore|new>
-# @summary Write the marker into the recorded load option: 'restore' puts the value from the recorded file back (or generates one when the file is empty -- decided at generation time), 'new' always generates. The marker is recorded: rewrite to 'stage marker value <restore|new> <stage>', else an error line
+# @summary Write the marker into the recorded load option: 'restore' puts the value from the recorded file back (the file is read when the privileged act runs; empty or unreadable is an error there), 'new' always generates. The marker is recorded: rewrite to 'stage marker value <restore|new> <stage>', else an error line
 # @group   provisioning
 # @example elebake stage marker write daily-v1 restore | sudo sh
 # @see     stage marker value restore
@@ -3231,16 +3249,16 @@ __stage_marker_write2() {
 
 #@help __stage_marker_value_restore1
 # @command stage marker value restore <stage>
-# @summary The recorded value file holds a value: rewrite to 'stage marker nvram <stage> keep', else to 'stage marker nvram <stage> empty' (a new value is generated into the empty file)
+# @summary Rewrite to 'stage marker nvram <stage> keep': the value is read from the recorded file when the privileged act runs -- the file is root's, a check at generation time as the operator cannot see it and once mistook it for empty and minted a new value (11.09.); an empty or unreadable file is an error at run time, never a new value
 # @group   provisioning
 # @internal
 # @see     stage marker write
 #@end
 __stage_marker_value_restore1() {
-        if test -s "$(head -n1 "$ELEBAKE_BASE/stage/$1/marker/file" 2>/dev/null)"; then
+        if true; then
                 printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage marker nvram '$1' keep"
         else
-                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage marker nvram '$1' empty"
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage marker nvram '$1' keep"
         fi
 }
 
@@ -3267,7 +3285,7 @@ __stage_marker_value2() {
 }
 
 #@help _stage_marker_nvram2
-# @command stage marker nvram <stage> <keep|empty|new>
+# @command stage marker nvram <stage> <keep|new>
 # @summary Act terminal: the NVRAM byte surgery -- read the load option, parse the EFI_LOAD_OPTION offset at RUNTIME (the entry is read and rewritten in the same privileged execution; the marker VALUE never appears in a trace), keep the original once under backup/, take the value from the file (keep) or generate one into it (empty: the file was empty; new: a rotation), append 'RC <value>' NUL and write the option back. Pinned to cat -- inspect, then pipe to sudo sh
 # @group   provisioning
 # @internal
@@ -3293,7 +3311,7 @@ _stage_marker_nvram2() {
                 printf '%s\n' "( umask 077; printf '%s\\n' \"\$m\" > '$mfile' ) || { printf '# Error: cannot write %s\\n' '$mfile' >&2; exit 1; }"
                 printf '%s\n' "printf '# new marker generated and saved to %s\\n' '$mfile' >&2"
         else
-                printf '%s\n' "m=\$(cat '$mfile')"
+                printf '%s\n' "m=\$(cat '$mfile' 2>/dev/null); [ -n \"\$m\" ] || { printf '# Error: marker value file %s is empty or unreadable -- stage marker write $1 new mints one\\n' '$mfile' >&2; exit 1; }"
                 printf '%s\n' "printf '# restoring the known marker from %s\\n' '$mfile' >&2"
         fi
         printf '%s\n' "new=\$(mktemp) || exit 1"
@@ -3369,6 +3387,7 @@ ___stage_site_mk1() {
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage site mk origin '$1' >> '$f.new'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage site mk disks '$1' >> '$f.new'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage site mk baselines '$1' >> '$f.new'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage inventory make '$1' >> '$f.new'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage site mk install '$1' '$f'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage site mk report '$1' '$f'"
 }
@@ -3567,14 +3586,14 @@ __stage_site_mk_written2() {
 
 #@help _stage_site_mk_print2
 # @command stage site mk print <stage> <file>
-# @summary Print the site.mk as comment lines under a heading
+# @summary Print the site.mk as comment lines under a heading, the secrets redacted: the values of *_SECRET, *_DURESS and *_SALT macros show as <redacted> -- a terminal, a script(1) transcript or a pasted line must never carry them (the file itself holds them, 0600)
 # @group   provisioning
 # @internal
 # @see     stage site mk report
 #@end
 _stage_site_mk_print2() {
         printf '# site.mk of stage %s (%s):\n' "$1" "$2"
-        sed 's/^/# /' "$2"
+        sed -E -e 's/(_(SECRET|DURESS|SALT))=.*/\1=<redacted>/' -e 's/^/# /' "$2"
 }
 
 #@help __stage_dump0
@@ -3648,7 +3667,8 @@ ___stage_dump_complete1() {
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage dump prereqs '$1'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage dump baselines '$1'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage dump disks '$1'"
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage dump conf '$1'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage dump kenv '$1'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage dump inventory '$1'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage dump hooks '$1'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage dump marker '$1'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage dump backup '$1'"

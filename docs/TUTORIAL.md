@@ -1,26 +1,25 @@
 # elebake tutorial — the full walk
 
-A guided session, recorded live: every command was typed on the target
-machine, every output below is the original (captured via script(1)).
-The companion `docs/tutorial-replay.sh` accumulates each successful
-command, so any point of this walk can be reproduced into a fresh
-database at any time — replays are an architecture principle here, not
-an emergency measure.
+A guided session, recorded live: every  command was typed on the target machine,
+every  output below  is the  original (captured  via script(1)).   The companion
+`docs/tutorial-replay.sh` accumulates  each successful command, so  any point of
+this walk can be  reproduced into a fresh database at any time  — replays are an
+architecture principle here, not an emergency measure.
 
-Conventions: the session runs inside `script ~/tutorial/transcript.txt`
-in a screen session. No configuration ever travels via environment
-variables (see the isolation excursus below) — the ONLY sanctioned
-environment override is the database SELECTION (ELEBAKE_BASE /
-ELEBAKE_ROOT), and this walk does not even need that.
+Conventions:  the session  runs inside  `script ~/tutorial/transcript.txt`  in a
+screen session. No configuration ever travels via environment variables (see the
+isolation  excursus below)  — the  ONLY sanctioned  environment override  is the
+database SELECTION  (ELEBAKE_BASE / ELEBAKE_ROOT),  and this walk does  not even
+need that.
 
 
 ## 1. The birth of a database
 
-elebake keeps a FAMILY of databases under one root (default:
-`~/.elebake`); the symlink `db` marks the ACTIVE one, and
-`ELEBAKE_BASE` defaults to `~/.elebake/db` — so a stock installation
-needs no environment at all. `bootstrap <name> <profile>` creates the
-named database AND points the active-DB symlink at it:
+elebake keeps a FAMILY of databases  under one root (default: `~/.elebake`); the
+symlink   `db`  marks   the   ACTIVE  one,   and   `ELEBAKE_BASE`  defaults   to
+`~/.elebake/db`   —  so   a   stock  installation   needs   no  environment   at
+all.  `bootstrap <name>  <profile>` creates  the named  database AND  points the
+active-DB symlink at it:
 
 ```
 $ cd ~/git/elvboot
@@ -41,15 +40,15 @@ $ ./elebake.sh bootstrap tutorial minimal
 # Bootstrap complete: /home/brj/.elebake/tutorial (minimal) [db -> tutorial]
 ```
 
-Note the last line: `[db -> tutorial]` — bootstrap moved the active-DB
-symlink itself; a manual `ln -sfn` is never needed. The name `db` is
-reserved for exactly this reason. Switching back to another database
-later is `ln -sfn current ~/.elebake/db` (or a fresh bootstrap).
+Note the last  line: `[db -> tutorial]` — bootstrap  moved the active-DB symlink
+itself;  a manual  `ln -sfn`  is never  needed. The  name `db`  is reserved  for
+exactly  this reason.  Switching  back to  another database  later  is `ln  -sfn
+current ~/.elebake/db` (or a fresh bootstrap).
 
-The layout: `.env/default` holds the installed profile (the interpreter
-pins — act families execute, display families page through cat),
-`.env/local` your overrides; `pkcs11/openpgp/pem` are the key backends,
-`stage/` and `.staging/` the stage records.
+The layout: `.env/default`  holds the installed profile (the  interpreter pins —
+act  families execute,  display families  page through  cat), `.env/local`  your
+overrides; `pkcs11/openpgp/pem`  are the key backends,  `stage/` and `.staging/`
+the stage records.
 
 ## 2. setenv — and why export does NOT work
 
@@ -60,24 +59,22 @@ $ ./elebake.sh setenv ELEBAKE_DISPLAY_ANSI 0
 # Set ELEBAKE_DISPLAY_ANSI (effective next command)
 ```
 
-Why not `export ELEBAKE_DISPLAY_ANSI=0`? Because it would do NOTHING.
-elebake isolates its environment by construction: every interpreter is
-executed via `run_env()` as `env - PATH=... <vars from .env files>` —
-the inherited process environment is DISCARDED and rebuilt exclusively
-from the database, plus a short passthrough list of pure infrastructure
-(bootstrap marker, cache, trace, log). An exported configuration
-variable never reaches anything. Verified live:
+Why not `export  ELEBAKE_DISPLAY_ANSI=0`? Because it would  do NOTHING.  elebake
+isolates  its environment  by construction:  every interpreter  is executed  via
+`run_env()` as `env  - PATH=... <vars from .env files>`  — the inherited process
+environment is DISCARDED and rebuilt exclusively from the database, plus a short
+passthrough  list  of  pure  infrastructure  (bootstrap  marker,  cache,  trace,
+log). An exported configuration variable never reaches anything. Verified live:
 
 ```
 $ ELEBAKE_INTERPRETER_stage_list=sh ./elebake.sh printenv | grep stage_list
 ... ELEBAKE_INTERPRETER_stage_list='cat' ...     # the DB value, untouched
 ```
 
-Configuration has exactly one home (the database, via setenv), one
-resolution order (`.env/local` over `.env/default` over the template),
-and one exception (ELEBAKE_BASE/ELEBAKE_ROOT select WHICH database —
-they must work from outside, or nothing could find a database to read
-its configuration from).
+Configuration has  exactly one home  (the database, via setenv),  one resolution
+order (`.env/local`  over `.env/default` over  the template), and  one exception
+(ELEBAKE_BASE/ELEBAKE_ROOT select WHICH database —  they must work from outside,
+or nothing could find a database to read its configuration from).
 
 ## 3. Reading the environment
 
@@ -85,12 +82,12 @@ its configuration from).
 $ ./elebake.sh printenv
 ```
 
-prints the EFFECTIVE environment — exactly what `run_env()` hands to
-every interpreter, rebuilt from the database. The whole pin model is
-visible at a glance: act families on `sh`, display families on `cat`,
-the ESP-touching families on `sudo sh`, and the three class defaults
-(`ELEBAKE_TERMINAL_INTERPRETER=cat` — safe by default — plus the
-combinator and batch interpreters). A single variable, with provenance:
+prints  the EFFECTIVE  environment —  exactly  what `run_env()`  hands to  every
+interpreter, rebuilt  from the  database. The  whole pin model  is visible  at a
+glance:  act families  on  `sh`,  display families  on  `cat`, the  ESP-touching
+families     on    `sudo     sh`,     and    the     three    class     defaults
+(`ELEBAKE_TERMINAL_INTERPRETER=cat` — safe by default  — plus the combinator and
+batch interpreters). A single variable, with provenance:
 
 ```
 $ ./elebake.sh getenv ELEBAKE_DISPLAY_ANSI
@@ -98,20 +95,19 @@ $ ./elebake.sh getenv ELEBAKE_DISPLAY_ANSI
 0
 ```
 
-`local (override)` is your setenv from chapter 2; an untouched variable
-answers with `default` (the installed profile) or `template`. `help` is
-fully GENERATED from the sources — no hand-maintained help text exists,
-so the help cannot erode. (`help env <VAR>` shows a variable's
-documentation; on databases from before the multi-word command rework
-the same thing was spelled `helpenv`.)
+`local (override)` is your setenv from  chapter 2; an untouched variable answers
+with `default` (the installed profile)  or `template`. `help` is fully GENERATED
+from  the sources  — no  hand-maintained help  text exists,  so the  help cannot
+erode. (`help  env <VAR>`  shows a variable's  documentation; on  databases from
+before the multi-word command rework the same thing was spelled `helpenv`.)
 
 ## 4. Emit-and-inspect, lived once — with the REAL key
 
-The examples use the machine's real secure-boot signing key. The
-record name `uefi-db` says what it is: the key of the UEFI Signature
-Database (db) that authenticode-signs loader.efi. (The production
-database calls the same record just `db` — correct too, but in a
-tutorial that word is taken by the active-DB symlink.)
+The examples  use the machine's  real secure-boot  signing key. The  record name
+`uefi-db` says  what it  is: the key  of the UEFI  Signature Database  (db) that
+authenticode-signs loader.efi.  (The production  database calls the  same record
+just `db` — correct  too, but in a tutorial that word is  taken by the active-DB
+symlink.)
 
 The three-step that IS elebake:
 
@@ -130,17 +126,16 @@ chmod 0600 '/home/brj/.elebake/db/pem/uefi-db/key' '/home/brj/.elebake/db/pem/ue
 printf '# Registered pem key %s (paths only; material stays in place)\n' 'uefi-db' >&2
 ```
 
-Under `cat` NOTHING happened — you read the shell that WOULD run. `pem
-add` is a batch of two lines: the check that the name is a record name,
-and the act terminal `pem record`, whose pin you just set. The check ran
-(it is a combinator: a comment line, else an error line), the act was
-shown. That emission answers the important question by itself: this works
-although `/root/secureboot` is unreadable for the calling user, because
-`pem add` registers PATHS AS PROMISES — no file is read, copied or
-touched. A registration command that could copy a signing key would be
-the wrong design; custody stays with root. The promise is redeemed
-later, in the right context (`stage sign` under its `sudo sh` pin) and
-checked by the prerequisites. Now let it act:
+Under `cat` NOTHING happened — you read the shell that WOULD run. `pem add` is a
+batch of  two lines:  the check  that the  name is  a record  name, and  the act
+terminal  `pem  record`,  whose pin  you  just  set.  The  check ran  (it  is  a
+combinator:  a comment  line,  else an  error  line), the  act  was shown.  That
+emission  answers  the  important  question   by  itself:  this  works  although
+`/root/secureboot`  is  unreadable  for  the calling  user,  because  `pem  add`
+registers PATHS AS PROMISES — no file is read, copied or touched. A registration
+command that could copy  a signing key would be the  wrong design; custody stays
+with root.  The promise is  redeemed later, in  the right context  (`stage sign`
+under its `sudo sh` pin) and checked by the prerequisites. Now let it act:
 
 ```
 $ ./elebake.sh setintp pem_record sh
@@ -151,12 +146,11 @@ $ ./elebake.sh pem prerequisites
 # prerequisites ok: pem
 ```
 
-(Note what prerequisites checks here: the signing TOOLCHAIN. The
-readability of the promised paths surfaces at the stage level, where
-the sudo context exists.)
+(Note what prerequisites checks here:  the signing TOOLCHAIN. The readability of
+the promised paths surfaces at the stage level, where the sudo context exists.)
 
-The attest key — the OpenPGP key that detach-signs the stage manifest;
-records hold the key ID, custody stays with the keyring:
+The attest key  — the OpenPGP key that detach-signs  the stage manifest; records
+hold the key ID, custody stays with the keyring:
 
 ```
 $ ./elebake.sh openpgp add manifest 77B2C2E8F5A4C6C7
@@ -167,10 +161,10 @@ $ ./elebake.sh openpgp prerequisites
 
 ## 5. The stage and its key slots
 
-A STAGE is the named workspace for exactly one boot tree; the name
-says what it is for — `illyria-boot` is the stage behind this
-machine's boot anchor. Every column below is DERIVED state: nothing is
-cached, each line is read off the artifacts at display time.
+A STAGE is the named workspace for exactly  one boot tree; the name says what it
+is for  — `illyria-boot` is the  stage behind this machine's  boot anchor. Every
+column below  is DERIVED  state: nothing is  cached, each line  is read  off the
+artifacts at display time.
 
 ```
 $ ./elebake.sh stage list
@@ -183,10 +177,10 @@ $ ./elebake.sh stage list
 #   illyria-boot   stage-faa35dcef54e no	no     -/-
 ```
 
-The two key SLOTS bind the chapter-4 records by reference — the same
-promise logic, one level up. The attest key must be bound BEFORE the
-build: its trust anchor is embedded into the loader at build time, so
-the binding is building material, not bookkeeping:
+The two  key SLOTS bind  the chapter-4 records by  reference — the  same promise
+logic, one level  up. The attest key  must be bound BEFORE the  build: its trust
+anchor is  embedded into the  loader at build time,  so the binding  is building
+material, not bookkeeping:
 
 ```
 $ ./elebake.sh stage sign key illyria-boot pem uefi-db
@@ -205,18 +199,17 @@ $ ./elebake.sh stage status illyria-boot
 #   site.mk   : none (stage site mk)
 ```
 
-(`stage sign-key` with a hyphen works identically — the one tolerated
+(`stage  sign-key`  with  a  hyphen   works  identically  —  the  one  tolerated
 equivalence: hyphens in command words normalize to spaces.)
 
 ## 6. Connecting the source, checking out — and the first real find
 
-The source is the FreeBSD tree that carries the platform-trust-gates
-series -- `https://github.com/johannes-bruegmann/freebsd-src`, branch
-`platform-trust-gates-15.1` (based on releng/15.1). A stock tree has no
-catalogs to offer, and everything from chapter 7 on would be empty.
+The source is  the FreeBSD tree that carries the  platform-trust-gates series --
+`https://github.com/johannes-bruegmann/freebsd-src`,                      branch
+`platform-trust-gates-15.1` (based on releng/15.1). A stock tree has no catalogs
+to offer, and everything from chapter 7 on would be empty.
 
-Deliberately run WITHOUT the variable first — fail early is worth
-seeing once:
+Deliberately run WITHOUT the variable first — fail early is worth seeing once:
 
 ```
 $ ./elebake.sh freebsd prerequisites
@@ -227,22 +220,21 @@ $ ./elebake.sh freebsd prerequisites
 # freebsd prerequisites ok (checked at generation time): git make clang; src: /home/brj/git/freebsd-src
 ```
 
-> **A find of this manual pass.** The second call was originally
-> SILENT: the success line was emitted as a bare `#` comment, which the
-> sh pin executes as a no-op — swallowed. Checks may be silent on
-> success; a REPORT command must report, to stderr. Fixed to emit_note,
-> and the architecture scanner was hardened to catch the pattern
-> (including the multi-line printf form this one hid behind).
+> **A find  of this manual  pass.** The second  call was originally  SILENT: the
+> success line was emitted as a bare `#` comment, which the sh pin executes as a
+> no-op —  swallowed. Checks  may be  silent on success;  a REPORT  command must
+> report,  to stderr.  Fixed  to  emit_note, and  the  architecture scanner  was
+> hardened to catch  the pattern (including the multi-line printf  form this one
+> hid behind).
 
-The checkout, with one deliberate detail on the ref: the branch
-`platform-trust-gates-15.1` is already checked out in the production
-stage's worktree, and git refuses the same BRANCH in two worktrees —
-while any number may share a COMMIT. `^0` resolves the branch to its
-commit (detached), so stages share the state without fighting over the
-branch. Collisions are impossible on the other axes too: the worktree
-path carries the stage id (`worktree/<stage-id>` under the root), and
-sharing the `.git` objects is the point — that is why this takes
-seconds instead of a second clone.
+The   checkout,  with   one   deliberate   detail  on   the   ref:  the   branch
+`platform-trust-gates-15.1`  is already  checked out  in the  production stage's
+worktree, and git  refuses the same BRANCH  in two worktrees —  while any number
+may share a COMMIT. `^0` resolves the branch to its commit (detached), so stages
+share the state  without fighting over the branch. Collisions  are impossible on
+the   other   axes    too:   the   worktree   path   carries    the   stage   id
+(`worktree/<stage-id>` under  the root), and  sharing the `.git` objects  is the
+point — that is why this takes seconds instead of a second clone.
 
 Pipeline commands are inspect-by-default. Read first:
 
@@ -257,11 +249,11 @@ chmod 0600 '/home/brj/.elebake/db/.staging/stage-faa35dcef54e/checkout'
 printf '# Checked out %s at %s (worktree %s)\n' 'illyria-boot' 'platform-trust-gates-15.1^0' '/home/brj/.elebake/worktree/stage-faa35dcef54e' >&2
 ```
 
-Note `mkdir -p`: every directory emission is idempotent by doctrine
-(MODIFY_DIR_CREATE) — replays must never fail on what already exists.
-`git worktree add` itself is deliberately NOT idempotent: a second
-checkout of the same stage is a decision, not a silent overwrite; the
-batch stops at git's error. Now act:
+Note  `mkdir   -p`:  every   directory  emission   is  idempotent   by  doctrine
+(MODIFY_DIR_CREATE)  — replays  must never  fail on  what already  exists.  `git
+worktree add`  itself is deliberately NOT  idempotent: a second checkout  of the
+same stage  is a  decision, not  a silent  overwrite; the  batch stops  at git's
+error. Now act:
 
 ```
 $ ./elebake.sh stage checkout illyria-boot platform-trust-gates-15.1^0 | sh
@@ -272,17 +264,17 @@ HEAD is now at 59a2380128b stand: set st_dev/st_ino in the loader's ZFS stat for
 # Checked out illyria-boot at platform-trust-gates-15.1^0 (worktree /home/brj/.elebake/worktree/stage-faa35dcef54e)
 ```
 
-(That HEAD is this machine's own story: the commit is the loader ZFS
-veriexec fix this whole tutorial builds on.)
+(That HEAD is  this machine's own story:  the commit is the  loader ZFS veriexec
+fix this whole tutorial builds on.)
 
-Open observation from this chapter: `stage status` shows no
-checkout/worktree aspect yet — the state exists (work symlink,
-checkout file) but the summary does not surface it.
+Open observation  from this chapter:  `stage status` shows  no checkout/worktree
+aspect yet — the state exists (work symlink, checkout file) but the summary does
+not surface it.
 
 ## 7. The catalogs: elebake reads the World
 
-Four display commands, all parsed LIVE from the headers of the stage's
-checkout — nothing cached, nothing duplicated into the database:
+Four display commands, all parsed LIVE  from the headers of the stage's checkout
+— nothing cached, nothing duplicated into the database:
 
 ```
 $ ./elebake.sh stage measure illyria-boot
@@ -328,25 +320,22 @@ $ ./elebake.sh stage phase show illyria-boot
 #	(no policies bound)
 ```
 
-> **Why aren't measure/action/when part of the arsenal?** Because they
-> are not decisions but CAPABILITIES — C facts, born as patches,
-> reviewed as code. And capabilities are VERSIONED: there is no "world
-> as such", only the world of one checkout; another stage may sit on a
-> state without `measure_ve_strict` or with actions this one lacks.
-> Hence the provenance line on every catalog. The formula: the ARSENAL
-> is what you want (portable across stages), the CATALOG is what this
-> state can do (versioned) — and the BINDING is the contract between
-> the two. One could defer all checking to a final verify; the design
-> chooses layered safety instead: the binding checks early (where the
-> error is cheap and the message precise), `stage foundation check`
-> re-verifies right before emission (the world may have drifted), and
-> the C compiler stays the last line.
+> **Why aren't measure/action/when  part of the arsenal?** Because  they are not
+> decisions but CAPABILITIES  — C facts, born as patches,  reviewed as code. And
+> capabilities are VERSIONED: there is no "world as such", only the world of one
+> checkout; another stage may sit on a state without `measure_ve_strict` or with
+> actions  this one  lacks.  Hence  the provenance  line on  every catalog.  The
+> formula: the ARSENAL is what you want (portable across stages), the CATALOG is
+> what this state can  do (versioned) — and the BINDING  is the contract between
+> the two. One  could defer all checking  to a final verify;  the design chooses
+> layered safety instead: the binding checks early (where the error is cheap and
+> the  message  precise),  `stage  foundation check`  re-verifies  right  before
+> emission (the world may have drifted), and the C compiler stays the last line.
 
 ## 8. The arsenal, smallest complete chain: strictwatch
 
-The soft guarantee of this system — strict should be active, WATCHED,
-never enforced. Built bottom-up; every `show` renders the C that WOULD
-be emitted.
+The soft  guarantee of  this system  — strict should  be active,  WATCHED, never
+enforced. Built bottom-up; every `show` renders the C that WOULD be emitted.
 
 An EXPECTATION is a named, reusable expected value:
 
@@ -360,14 +349,13 @@ $ ./elebake.sh expectation show
 # strict-marker: MEASUREMENT_BYTE("VeStrictPresent", 1)
 ```
 
-A CLAIM marries a catalog measurement to an expectation —
-`<measurement> <diagnose|-> <publish|-> <exp>`; `-` renders as NULL,
-the publish leaf becomes `loader.trust.<gate>.<leaf>` at runtime (the
-gate namespaces it). Claim and expectation share a name here on
-purpose: the families have separate namespaces, and matching names for
-matching things is good style. Note that `measure_strict` is NOT
-checked against the catalog now — add is dumb, dangling is allowed;
-the contract comes at the binding:
+A  CLAIM  marries a  catalog  measurement  to  an expectation  —  `<measurement>
+<diagnose|-> <publish|-> <exp>`;  `-` renders as NULL, the  publish leaf becomes
+`loader.trust.<gate>.<leaf>`  at runtime  (the  gate namespaces  it). Claim  and
+expectation share a name here on purpose: the families have separate namespaces,
+and matching names for matching things is good style. Note that `measure_strict`
+is NOT checked against  the catalog now — add is dumb,  dangling is allowed; the
+contract comes at the binding:
 
 ```
 $ ./elebake.sh claim add strict-active measure_strict - strict.active strict-active
@@ -379,12 +367,11 @@ $ ./elebake.sh claim show
 # strict-marker: CLAIM(measure_ve_strict, NULL, "strict.marker", MEASUREMENT_BYTE("VeStrictPresent", 1))
 ```
 
-The GATE is AND over its claims; the append order is the evaluation
-order (`gate claim add ... [<position>]` inserts deliberately). No
-secret slot — strictwatch only watches, there is nothing to unlock.
-Gate names must be C identifiers: they land verbatim in the generate,
-and `gate show` now produces the first GATE_DEFINE that fell out of
-your decisions instead of being typed:
+The GATE is AND over its claims; the append order is the evaluation order (`gate
+claim add ... [<position>]` inserts  deliberately). No secret slot — strictwatch
+only watches,  there is nothing  to unlock.  Gate  names must be  C identifiers:
+they  land verbatim  in the  generate, and  `gate show`  now produces  the first
+GATE_DEFINE that fell out of your decisions instead of being typed:
 
 ```
 $ ./elebake.sh gate add strictwatch
@@ -399,9 +386,9 @@ $ ./elebake.sh gate show strictwatch
 #     CLAIM(measure_ve_strict, NULL, "strict.marker", MEASUREMENT_BYTE("VeStrictPresent", 1)));
 ```
 
-A TRIGGER is a named FIRE(when, action) pair; the POLICY ties gate
-and triggers together — the detection core in one line: measure,
-compare, publish — never halt:
+A TRIGGER is a named FIRE(when, action)  pair; the POLICY ties gate and triggers
+together —  the detection core  in one line:  measure, compare, publish  — never
+halt:
 
 ```
 $ ./elebake.sh trigger add publish-always when_always publish_act
@@ -417,15 +404,13 @@ $ ./elebake.sh policy show watch-strict
 #       FIRE(when_always, publish_act));
 ```
 
-Everything here is idempotent-immutable: an identical re-add is a
-silent no-op (that is what makes replays safe), a DIFFERING re-add
-under the same name is refused — change is drop + add, a name's
-meaning never shifts under its users.
+Everything here is  idempotent-immutable: an identical re-add is  a silent no-op
+(that is  what makes replays  safe), a DIFFERING re-add  under the same  name is
+refused — change is drop + add, a name's meaning never shifts under its users.
 
-A when can be a composition -- `and(a,b)`, `or(a,b)`, `not(a)`, nested --
-and an action `compose(a,b)`, several in order; the C form shows
-`AND(...)`, `NOT(...)`, `COMPOSE(...)`, the sh containers get
-`{ a && b; }` and `! a`:
+A when can be a composition -- `and(a,b)`, `or(a,b)`, `not(a)`, nested -- and an
+action  `compose(a,b)`,  several   in  order;  the  C   form  shows  `AND(...)`,
+`NOT(...)`, `COMPOSE(...)`, the sh containers get `{ a && b; }` and `! a`:
 
 ```
 $ ./elebake.sh trigger add unlock-measured 'and(when_fail,not(when_skipped))' unlock_act
@@ -436,10 +421,10 @@ $ ./elebake.sh trigger show unlock-measured
 
 ## 9. bootlock & loaderlock: diagnose, baseline macros, the backstop
 
-Board identity, secure-boot keys and the boot marker have no values
-one could type today — they are measured at PROVISIONING time and
-arrive at BUILD time as -D macros from site.mk. A `macro` record
-describes that slot, and `macro show` displays all three derivations:
+Board identity,  secure-boot keys and the  boot marker have no  values one could
+type today — they are measured at  PROVISIONING time and arrive at BUILD time as
+-D macros from  site.mk. A `macro` record describes that  slot, and `macro show`
+displays all three derivations:
 
 ```
 $ ./elebake.sh macro add BOARD_DIGEST sha256 BoardIdentity
@@ -453,25 +438,23 @@ $ ./elebake.sh macro show BOARD_DIGEST
 #   #endif
 ```
 
-The guard is the site.mk convention (`LOADER_TRUST_<NAME>`), the
-defined name replaces `_DIGEST` with `_EXPECTED`, and `MEAS_SHA256`
-comes from the World — `enum meas_type` in measurement.h: even a
-measurement WITHOUT a baseline is typed, and the `#else` branch means
-UNPROVISIONED IS NOT WRONG — the claim skips instead of lying. (Both
-the `#else` alternative and the defined name can be overridden:
-`macro add <MACRO> <type> <label> [<else>] [<defined>]`.)
+The guard  is the site.mk  convention (`LOADER_TRUST_<NAME>`), the  defined name
+replaces `_DIGEST`  with `_EXPECTED`, and  `MEAS_SHA256` comes from the  World —
+`enum  meas_type` in  measurement.h: even  a measurement  WITHOUT a  baseline is
+typed, and the `#else` branch means UNPROVISIONED IS NOT WRONG — the claim skips
+instead of  lying. (Both  the `#else`  alternative and the  defined name  can be
+overridden: `macro add <MACRO> <type> <label> [<else>] [<defined>]`.)
 
-KEYS_DIGEST and MARKER_DIGEST follow the same shape; the macro
-expectations reference the DEFINED names (`expectation add
-board-expected macro - BOARD_EXPECTED`) — recorded first, referenced
-after, verified sharply by `stage foundation check`.
+KEYS_DIGEST  and MARKER_DIGEST  follow the  same shape;  the macro  expectations
+reference   the  DEFINED   names  (`expectation   add  board-expected   macro  -
+BOARD_EXPECTED`) — recorded first, referenced  after, verified sharply by `stage
+foundation check`.
 
-The bootlock claims bring the second claim field to life — DIAGNOSE:
-`measure_*` only measures a value; `diagnose_*` (where the catalog
-offers one) delivers the WHY of a finding into the appraisal —
-`diagnose_keys` publishes WHICH secure-boot keys deviate,
-`diagnose_marker` the marker details. The publish leafs `board.sha256`
-and `keys.sha256` publish the MEASURED hashes as evidence:
+The bootlock claims bring the second claim field to life — DIAGNOSE: `measure_*`
+only measures a value; `diagnose_*` (where  the catalog offers one) delivers the
+WHY  of  a  finding  into   the  appraisal  —  `diagnose_keys`  publishes  WHICH
+secure-boot  keys deviate,  `diagnose_marker`  the marker  details. The  publish
+leafs `board.sha256` and `keys.sha256` publish the MEASURED hashes as evidence:
 
 ```
 $ ./elebake.sh gate add bootlock LOADER_TRUST_BOOTLOCK_SECRET
@@ -485,24 +468,23 @@ $ ./elebake.sh gate show bootlock
 #     CLAIM(measure_keys, diagnose_keys, "keys.sha256", KEYS_EXPECTED));
 ```
 
-The second `gate add` argument is the secret SLOT: it NAMES the -D
-macro — never a value; the secret lives in the SIGNED loader,
-deliberately not in loader.conf. In the rendering it appears as the
-LOCAL macro (`BOOTLOCK_SECRET`), exactly as the emission writes it.
+The second `gate add` argument is the secret SLOT: it NAMES the -D macro — never
+a  value;  the   secret  lives  in  the  SIGNED  loader,   deliberately  not  in
+loader.conf. In the rendering it appears as the LOCAL macro (`BOOTLOCK_SECRET`),
+exactly as the emission writes it.
 
-> **Second find of this pass.** `gate show` originally rendered the
-> raw slot (`LOADER_TRUST_BOOTLOCK_SECRET`) where the emission writes
-> the local macro — a violation of "show renders what emission WOULD
-> produce". Fixed: the display renderer now uses the same secret
-> expression as the C renderer.
+> **Second find  of this pass.**  `gate show`  originally rendered the  raw slot
+> (`LOADER_TRUST_BOOTLOCK_SECRET`) where the emission writes the local macro — a
+> violation of  "show renders what  emission WOULD produce". Fixed:  the display
+> renderer now uses the same secret expression as the C renderer.
 
-loaderlock guards the loader's own prerequisites; its expected values
-are HEADER CONSTANTS — an expectation value is verbatim C, so
-`LOADER_PREREQUISITES_EXIST_N` is a perfectly good expected value.
-The backstop policy carries TWO fires — publish always, and on
-failure `unlock_act`, the config-independent way out when the Lua
-chain itself is unusable. Note `publish-always` being REUSED across
-all three policies: that is the arsenal idea at work.
+loaderlock guards the loader's own prerequisites; its expected values are HEADER
+CONSTANTS     —     an    expectation     value     is     verbatim    C,     so
+`LOADER_PREREQUISITES_EXIST_N` is a perfectly good expected value.  The backstop
+policy carries  TWO fires  — publish  always, and  on failure  `unlock_act`, the
+config-independent  way  out  when  the  Lua  chain  itself  is  unusable.  Note
+`publish-always` being  REUSED across  all three policies:  that is  the arsenal
+idea at work.
 
 ```
 $ ./elebake.sh policy add backstop-loaderlock loaderlock
@@ -522,13 +504,12 @@ $ ./elebake.sh stage phase policy add illyria-boot PHASE_KERNEL watch-strict
 # Error: stage phase policy resolves: unknown phase PHASE_KERNEL (stage phase show illyria-boot lists them)
 ```
 
-`stage phase policy add` is check-then-act: `check stage` ->
-`check policy` -> `append`. PHASE_KERNEL is not in this checkout's
-enum, so the batch stops before anything is written. `check policy`
-validates the TRANSITIVE chain — policy -> gate -> claims ->
-expectations (including macro resolution: BOARD_EXPECTED must be
-produced by a macro record) and policy -> triggers -> whens/actions —
-against the catalog of THIS stage's checkout. The real bindings pass:
+`stage phase policy  add` is check-then-act: `check stage` ->  `check policy` ->
+`append`. PHASE_KERNEL is not in this checkout's enum, so the batch stops before
+anything is written.  `check policy` validates the TRANSITIVE chain  — policy ->
+gate -> claims -> expectations  (including macro resolution: BOARD_EXPECTED must
+be produced by a macro record) and policy -> triggers -> whens/actions — against
+the catalog of THIS stage's checkout. The real bindings pass:
 
 ```
 $ ./elebake.sh stage phase policy add illyria-boot PHASE_BOOT publish-bootlock
@@ -536,9 +517,9 @@ $ ./elebake.sh stage phase policy add illyria-boot PHASE_LOADER backstop-loaderl
 $ ./elebake.sh stage phase policy add illyria-boot PHASE_LOADER watch-strict
 ```
 
-The binding order is the table order in the C (a `[<position>]`
-argument inserts deliberately), and the detail view now renders the
-table exactly as the emission will write it:
+The binding order is the table order in the C (a `[<position>]` argument inserts
+deliberately), and the detail view now renders the table exactly as the emission
+will write it:
 
 ```
 $ ./elebake.sh stage phase show illyria-boot PHASE_LOADER
@@ -561,8 +542,8 @@ $ ./elebake.sh stage phase show illyria-boot PHASE_LOADER
 
 ## 11. The harvest: stage foundation
 
-The sharp re-verification answers its caller (the world may have
-drifted since the bindings were made — checkout switch, arsenal drop):
+The sharp re-verification  answers its caller (the world may  have drifted since
+the bindings were made — checkout switch, arsenal drop):
 
 ```
 $ ./elebake.sh stage foundation check illyria-boot
@@ -585,12 +566,11 @@ $ ./elebake.sh stage foundation report illyria-boot
 #   target: /home/brj/.elebake/db/stage/illyria-boot/work/stand/efi/loader/local/foundation/foundation.c
 ```
 
-foundation.c now sits in the worktree — compiled from the database.
-Its generated-by header carries DETERMINISTIC provenance (stage name,
-checkout ref, the worktree's git HEAD); deliberately no timestamp,
-which would break the hardest guarantee of the design: after
-dump/restore the target REGENERATES THE IDENTICAL FILE. License and
-author lines are the user's decision, entered once:
+foundation.c  now sits  in  the  worktree —  compiled  from  the database.   Its
+generated-by header carries DETERMINISTIC  provenance (stage name, checkout ref,
+the  worktree's git  HEAD); deliberately  no  timestamp, which  would break  the
+hardest guarantee of  the design: after dump/restore the  target REGENERATES THE
+IDENTICAL FILE. License and author lines are the user's decision, entered once:
 
 ```
 $ ./elebake.sh setenv ELEBAKE_SPDX BSD-2-Clause
@@ -598,29 +578,27 @@ $ ./elebake.sh setenv ELEBAKE_COPYRIGHT '2026 Johannes Bruegmann'
 $ ./elebake.sh stage foundation make illyria-boot
 ```
 
-The acceptance, done by hand — against the committed truth of the
-branch (the hand-written original only exists there):
+The acceptance, done  by hand — against  the committed truth of  the branch (the
+hand-written original only exists there):
 
 ```
 $ git -C ~/git/freebsd-src show platform-trust-gates-15.1:stand/efi/loader/local/foundation/foundation.c \
     | diff - ~/.elebake/worktree/stage-faa35dcef54e/stand/efi/loader/local/foundation/foundation.c
 ```
 
-The diff shows ONLY: the prose comments (which move to policy.h by
-design — foundation.c is generated-only now), the order of two
-preamble #ifdef blocks, and claim-line whitespace. Every active C line
-is identical. That is the structural acceptance of the design,
-reproduced live from this database.
+The diff  shows ONLY:  the prose comments  (which move to  policy.h by  design —
+foundation.c is  generated-only now), the  order of two preamble  #ifdef blocks,
+and  claim-line whitespace.  Every  active  C line  is  identical.  That is  the
+structural acceptance of the design, reproduced live from this database.
 
 ## 12. site mk: measuring THIS machine
 
-Provisioning begins. `stage site mk` measures the machine AT
-GENERATION TIME — and that is a lesson in itself: interpreter pins
-govern EMISSIONS, but what the generator itself must measure needs the
-OUTER context. Reading PK/KEK/db requires root, so the generator runs
-under sudo, with the database selected explicitly (the one legitimate
-environment exception — and under sudo mandatory, since root's HOME
-would find the wrong database):
+Provisioning begins. `stage  site mk` measures the machine AT  GENERATION TIME —
+and that is a lesson in itself:  interpreter pins govern EMISSIONS, but what the
+generator  itself  must  measure  needs the  OUTER  context.  Reading  PK/KEK/db
+requires root,  so the  generator runs  under sudo,  with the  database selected
+explicitly (the one legitimate environment exception — and under sudo mandatory,
+since root's HOME would find the wrong database):
 
 ```
 $ ./elebake.sh stage site mk illyria-boot
@@ -637,19 +615,18 @@ $ sudo ELEBAKE_BASE=$HOME/.elebake/db ./elebake.sh stage site mk illyria-boot
 # CFLAGS.foundation.c += -DLOADER_TRUST_KEYS_DIGEST='0x8b,0xc5,...'    [redacted: site fingerprint]
 ```
 
-This closes the macro loop of chapter 9: the two `-DLOADER_TRUST_*`
-lines are exactly what the BOARD_DIGEST/KEYS_DIGEST slots receive at
-build time; the marker slot stays asleep (`MEASUREMENT_NONE` — the
-claim will SKIP, not lie) until a marker is bound. The digests are
-this machine's fingerprints — site.mk never enters git, and this
-tutorial redacts them.
+This closes  the macro loop of  chapter 9: the two  `-DLOADER_TRUST_*` lines are
+exactly  what the  BOARD_DIGEST/KEYS_DIGEST  slots receive  at  build time;  the
+marker slot  stays asleep (`MEASUREMENT_NONE`  — the  claim will SKIP,  not lie)
+until a marker  is bound. The digests are this  machine's fingerprints — site.mk
+never enters git, and this tutorial redacts them.
 
-The `exit 137` seen on the failed first try is the batch exit
-arithmetic: fail-fast encodes WHERE the batch stopped into the exit
-code for callers — the odd number is by design.
+The  `exit 137`  seen on  the failed  first try  is the  batch exit  arithmetic:
+fail-fast encodes WHERE the  batch stopped into the exit code  for callers — the
+odd number is by design.
 
-After a tool update, one command syncs the new template variables into
-the database — the idempotent post-update ritual:
+After  a tool  update, one  command syncs  the new  template variables  into the
+database — the idempotent post-update ritual:
 
 ```
 $ ./elebake.sh environment init minimal
@@ -668,22 +645,22 @@ $ head -10 ~/.elebake/worktree/stage-faa35dcef54e/stand/efi/loader/local/foundat
  * stage: illyria-boot	checkout: platform-trust-gates-15.1^0 (59a2380128b) */
 ```
 
-License and author are the USER's decision, entered once via setenv —
-never an implicit default. `stage site mk report <stage>` shows the
-written site.mk any time (this 1-arg form was the seventh find of this
-pass: it only existed as an internal 2-arg batch building block).
+License and author are  the USER's decision, entered once via  setenv — never an
+implicit default. `stage  site mk report <stage>` shows the  written site.mk any
+time (this 1-arg form  was the seventh find of this pass: it  only existed as an
+internal 2-arg batch building block).
 
 ## 13. The prerequisites lists: decisions leave the C
 
-The loader's prerequisites arrays (the .lua chain that must EXIST, the
-files that must VERIFY against the manifest) were historically hard
-C — but they are pure DECISIONS, so they moved into the database:
-per-stage lists that elebake emits into the generated foundation.c
-exactly when the checkout expects them (extern declarations in
-measurement.h — old checkouts stay untouched; the catalog decides).
+The loader's  prerequisites arrays (the  .lua chain  that must EXIST,  the files
+that must VERIFY against  the manifest) were historically hard C  — but they are
+pure DECISIONS,  so they moved into  the database: per-stage lists  that elebake
+emits into  the generated  foundation.c exactly when  the checkout  expects them
+(extern  declarations  in measurement.h  —  old  checkouts stay  untouched;  the
+catalog decides).
 
-The stdin form makes the source dictate the list — a FROZEN snapshot,
-sixteen entries in one pipe:
+The stdin form  makes the source dictate  the list — a  FROZEN snapshot, sixteen
+entries in one pipe:
 
 ```
 $ ls ~/.elebake/tutorial/.staging/stage-*/destdir/boot/lua | sed 's|^|/boot/lua/|' \
@@ -701,12 +678,11 @@ $ ./elebake.sh stage prerequisites verify show illyria-boot
 #   /boot/loader.efi.signed
 ```
 
-The third verify entry is this tutorial's own contribution to the
-design: the manifest-covered loader RESERVE is now checked by verified
-read on every boot (an unverified reserve is not a reserve). The short
-spelling `stage prereqs ...` works for everything except `add -`
-(an alias combinator's child cannot inherit your stdin — the long form
-keeps the pipe).
+The third  verify entry is this  tutorial's own contribution to  the design: the
+manifest-covered loader  RESERVE is now checked  by verified read on  every boot
+(an unverified reserve is not a reserve). The short spelling `stage prereqs ...`
+works for everything except `add -`  (an alias combinator's child cannot inherit
+your stdin — the long form keeps the pipe).
 
 > Safety default, remembered: every UNPINNED terminal displays instead
 > of acting (ELEBAKE_TERMINAL_INTERPRETER=cat). Experienced users flip
@@ -715,12 +691,11 @@ keeps the pipe).
 
 ## 14. One to one: the stick becomes the card
 
-The goal was never a new, minimal boot tree — it was the SAME tree the
-production card carries, produced by an empty database. That is a
-measurable claim, so it is measured: the stage's `boot/` must be
-diff-identical to the production stage's `boot/`, except for the four
-files an empty database has to produce itself — `loader.efi`,
-`loader.efi.signed`, `manifest`, `manifest.asc`.
+The  goal was  never  a new,  minimal  boot tree  —  it was  the  SAME tree  the
+production card  carries, produced by  an empty  database. That is  a measurable
+claim, so  it is  measured: the  stage's `boot/` must  be diff-identical  to the
+production stage's `boot/`,  except for the four files an  empty database has to
+produce itself — `loader.efi`, `loader.efi.signed`, `manifest`, `manifest.asc`.
 
 The curation is therefore not invented, it is read off the reference:
 
@@ -734,16 +709,14 @@ $ diff -rq ~/.elebake/current/stage/smoke1/boot \
            ~/.elebake/tutorial/stage/illyria-boot/boot | grep -vE 'loader\.efi|manifest'
 ```
 
-Empty output. Every .4th file, dtb/, firmware/, keys/, the curated
-loader.conf with its password control, loader.ve.strict, the kernel —
-identical. The two-argument form of `stage include` made this a normal
-operation rather than a special case: the same curated filter list,
-applied to a chosen source.
+Empty output. Every  .4th file, dtb/, firmware/, keys/,  the curated loader.conf
+with  its  password  control,  loader.ve.strict, the  kernel  —  identical.  The
+two-argument form of `stage include` made  this a normal operation rather than a
+special case: the same curated filter list, applied to a chosen source.
 
 ## 15. The RSA lesson: libsecureboot verifies OpenPGP RSA only
 
-The first boot of the stick failed, and the log read like a chain of
-dominoes:
+The first boot of the stick failed, and the log read like a chain of dominoes:
 
 ```
 Unverified ta_ASC: Testing verify OpenPGP signature: Failed
@@ -753,33 +726,194 @@ ERROR: cannot open /boot/lua/loader.lua
 OK (LoaderPrompt)
 ```
 
-The root cause is one sentence in the sources
-(`lib/libsecureboot/openpgp/opgp_sig.c`): *"We only support RSA"*. The
-attest key that had been bound was the ed25519 key on the smartcard —
-so the loader could not even verify its own compiled-in trust anchor.
-Everything downstream follows: manifest unverified, loader.conf
-unverified, `password_sha256` never set, the Lua chain never loaded,
-and an UNPROTECTED loader prompt.
+The     root      cause     is      one     sentence     in      the     sources
+(`lib/libsecureboot/openpgp/opgp_sig.c`):  *"We only  support RSA"*.  The attest
+key that  had been bound was  the ed25519 key on  the smartcard — so  the loader
+could not even  verify its own compiled-in trust  anchor.  Everything downstream
+follows:  manifest unverified,  loader.conf unverified,  `password_sha256` never
+set, the Lua chain never loaded, and an UNPROTECTED loader prompt.
 
 Two things to take away:
 
-1. **The attest key must be RSA.** The production card had always used
-   a separate RSA software key for exactly this reason; it lives in
-   root's keyring (`/root/.gnupg`), and the key record carries that
-   location: `openpgp add manifest <keyid> /root/.gnupg`. The
-   `trust anchor` and `attest` families run under `sudo sh` because
-   the key does.
-2. **The prompt protection is fail-open today.** It lives in
-   loader.conf, which is itself subject to verification — when
-   verification fails, the protection falls with it. The fix belongs
-   in the design's follow-up package: the prompt hash as a site.mk
-   slot compiled into the SIGNED loader, the same philosophy the gate
-   secrets already follow.
+1.  **The attest  key must  be  RSA.** The  production  card had  always used  a
+   separate RSA software key for exactly this reason; it lives in root's keyring
+   (`/root/.gnupg`),  and the  key record  carries that  location: `openpgp  add
+   manifest <keyid> /root/.gnupg`. The `trust  anchor` and `attest` families run
+   under `sudo sh` because the key does.
+2. **The prompt protection is fail-open  today.** It lives in loader.conf, which
+   is itself subject  to verification — when verification  fails, the protection
+   falls with it. The fix belongs  in the design's follow-up package: the prompt
+   hash as a  site.mk slot compiled into the SIGNED  loader, the same philosophy
+   the gate secrets already follow.
 
-After rebuilding with the RSA anchor (the anchor is compiled in, so a
-rebuild is mandatory), signing, and pushing again, the stick booted:
-anchor self-test passed, manifest verified, Lua loaded, the prompt
-protected. bootlock did fire — the stick carries no boot marker, so
-the BootMarker claim falls short and the gate asks for the bootlock
-password. That is not a defect; it is the detection system doing its
-work on its first encounter with a new medium.
+After rebuilding with the RSA anchor (the anchor is compiled in, so a rebuild is
+mandatory),  signing, and  pushing  again, the  stick  booted: anchor  self-test
+passed, manifest verified, Lua loaded, the prompt protected. bootlock did fire —
+the stick carries  no boot marker, so  the BootMarker claim falls  short and the
+gate asks for the  bootlock password. That is not a defect;  it is the detection
+system doing its work on its first encounter with a new medium.
+
+## 16. The daily stage: one cycle, and why it is long
+
+The  production  stage  is  `daily-v1`;  its medium  is  the  microSD  card  `b`
+(`/dev/da1p1`,  GPT label  `sdcard-zkey`,  dataset `zkey/boot-illyria`).   Every
+change to  the loader  sources or to  the stage's records  runs the  same cycle,
+typed in this order and never abbreviated:
+
+```
+elebake stage recheckout daily-v1 ptg-15.1-next^0
+elebake stage trust daily-v1
+elebake stage foundation make daily-v1
+elebake stage site mk daily-v1
+elebake stage loaderconf mk daily-v1
+elebake stage build daily-v1
+elebake stage install daily-v1
+elebake stage include daily-v1
+elebake stage sign daily-v1
+elebake stage earlboot mk daily-v1
+elebake stage earlboot install daily-v1
+elebake stage elvbootd mk daily-v1
+elebake stage elvbootd install daily-v1
+elebake stage push daily-v1 b
+elebake stage marker write daily-v1 restore | sudo sh
+```
+
+`recheckout` replaces  the worktree  with the  named ref  (a second  checkout is
+refused, on  purpose); `trust` exports the  OpenPGP anchor into the  worktree --
+`build` refuses without  it, because a loader built without  its anchor verifies
+nothing and  opens the prompt.  `foundation make`  renders the gates,  `site mk`
+measures this machine and renders the baselines, `loaderconf mk` writes the kenv
+records   into    `boot/loader.trust.conf`,   `build`/`install`/`include`/`sign`
+produce  the boot  tree, the  two `mk`/`install`  pairs generate  and place  the
+hooks, `push` writes the card, and the  marker is written last, from root's copy
+of the recorded value. Two things learned the hard way: the card reader may drop
+off the USB bus after a boot  (`push` then says "device not present: /dev/da1p1"
+-- re-seat the reader, not the card), and a second tap at "Press any key" or the
+Enter  that chose  the  card in  the  firmware menu  used to  land  in the  GELI
+passphrase;  every  hidden  prompt  drains  the  keyboard  first  now,  and  the
+passphrase is typed when the prompt stands.
+
+## 17. The record chain: the loader proves it was here
+
+The kernellock gate carries  four claims that need a *record*:  a sealed note in
+NVRAM (`ElvRecord`) the loader writes after every  boot and reads at the next --
+counter,  boot time,  TPM reset  count  and clock,  NVMe power  cycles, a  chain
+link. `RecordValid` opens it, `CounterStep`  checks that every anchor stepped by
+exactly  one,  `ChainOnMedium`  matches  the link  against  the  medium's  copy,
+`LastBootGap` the time between boots.
+
+The key that seals it is derived from the  GELI user key of the root -- the same
+passphrase and key  file the kernel uses  -- plus the *boot  answer*, one hidden
+line typed twice. The loader derives  the key itself (`geli_keys.c`): it decodes
+the GELI metadata of every partition the firmware shows, keeps the providers the
+kernel  attaches at  boot (`geli  init -b`;  libsa's own  taste keeps  only `-g`
+providers, which is why the first  attempts saw "no GELI partition"), feeds each
+provider its own key  files as the kernel does, and stops at  the first key. Its
+verdict is readable after the boot:
+
+```
+$ kenv loader.trust.kernellock.record
+geli=f226d506,counter=6,last=2026-09-12T09:21:27,bootms=113470,flags=4,chain=match
+$ kenv loader.trust.kernellock.anchors
+tpm.reset=230/229,tpm.nv=2056/2056,tpm.clock=24985188/24594102,safe=0,nvme.cycles=187/186,unsafe=8
+```
+
+`geli=` is  a keyed  fingerprint of the  GELI part: equal  across boots  iff the
+derived key is; when  a record is present but invalid, it  tells whether the key
+or the answer moved. Two assumptions the  design makes and states: the TPM clock
+is saved orderly only  when the OS shuts the TPM down  -- FreeBSD's `tpm.ko` was
+not  loaded on  illyria, so  `kld_list+="tpm"` went  into rc.conf;  and a  wrong
+answer  breaks the  chain silently,  by design  (a record  then proves  the PAIR
+passphrase and  answer) -- which  is why the answer  is confirmed at  entry. The
+boot    budget:    the    lockout    counts    *wrong*    passphrases    against
+`loader.trust.kernellock.attempts`, not hidden lines;  before that fix a correct
+recovery could be the fifth line and the halt.
+
+The manual path, when the Lua chain  aborts (it did once, over a missing `table`
+library): the console lock still asks the recovery passphrase before the prompt,
+and at the prompt the modules  are loaded by hand -- `load mac_veriexec_sha256`,
+`load mac_veriexec`, `load  mac_bootlock`, `load geom_eli`, `load  zfs`, the key
+files with `load -t <prov>:geli_keyfile0 /boot/keys/zroot.key`, then `boot`. The
+record stayed valid across that boot.
+
+## 18. Learning the witnesses, and what moves
+
+A  digest baseline  is  learned from  the  kenv of  a trusted  boot,  and it  is
+immutable -- a changed value needs `drop` first:
+
+```
+elebake stage baseline drop daily-v1 LOADER_TRUST_ACPI_DIGEST
+elebake stage baseline learn daily-v1 LOADER_TRUST_ACPI_DIGEST loader.trust.inventory.acpi.sha256
+```
+
+Three witnesses fell on the boots right after they were learned, and each taught
+something:
+
+- `SoftPcr`, libsecureboot's  running hash over the files  it verified, differed
+  between two  boots of identical  files. Recomputed offline from  the manifest,
+  the two  values were the  same sixteen files in  a different *order*:  the Lua
+  loader walked its module table with  `pairs()`, whose order is not stable from
+  boot to boot. The  modules load in name order now  (sorted without the `table`
+  library, which the loader's Lua does not carry).
+- `AcpiTables` and `EfiVariables` hashed  everything the firmware shows, and the
+  firmware  rewrites some  of it  every boot.  Instead of  guessing, the  loader
+  publishes the lists -- one entry per table and per non-volatile variable, with
+  an 8-hex digest -- and elvbootd files them per boot. Two boots compared: of 43
+  tables exactly  `PHAT` (the  platform health record)  moved, of  117 variables
+  exactly `MotherBoardHealth`.  Twenty of those variables  carry attribute NV+BS
+  without  RT:  no  operating  system  can see  them,  only  the  loader  before
+  ExitBootServices.
+- `PcrBank` and `LoadedImages`  can never be compiled into the  loader: PCR 4 is
+  the firmware's hash of  the loader image, and the loader is  one of the loaded
+  images. Their expectation is read from the conf instead.
+
+The mechanism  that came out  of it has add  semantics, never an  exclusion: the
+stage names the SET a claim measures.
+
+```
+elebake stage inventory import daily-v1        # root's per-boot lists into the stage
+elebake stage inventory show daily-v1 efivars  # side by side: size, attrs, boots, same|MOVES, in the set, digests
+elebake stage inventory add daily-v1 efivars 8be4df61/BootOrder
+elebake stage inventory add daily-v1 acpi FACP/ARL
+elebake stage inventory list daily-v1 acpi
+```
+
+An ACPI table is identified as `<signature>/<OEM table id>` -- thirty SSDTs tell
+apart only  so -- an EFI  variable as `<guid's first  word>/<name>`. `stage site
+mk` renders the  sets (`stage inventory make`), sorted, so  the digest runs over
+the members in a fixed order; an empty set claims nothing. To take in everything
+that held across all imported boots:
+
+```
+elebake stage inventory show daily-v1 acpi | awk '$5 == "same" { print $1 }' \
+    | while read -r e; do elebake stage inventory add daily-v1 acpi "$e"; done
+```
+
+And the two  values the loader is  part of are `key`  expectations, learned into
+the kenv, carried by `loaderconf mk`, `include`, `sign`, `push` -- no build:
+
+```
+elebake expectation add pcr-expected key PcrBank pcr.expected
+elebake claim add pcr measure_pcr - pcr.sha256 pcr-expected
+elebake stage require daily-v1
+#   loader.trust.kernellock.pcr.expected  (claim pcr)  MISSING -- stage kenv learn ...
+elebake stage kenv learn daily-v1 loader.trust.kernellock.pcr.expected loader.trust.kernellock.pcr.sha256
+```
+
+`stage kenv` is the family formerly  called `conf`: the records are the loader's
+kenv lines, the counterpart of `baseline` (compiled) is what the loader reads at
+run time. earlboot  adds the second witness for  both: `measure_pcr_agree` reads
+PCR  0..7   from  the  TPM   itself  and   compares  with  the   loader's  word,
+`measure_images_expected` the  loader's LoadedImages  with the stage's  value at
+generation time.
+
+## 19. Where the walk stands
+
+Boot 18  of `daily-v1`,  12 September:  every gate green,  the ledger  without a
+failed gate,  record counter 7, the  chain intact; skipped only  the four claims
+whose sets and  keys are being learned.  The time windows (BootWindow  300 s for
+now)  wait  for a  series  of  settled boots  --  the  times measured  during  a
+walkthrough,  with  questions in  between,  are  an  attacker's times,  not  the
+owner's. Open,  and decided together as  they come: `stage inventory  adopt` for
+the  one-liner above,  a  uniform  verb for  `mk`/`make`,  the  pipeline in  one
+command, and the second witnesses bound into custody once their values exist.

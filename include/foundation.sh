@@ -247,7 +247,7 @@ __expectation_fields_valid4() {
 
 #@help ___expectation_add4
 # @command expectation add <expectation> <type> <label> <value>
-# @summary Store a named, reusable expectation: <type> byte | sha256 | string | macro; a macro expectation names a macro an arsenal macro record defines (the reference never dangles; the type word dispatches the check), then the record is written -- an identical re-add is a no-op, a different one is refused (immutable; drop first)
+# @summary Store a named, reusable expectation: <type> byte | sha256 | string | macro | key; a macro expectation names a macro an arsenal macro record defines (the reference never dangles; the type word dispatches the check); a key expectation names the leaf of a kenv record the loader reads at run time, loader.trust.<gate>.<key> -- for a value that includes the loader itself (PcrBank, LoadedImages) and so cannot be compiled into it; stage kenv learn records it, no build follows. Then the record is written -- an identical re-add is a no-op, a different one is refused (immutable; drop first)
 # @group   foundation
 # @example elebake expectation add fish-0-byte byte AnswerClass 1
 # @see     expectation drop
@@ -303,6 +303,22 @@ __expectation_sha256_exists1() {
 #@end
 __expectation_string_exists1() {
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'string expectation $1: no arsenal record to exist'"
+}
+
+#@help __expectation_key_exists1
+# @command expectation key exists <key>
+# @summary A key expectation references no arsenal record but names the leaf of a kenv record the stage carries -- loader.trust.<gate>.<key>, letters, digits, _ and . -- so it is checked for form: a comment line, else an error line (lifting -- the type word dispatches totally)
+# @group   foundation
+# @internal
+# @see     expectation add
+# @see     stage kenv learn
+#@end
+__expectation_key_exists1() {
+        if printf '%s\n' "$1" | grep -qx '[a-z][a-z0-9_.]*'; then
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'key expectation $1: the loader reads loader.trust.<gate>.$1 at run time (stage kenv learn records it)'"
+        else
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'expectation add: a key is a kenv leaf -- letters, digits, _ and . -- not: $1'"
+        fi
 }
 
 #@help __expectation_write4
@@ -439,7 +455,11 @@ ___expectation_show1() {
 _expectation_render_show1() {
         local type="" label="" value=""
         read -r type label value 2>/dev/null < "$ELEBAKE_BASE/foundation/expectations/$1"
-        test "$type" = macro && printf '# %s: %s\n' "$1" "$value" || printf '# %s: MEASUREMENT_%s("%s", %s)\n' "$1" "$(printf '%s' "$type" | tr '[:lower:]' '[:upper:]')" "$label" "$value"
+        case "$type" in
+                macro) printf '# %s: %s\n' "$1" "$value" ;;
+                key) printf '# %s: MEASUREMENT_KEY("%s", "%s")\n' "$1" "$label" "$value" ;;
+                *) printf '# %s: MEASUREMENT_%s("%s", %s)\n' "$1" "$(printf '%s' "$type" | tr '[:lower:]' '[:upper:]')" "$label" "$value" ;;
+        esac
 }
 
 #@help __claim_fields_valid5
@@ -640,7 +660,11 @@ _claim_render_show1() {
         TYPE=$(printf '%s' "$type" | tr '[:lower:]' '[:upper:]')
         test "$diagnose" != - || diagnose=NULL
         test "$publish" = - && publish=NULL || publish="\"$publish\""
-        test "$type" = macro && exp="$value" || exp="MEASUREMENT_$TYPE(\"$label\", $value)"
+        case "$type" in
+                macro) exp="$value" ;;
+                key) exp="MEASUREMENT_KEY(\"$label\", \"$value\")" ;;
+                *) exp="MEASUREMENT_$TYPE(\"$label\", $value)" ;;
+        esac
         if test "$type" = string; then
                 printf '# %s (container form): _m=$(%s %s); _want=%s; diagnose %s; publish %s\n' "$1" "$measurement" "$(sq "$label")" "$(sq "$value")" "$diagnose" "$publish"
         else
@@ -1738,7 +1762,7 @@ ___answer_triggers_copy2() {
 
 #@help ___answer_add5
 # @command answer add <stage> <phase> <loader-gate> <name> <policy-template>
-# @summary Add one sentinel answer class with the word read HIDDEN from the terminal when the batch runs -- twice, both must match -- and hashed with the stage's salt (stage conf add <stage> loader.trust.<loader-gate>.salt <hex>). The word reaches neither argv, trace, history, the batch text nor the generator: the running script leaves only sha256(salt+word) in a file of the database, the next line lifts it into 'answer hash add' and removes the file. Write the word down BEFORE typing it (inventory, paper): the database keeps only the hash
+# @summary Add one sentinel answer class with the word read HIDDEN from the terminal when the batch runs -- twice, both must match -- and hashed with the stage's salt (stage kenv add <stage> loader.trust.<loader-gate>.salt <hex>). The word reaches neither argv, trace, history, the batch text nor the generator: the running script leaves only sha256(salt+word) in a file of the database, the next line lifts it into 'answer hash add' and removes the file. Write the word down BEFORE typing it (inventory, paper): the database keeps only the hash
 # @group   foundation
 # @example elebake answer add daily-v1 SYSINIT kernellock fish-3 react-halt
 # @see     answer hash add
@@ -1754,16 +1778,16 @@ ___answer_add5() {
 
 #@help __answer_salt_exists2
 # @command answer salt exists <stage> <loader-gate>
-# @summary The stage's salt record conf/loader.trust.<loader-gate>.salt is there: a comment line, else an error line
+# @summary The stage's salt record kenv/loader.trust.<loader-gate>.salt is there: a comment line, else an error line
 # @group   foundation
 # @internal
 # @see     answer add
 #@end
 __answer_salt_exists2() {
-        if test -s "$ELEBAKE_BASE/stage/$1/conf/loader.trust.$2.salt"; then
+        if test -s "$ELEBAKE_BASE/stage/$1/kenv/loader.trust.$2.salt"; then
                 printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'salt of $2 in stage $1 recorded'"
         else
-                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'answer add: no salt -- stage conf add $1 loader.trust.$2.salt <hex> first'"
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'answer add: no salt -- stage kenv add $1 loader.trust.$2.salt <hex> first'"
         fi
 }
 
@@ -1780,7 +1804,7 @@ _answer_word_hash3() {
 printf 'Answer for $3 (hidden): ' > /dev/tty; stty -echo < /dev/tty; IFS= read -r a < /dev/tty; stty echo < /dev/tty; printf '\\n' > /dev/tty
 printf 'Again: ' > /dev/tty; stty -echo < /dev/tty; IFS= read -r b < /dev/tty; stty echo < /dev/tty; printf '\\n' > /dev/tty
 [ -n "\$a" ] && [ "\$a" = "\$b" ] || { unset a b; printf '# Error: %s\\n' 'answer add: the two entries differ or are empty -- nothing done' >&2; exit 1; }
-mkdir -p '$ELEBAKE_BASE/.tmp/answer' && chmod 0700 '$ELEBAKE_BASE/.tmp/answer' && printf '%s%s' "\$(head -1 '$ELEBAKE_BASE/stage/$1/conf/loader.trust.$2.salt')" "\$a" | sha256 -q > '$ELEBAKE_BASE/.tmp/answer/$3'; unset a b
+mkdir -p '$ELEBAKE_BASE/.tmp/answer' && chmod 0700 '$ELEBAKE_BASE/.tmp/answer' && printf '%s%s' "\$(head -1 '$ELEBAKE_BASE/stage/$1/kenv/loader.trust.$2.salt')" "\$a" | sha256 -q > '$ELEBAKE_BASE/.tmp/answer/$3'; unset a b
 EOF
 }
 
@@ -1865,7 +1889,7 @@ __answer_file_private1() {
 #@end
 _answer_line_hash5() {
         cat <<EOF
-mkdir -p '$ELEBAKE_BASE/.tmp/answer' && chmod 0700 '$ELEBAKE_BASE/.tmp/answer' && printf '%s%s' "\$(head -1 '$ELEBAKE_BASE/stage/$1/conf/loader.trust.$2.salt')" "\$(sed -n '$5p' '$4' | sed 's/^[[:space:]]*[^[:space:]]*[[:space:]]*[^[:space:]]*[[:space:]]*//')" | sha256 -q > '$ELEBAKE_BASE/.tmp/answer/$3'
+mkdir -p '$ELEBAKE_BASE/.tmp/answer' && chmod 0700 '$ELEBAKE_BASE/.tmp/answer' && printf '%s%s' "\$(head -1 '$ELEBAKE_BASE/stage/$1/kenv/loader.trust.$2.salt')" "\$(sed -n '$5p' '$4' | sed 's/^[[:space:]]*[^[:space:]]*[[:space:]]*[^[:space:]]*[[:space:]]*//')" | sha256 -q > '$ELEBAKE_BASE/.tmp/answer/$3'
 EOF
 }
 

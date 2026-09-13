@@ -42,3 +42,23 @@ A trigger whose when is a composition, and one that runs two actions:
     elebake trigger add silence-duress when_duress 'compose(taint_act,silence_act)'
     elebake trigger show unlock-measured
     # unlock-measured: FIRE(AND(when_fail, NOT(when_skipped)), unlock_act)
+
+A value the loader itself is part of -- the PCR bank, the loaded images --
+is expected from the conf, not the binary; learned after a trusted boot,
+carried by loaderconf mk, include, sign, push, no build:
+
+    elebake expectation add pcr-expected key PcrBank pcr.expected
+    elebake claim add pcr measure_pcr - pcr.sha256 pcr-expected
+    elebake stage require daily-v1
+    # loader.trust.kernellock.pcr.expected  (claim pcr)  MISSING -- stage kenv learn ...
+    elebake stage kenv learn daily-v1 loader.trust.kernellock.pcr.expected loader.trust.kernellock.pcr.sha256
+
+The platform sets, add semantics: import what elvbootd filed per boot,
+see what moves, take in what holds, render, build, learn:
+
+    elebake stage inventory import daily-v1
+    elebake stage inventory show daily-v1 efivars
+    elebake stage inventory add daily-v1 efivars 8be4df61/BootOrder
+    elebake stage inventory add daily-v1 acpi FACP/-
+    elebake stage inventory list daily-v1 acpi
+    elebake stage site mk daily-v1

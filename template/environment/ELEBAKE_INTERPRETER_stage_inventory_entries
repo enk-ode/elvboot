@@ -1,0 +1,3 @@
+cat
+# Text terminal: the entries of a set, sorted; cat so the text reaches the terminal.
+# @see ELEBAKE_INTERPRETER_stage_inventory_set_line

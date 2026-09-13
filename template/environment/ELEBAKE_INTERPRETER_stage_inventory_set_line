@@ -1,0 +1,3 @@
+cat
+# Text terminal: one site.mk line of a set (LOADER_TRUST_<KIND>_SET); cat so stage site mk collects it.
+# @see ELEBAKE_INTERPRETER_stage_constant_marker

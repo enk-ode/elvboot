@@ -122,7 +122,7 @@ _stage_earlboot_generated1() {
 #@end
 _stage_earlboot_place1() {
         printf '%s\n' "install -o root -g wheel -m 0500 '$ELEBAKE_BASE/stage/$1/hooks/earlboot' /etc/rc.d/earlboot"
-        printf '%s\n' "mkdir -p /etc/rc.conf.d && printf 'earlboot_enable=\\"YES\\"\\n' > /etc/rc.conf.d/earlboot"
+        printf '%s\n' "mkdir -p /etc/rc.conf.d && printf '%s\\n' 'earlboot_enable=\"YES\"' > /etc/rc.conf.d/earlboot"
         printf '%s\n' "printf '# earlboot installed from stage %s\\n' '$1' >&2"
 }
 
@@ -330,7 +330,7 @@ _stage_elvbootd_startup_place1() {
         printf '%s\n' "mkdir -p /usr/local/etc/elvboot"
         printf '%s\n' "install -o root -g wheel -m 0500 '$ELEBAKE_BASE/stage/$1/hooks/hook.startup.sh' /usr/local/etc/elvboot/hook.startup.sh"
         printf '%s\n' "install -o root -g wheel -m 0500 '$ELEBAKE_BASE/stage/$1/hooks/elvbootd' /usr/local/etc/rc.d/elvbootd"
-        printf '%s\n' "mkdir -p /etc/rc.conf.d && printf 'elvbootd_enable=\\"YES\\"\\n' > /etc/rc.conf.d/elvbootd"
+        printf '%s\n' "mkdir -p /etc/rc.conf.d && printf '%s\\n' 'elvbootd_enable=\"YES\"' > /etc/rc.conf.d/elvbootd"
         printf '%s\n' "printf '# elvbootd: startup hook installed from stage %s\\n' '$1' >&2"
 }
 
@@ -388,7 +388,7 @@ _stage_elvbootd_shutdown_place1() {
         printf '%s\n' "mkdir -p /usr/local/etc/elvboot"
         printf '%s\n' "install -o root -g wheel -m 0500 '$ELEBAKE_BASE/stage/$1/hooks/hook.shutdown.sh' /usr/local/etc/elvboot/hook.shutdown.sh"
         printf '%s\n' "install -o root -g wheel -m 0500 '$ELEBAKE_BASE/stage/$1/hooks/elvbootd' /usr/local/etc/rc.d/elvbootd"
-        printf '%s\n' "mkdir -p /etc/rc.conf.d && printf 'elvbootd_enable=\\"YES\\"\\n' > /etc/rc.conf.d/elvbootd"
+        printf '%s\n' "mkdir -p /etc/rc.conf.d && printf '%s\\n' 'elvbootd_enable=\"YES\"' > /etc/rc.conf.d/elvbootd"
         printf '%s\n' "printf '# elvbootd: shutdown hook installed from stage %s\\n' '$1' >&2"
 }
 
@@ -453,6 +453,7 @@ ___stage_container_render_constants1() {
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage constant arm dir '$1'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage constant beacon '$1'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage constant marker '$1'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage constant images '$1'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage constant verdicts"
 }
 
@@ -535,6 +536,20 @@ _stage_constant_esp1() {
         local node=""
         node=$(cat "$ELEBAKE_BASE/stage/$1"/media/*/node 2>/dev/null | sed -n 1p)
         printf 'readonly ELV_ESP=%s\n' "$(sq "${node#/dev/}")"
+}
+
+#@help _stage_constant_images1
+# @command stage constant images <stage>
+# @summary Print readonly ELV_IMAGES_EXPECTED: the value of the stage's kenv record loader.trust.<gate>.images.expected (the LoadedImages expectation the loader reads at run time, recorded by stage kenv learn), for measure_images_expected -- the second witness in earlboot; empty without the record
+# @group   foundation
+# @internal
+# @see     stage container render constants
+# @see     stage kenv learn
+#@end
+_stage_constant_images1() {
+        local f="" v=""
+        for f in "$ELEBAKE_BASE/stage/$1"/kenv/loader.trust.*.images.expected; do test -f "$f" && v=$(sed -n 1p "$f" 2>/dev/null); done
+        printf 'readonly ELV_IMAGES_EXPECTED=%s\n' "$(sq "$v")"
 }
 
 #@help _stage_constant_marker1
@@ -1459,7 +1474,11 @@ _claim_render_c1() {
         TYPE=$(printf '%s' "$type" | tr '[:lower:]' '[:upper:]')
         test "$diagnose" != - || diagnose=NULL
         test "$publish" = - && publish=NULL || publish="\"$publish\""
-        test "$type" = macro && exp="$value" || exp="MEASUREMENT_$TYPE(\"$label\", $value)"
+        case "$type" in
+                macro) exp="$value" ;;
+                key) exp="MEASUREMENT_KEY(\"$label\", \"$value\")" ;;
+                *) exp="MEASUREMENT_$TYPE(\"$label\", $value)" ;;
+        esac
         printf ',\n    CLAIM(%s, %s, %s, %s)' "$measurement" "$diagnose" "$publish" "$exp"
 }
 

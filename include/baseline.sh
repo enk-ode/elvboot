@@ -17,7 +17,7 @@
 #                       metadata sectors and partition tables the loader
 #                       measures; site mk hashes them from userland into
 #                       LOADER_TRUST_GELI_PARTS / _GELI_DIGEST / _GPT_DIGEST.
-#   conf/<key>          loader.trust.* kenv values the bound actions read
+#   kenv/<key>          loader.trust.* kenv values the bound actions read
 #                       at boot (question, salt, rescue root, deadline ...);
 #                       loaderconf mk writes them into boot/loader.trust.conf,
 #                       the require chain says which are mandatory.
@@ -198,6 +198,7 @@ ___stage_baseline_show2() {
 _stage_baseline_render_head2() {
         local type="" value=""
         read -r type value 2>/dev/null < "$ELEBAKE_BASE/stage/$1/baselines/$2"
+        case "$2" in *_SECRET|*_DURESS|*_SALT) value='<redacted>' ;; esac
         printf '# %s (%s): %s\n' "$2" "$type" "$value"
 }
 
@@ -238,13 +239,15 @@ _stage_baseline_line_digest2() {
 
 #@help _stage_baseline_show_string2
 # @command stage baseline show string <MACRO> <value>
-# @summary Print the -D line site mk renders for a string baseline: the string as a C string literal
+# @summary Print the -D line site mk renders for a string baseline: the string as a C string literal; the values of *_SECRET, *_DURESS and *_SALT macros show as <redacted> (a terminal is recorded and pasted; the record holds the value)
 # @group   provisioning
 # @internal
 # @see     stage baseline show
 #@end
 _stage_baseline_show_string2() {
-        printf '#   CFLAGS+= -D%s=\\"%s\\"\n' "$1" "$2"
+        local value="$2"
+        case "$1" in *_SECRET|*_DURESS|*_SALT) value='<redacted>' ;; esac
+        printf '#   CFLAGS+= -D%s=\\"%s\\"\n' "$1" "$value"
 }
 
 #@help _stage_baseline_line_string2
@@ -579,86 +582,86 @@ rm -rf '$ELEBAKE_BASE/stage/$1/disks.measure'
 EOF
 }
 
-#@help ___stage_conf_add3
-# @command stage conf add <stage> <key> <value>
+#@help ___stage_kenv_add3
+# @command stage kenv add <stage> <key> <value>
 # @summary Store one loader.trust.* kenv value of the stage (dumb store, immutable: identical re-add is a no-op, a differing one is refused); 'stage loaderconf mk' writes every record into boot/loader.trust.conf, 'stage require' says which the bound actions demand. Values that are secrets (hashes) belong here only as HASHES; the medium carries this file in clear, covered by the manifest
 # @group   provisioning
-# @example elebake stage conf add daily-v1 loader.trust.kernellock.rescue zfs:zcard/ROOT/rescue
-# @see     stage conf drop
+# @example elebake stage kenv add daily-v1 loader.trust.kernellock.rescue zfs:zcard/ROOT/rescue
+# @see     stage kenv drop
 # @see     stage require
 # @see     stage loaderconf mk
 #@end
-___stage_conf_add3() {
+___stage_kenv_add3() {
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage check stage '$1'"
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage conf write '$1' '$2' $(sq "$3")"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage kenv write '$1' '$2' $(sq "$3")"
 }
 
-#@help __stage_conf_write3
-# @command stage conf write <stage> <key> <value>
-# @summary The record is there already: rewrite to 'stage conf rewrite', else to 'stage conf store'
+#@help __stage_kenv_write3
+# @command stage kenv write <stage> <key> <value>
+# @summary The record is there already: rewrite to 'stage kenv rewrite', else to 'stage kenv store'
 # @group   provisioning
 # @internal
-# @see     stage conf add
+# @see     stage kenv add
 #@end
-__stage_conf_write3() {
-        if test -f "$ELEBAKE_BASE/stage/$1/conf/$2"; then
-                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage conf rewrite '$1' '$2' $(sq "$3")"
+__stage_kenv_write3() {
+        if test -f "$ELEBAKE_BASE/stage/$1/kenv/$2"; then
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage kenv rewrite '$1' '$2' $(sq "$3")"
         else
-                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage conf store '$1' '$2' $(sq "$3")"
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage kenv store '$1' '$2' $(sq "$3")"
         fi
 }
 
-#@help __stage_conf_rewrite3
-# @command stage conf rewrite <stage> <key> <value>
+#@help __stage_kenv_rewrite3
+# @command stage kenv rewrite <stage> <key> <value>
 # @summary An existing record with the identical value is a no-op (a comment line); a different one is refused -- drop first
 # @group   provisioning
 # @internal
-# @see     stage conf add
+# @see     stage kenv add
 #@end
-__stage_conf_rewrite3() {
-        if test "$(sed -n 1p "$ELEBAKE_BASE/stage/$1/conf/$2" 2>/dev/null)" = "$3"; then
-                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" note 'conf $2 of $1 already recorded (unchanged)'"
+__stage_kenv_rewrite3() {
+        if test "$(sed -n 1p "$ELEBAKE_BASE/stage/$1/kenv/$2" 2>/dev/null)" = "$3"; then
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" note 'kenv $2 of $1 already recorded (unchanged)'"
         else
-                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'stage conf add: $2 of $1 exists with a different value (immutable; stage conf drop first)'"
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'stage kenv add: $2 of $1 exists with a different value (immutable; stage kenv drop first)'"
         fi
 }
 
-#@help __stage_conf_store3
-# @command stage conf store <stage> <key> <value>
-# @summary The key is loader.trust.<gate>.<leaf> (a-z, 0-9, ., _) or password_sha256 (stage password set) and the value fits one loader.conf line (no double quotes, backslashes or newlines): rewrite to 'stage conf record', else an error line
+#@help __stage_kenv_store3
+# @command stage kenv store <stage> <key> <value>
+# @summary The key is loader.trust.<gate>.<leaf> (a-z, 0-9, ., _) or password_sha256 (stage password set) and the value fits one loader.conf line (no double quotes, backslashes or newlines): rewrite to 'stage kenv record', else an error line
 # @group   provisioning
 # @internal
-# @see     stage conf add
+# @see     stage kenv add
 #@end
-__stage_conf_store3() {
-        if conf_key_ok "$2" && conf_value_ok "$3"; then
-                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage conf record '$1' '$2' $(sq "$3")"
+__stage_kenv_store3() {
+        if kenv_key_ok "$2" && kenv_value_ok "$3"; then
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage kenv record '$1' '$2' $(sq "$3")"
         else
-                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'stage conf add: invalid key or value (loader.trust.<gate>.<leaf>; one loader.conf line): $2'"
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'stage kenv add: invalid key or value (loader.trust.<gate>.<leaf>; one loader.conf line): $2'"
         fi
 }
 
-#@help _stage_conf_record3
-# @command stage conf record <stage> <key> <value>
-# @summary Act terminal: write conf/<key> of the stage, directory 0700, file 0600
+#@help _stage_kenv_record3
+# @command stage kenv record <stage> <key> <value>
+# @summary Act terminal: write kenv/<key> of the stage, directory 0700, file 0600
 # @group   provisioning
 # @internal
-# @see     stage conf add
+# @see     stage kenv add
 #@end
-_stage_conf_record3() {
-        printf '%s\n' "$MODIFY_DIR_CREATE '$ELEBAKE_BASE/stage/$1/conf'"
-        printf '%s\n' "$MODIFY_FILE_PERMS 0700 '$ELEBAKE_BASE/stage/$1/conf'"
-        printf '%s\n' "printf '%s\\n' $(sq "$3") > '$ELEBAKE_BASE/stage/$1/conf/$2'"
-        printf '%s\n' "$MODIFY_FILE_PERMS 0600 '$ELEBAKE_BASE/stage/$1/conf/$2'"
-        emit_note "conf $2 of $1 recorded (stage loaderconf mk writes it)"
+_stage_kenv_record3() {
+        printf '%s\n' "$MODIFY_DIR_CREATE '$ELEBAKE_BASE/stage/$1/kenv'"
+        printf '%s\n' "$MODIFY_FILE_PERMS 0700 '$ELEBAKE_BASE/stage/$1/kenv'"
+        printf '%s\n' "printf '%s\\n' $(sq "$3") > '$ELEBAKE_BASE/stage/$1/kenv/$2'"
+        printf '%s\n' "$MODIFY_FILE_PERMS 0600 '$ELEBAKE_BASE/stage/$1/kenv/$2'"
+        emit_note "kenv $2 of $1 recorded (stage loaderconf mk writes it)"
 }
 
 #@help ___stage_password_set1
 # @command stage password set <stage>
-# @summary Set the loader prompt password of the stage: the word is read HIDDEN from the terminal when the batch runs -- twice, both must match -- and its sha256 becomes the conf record password_sha256, which stage loaderconf mk writes into boot/loader.trust.conf (the loader reads that file like loader.conf). With it set, Lua boots at once and asks the word only after a key during the autoboot; the compiled-in loaderlock secret guards the prompt in C besides, so the word is the second lock, not the only one. The word reaches neither argv, history nor the batch text; the hash is what the card carries anyway. The record is immutable: stage conf drop <stage> password_sha256 first to change it
+# @summary Set the loader prompt password of the stage: the word is read HIDDEN from the terminal when the batch runs -- twice, both must match -- and its sha256 becomes the kenv record password_sha256, which stage loaderconf mk writes into boot/loader.trust.conf (the loader reads that file like loader.conf). With it set, Lua boots at once and asks the word only after a key during the autoboot; the compiled-in loaderlock secret guards the prompt in C besides, so the word is the second lock, not the only one. The word reaches neither argv, history nor the batch text; the hash is what the card carries anyway. The record is immutable: stage kenv drop <stage> password_sha256 first to change it
 # @group   provisioning
 # @example elebake stage password set daily-v1
-# @see     stage conf drop
+# @see     stage kenv drop
 # @see     stage loaderconf mk
 #@end
 ___stage_password_set1() {
@@ -686,7 +689,7 @@ EOF
 
 #@help __stage_password_hashed_store1
 # @command stage password hashed store <stage>
-# @summary The hash file .tmp/password/<stage> the prompt script left is there: rewrite to 'stage conf write <stage> password_sha256 <hash>' and remove the file, else an error line
+# @summary The hash file .tmp/password/<stage> the prompt script left is there: rewrite to 'stage kenv write <stage> password_sha256 <hash>' and remove the file, else an error line
 # @group   provisioning
 # @internal
 # @see     stage password set
@@ -695,105 +698,179 @@ __stage_password_hashed_store1() {
         local hash=""
         hash=$(sed -n 1p "$ELEBAKE_BASE/.tmp/password/$1" 2>/dev/null); rm -f "$ELEBAKE_BASE/.tmp/password/$1"
         if printf '%s\n' "$hash" | grep -qx '[0-9a-f]\{64\}'; then
-                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage conf write '$1' password_sha256 '$hash'"
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage kenv write '$1' password_sha256 '$hash'"
         else
                 printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'stage password set: no hash for $1 (the prompt script left none)'"
         fi
 }
 
-#@help ___stage_conf_drop2
-# @command stage conf drop <stage> <key>
+#@help ___stage_kenv_drop2
+# @command stage kenv drop <stage> <key>
 # @summary Remove one loader.trust.* value of the stage: the stage and the record exist, then it is erased
 # @group   provisioning
-# @see     stage conf add
+# @see     stage kenv add
 #@end
-___stage_conf_drop2() {
+___stage_kenv_drop2() {
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage check stage '$1'"
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage conf exists '$1' '$2'"
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage conf erase '$1' '$2'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage kenv exists '$1' '$2'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage kenv erase '$1' '$2'"
 }
 
-#@help __stage_conf_exists2
-# @command stage conf exists <stage> <key>
-# @summary The conf record of the stage is there: a comment line, else an error line
+#@help __stage_kenv_exists2
+# @command stage kenv exists <stage> <key>
+# @summary The kenv record of the stage is there: a comment line, else an error line
 # @group   provisioning
 # @internal
-# @see     stage conf drop
+# @see     stage kenv drop
 #@end
-__stage_conf_exists2() {
-        if test -f "$ELEBAKE_BASE/stage/$1/conf/$2"; then
-                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'conf $2 of $1 recorded'"
+__stage_kenv_exists2() {
+        if test -f "$ELEBAKE_BASE/stage/$1/kenv/$2"; then
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'kenv $2 of $1 recorded'"
         else
-                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'no conf $2 of $1'"
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'no kenv $2 of $1'"
         fi
 }
 
-#@help _stage_conf_erase2
-# @command stage conf erase <stage> <key>
-# @summary Act terminal: remove conf/<key> of the stage
+#@help _stage_kenv_erase2
+# @command stage kenv erase <stage> <key>
+# @summary Act terminal: remove kenv/<key> of the stage
 # @group   provisioning
 # @internal
-# @see     stage conf drop
+# @see     stage kenv drop
 #@end
-_stage_conf_erase2() {
-        printf '%s\n' "$MODIFY_FILE_REMOVE '$ELEBAKE_BASE/stage/$1/conf/$2'"
-        emit_note "conf $2 of $1 dropped"
+_stage_kenv_erase2() {
+        printf '%s\n' "$MODIFY_FILE_REMOVE '$ELEBAKE_BASE/stage/$1/kenv/$2'"
+        emit_note "kenv $2 of $1 dropped"
 }
 
-#@help ___stage_conf_show1
-# @command stage conf show <stage> [<key>]
-# @summary Show the stage's loader.trust.* values (or one) as the lines loaderconf mk would write: one 'stage conf show <stage> <key>' per record; none is a note
+#@help ___stage_kenv_show1
+# @command stage kenv show <stage> [<key>]
+# @summary Show the stage's loader.trust.* values (or one) as the lines loaderconf mk would write: one 'stage kenv show <stage> <key>' per record; none is a note
 # @group   provisioning
-# @example elebake stage conf show daily-v1
-# @see     stage conf add
+# @example elebake stage kenv show daily-v1
+# @see     stage kenv add
 #@end
-___stage_conf_show1() {
+___stage_kenv_show1() {
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage check stage '$1'"
         local f="" lines=0
-        for f in "$ELEBAKE_BASE/stage/$1"/conf/*; do
+        for f in "$ELEBAKE_BASE/stage/$1"/kenv/*; do
                 [ -f "$f" ] || continue
-                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage conf show '$1' '${f##*/}'"
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage kenv show '$1' '${f##*/}'"
                 lines=$((lines + 1))
         done
-        test "$lines" -gt 0 || printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" log 'no conf of $1 -- stage conf add $1 <key> <value>'"
+        test "$lines" -gt 0 || printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" log 'no kenv of $1 -- stage kenv add $1 <key> <value>'"
 }
 
-#@help ___stage_conf_show2
-# @internal 2-arg sibling of 'stage conf show': the record exists, then its loader.conf line
+#@help ___stage_kenv_show2
+# @internal 2-arg sibling of 'stage kenv show': the record exists, then its loader.conf line
 #@end
-___stage_conf_show2() {
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage conf exists '$1' '$2'"
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage conf render show '$1' '$2'"
+___stage_kenv_show2() {
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage kenv exists '$1' '$2'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage kenv render show '$1' '$2'"
 }
 
-#@help _stage_conf_render_show2
-# @command stage conf render show <stage> <key>
+#@help _stage_kenv_render_show2
+# @command stage kenv render show <stage> <key>
 # @summary Print one conf value as its loader.conf line, prefixed
 # @group   provisioning
 # @internal
-# @see     stage conf show
+# @see     stage kenv show
 #@end
-_stage_conf_render_show2() {
-        printf '# %s="%s"\n' "$2" "$(sed -n 1p "$ELEBAKE_BASE/stage/$1/conf/$2" 2>/dev/null)"
+_stage_kenv_render_show2() {
+        printf '# %s="%s"\n' "$2" "$(sed -n 1p "$ELEBAKE_BASE/stage/$1/kenv/$2" 2>/dev/null)"
 }
 
-#@help ___stage_dump_conf1
-# @internal dump block (cat-pinned): one 'stage conf add' replay per record
+#@help ___stage_dump_kenv1
+# @internal dump block (cat-pinned): one 'stage kenv add' replay per record
 #@end
-___stage_dump_conf1() {
+___stage_dump_kenv1() {
         local f=""
-        for f in "$ELEBAKE_BASE/stage/$1"/conf/*; do
+        for f in "$ELEBAKE_BASE/stage/$1"/kenv/*; do
                 [ -f "$f" ] || continue
-                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage conf add '$1' '${f##*/}' $(sq "$(sed -n 1p "$f" 2>/dev/null)")"
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage kenv add '$1' '${f##*/}' $(sq "$(sed -n 1p "$f" 2>/dev/null)")"
         done
+}
+
+#@help ___stage_kenv_learn3
+# @command stage kenv learn <stage> <key> <kenv-variable>
+# @summary Take a value from THIS machine's kenv when the batch runs -- what a trusted boot's loader published -- and record it as 'stage kenv add <stage> <key> <value>': the way a key expectation (expectation add ... key ...) gets its value, e.g. loader.trust.kernellock.pcr.expected from loader.trust.kernellock.pcr.sha256. The loader reads it from loader.trust.conf, so learning changes the conf (stage loaderconf mk, include, sign, push), never the binary. Assumes: the boot that published the value was the owner's own, on the intended firmware -- learning on a tampered platform bakes the tampering in
+# @group   provisioning
+# @example elebake stage kenv learn daily-v1 loader.trust.kernellock.pcr.expected loader.trust.kernellock.pcr.sha256
+# @see     stage kenv add
+# @see     expectation add
+# @see     stage baseline learn
+#@end
+___stage_kenv_learn3() {
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage check stage '$1'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage kenv learn valid '$2' '$3'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage kenv learn read '$1' '$2' '$3'"
+}
+
+#@help __stage_kenv_learn_valid2
+# @command stage kenv learn valid <key> <kenv-variable>
+# @summary The key is a loader.trust.* name a kenv record may carry and the variable a loader.trust.* name: a comment line, else an error line
+# @group   provisioning
+# @internal
+# @see     stage kenv learn
+#@end
+__stage_kenv_learn_valid2() {
+        if kenv_key_ok "$1" && printf '%s\n' "$2" | grep -qx 'loader\.trust\..*'; then
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'learn $1 from $2'"
+        else
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'stage kenv learn: the key and the variable are loader.trust.* names: $1 $2'"
+        fi
+}
+
+#@help __stage_kenv_learn_read3
+# @command stage kenv learn read <stage> <key> <kenv-variable>
+# @summary The variable has a value in the running kenv that fits a loader.conf line (no quotes, backslashes, newlines): rewrite to 'stage kenv add <stage> <key> <value>', else an error line (boot the provisioned loader here first)
+# @group   provisioning
+# @internal
+# @see     stage kenv learn
+#@end
+__stage_kenv_learn_read3() {
+        local value=""
+        value=$(kenv -q "$3" 2>/dev/null)
+        if test -n "$value" && kenv_value_ok "$value"; then
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage kenv add '$1' '$2' $(sq "$value")"
+        else
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'stage kenv learn: $3 has no value in this kenv (boot the provisioned loader here first)'"
+        fi
+}
+
+#@help ___stage_keys1
+# @command stage keys <stage>
+# @summary The kenv records the bound claims read at run time: per loader phase the stage binds, per policy its gate, per claim of the gate whose expectation is a key -- one 'stage kenv demand <stage> <gate> claim <claim> <key>' each (a note with the value, or MISSING with the remedy stage kenv learn; a missing key skips the claim, it never blocks loaderconf mk)
+# @group   provisioning
+# @internal
+# @see     stage require
+# @see     stage kenv learn
+#@end
+___stage_keys1() {
+        local ph="" p="" gate="" c="" m="" d="" pb="" exp="" type="" label="" value="" lines=0 loc="$ELEBAKE_BASE/stage/$1/work/stand/efi/loader/local"
+        for ph in $(sed -n '/enum phase {/,/};/p' "$loc/policy.h" 2>/dev/null | grep -o 'PHASE_[A-Z_]*'); do
+                [ -f "$ELEBAKE_BASE/stage/$1/phases/$ph" ] || continue
+                while read -r p; do
+                        gate=$(sed -n "s/^gate //p" "$ELEBAKE_BASE/foundation/policies/$p" 2>/dev/null)
+                        [ -n "$gate" ] || continue
+                        while read -r c; do
+                                read -r m d pb exp 2>/dev/null < "$ELEBAKE_BASE/foundation/claims/$c"
+                                read -r type label value 2>/dev/null < "$ELEBAKE_BASE/foundation/expectations/$exp"
+                                [ "$type" = key ] || continue
+                                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage kenv demand '$1' '$gate' 'claim $c' '$value'"
+                                lines=$((lines + 1))
+                        done 2>/dev/null < "$ELEBAKE_BASE/foundation/gates/$gate/claims"
+                done 2>/dev/null < "$ELEBAKE_BASE/stage/$1/phases/$ph"
+        done
+        test "$lines" -gt 0 || printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'no bound claim of $1 reads a kenv value (no key expectation)'"
 }
 
 #@help ___stage_require1
 # @command stage require <stage>
-# @summary Report what the stage's BOUND loader policies demand: the loader.trust.<gate>.<leaf> keys the actions read at boot (parsed from the kenv(a, ...) calls in the checkout's action.c, attributed per gate), each with its conf record or MISSING; then the LOADER_TRUST_* baselines the measurements and actions consume without a code default, each ok or MISSING. With a container argument: the demands of that container's bound measurements on the boot tree
+# @summary Report what the stage's BOUND loader policies demand: the loader.trust.<gate>.<leaf> keys the actions read at boot (parsed from the kenv(a, ...) calls in the checkout's action.c, attributed per gate), each with its kenv record or MISSING; then the LOADER_TRUST_* baselines the measurements and actions consume without a code default, each ok or MISSING. With a container argument: the demands of that container's bound measurements on the boot tree
 # @group   provisioning
 # @example elebake stage require daily-v1
-# @see     stage conf add
+# @see     stage kenv add
 # @see     stage loaderconf mk
 # @see     stage requirements ensure earlboot
 #@end
@@ -802,26 +879,28 @@ ___stage_require1() {
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage checkout exists '$1'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" log 'require of $1 (bound actions -> kenv leafs)'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage leafs '$1' demand"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" log 'kenv records the bound claims read at run time (key expectations; stage kenv learn):'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage keys '$1'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" log 'baselines the bound measurements and actions demand (no default in the code):'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage baselines report '$1'"
 }
 
 #@help ___stage_leafs2
 # @command stage leafs <stage> <require|demand>
-# @summary Every phase of the stage with a policy record: 'stage phase leafs <stage> <phase> <verb>' -- require ends in an error line at a missing conf value, demand in a note
+# @summary Every LOADER phase of the stage (enum phase of the checkout's policy.h) with a policy record: 'stage phase leafs <stage> <phase> <verb>' -- require ends in an error line at a missing conf value, demand in a note. The kenv leafs are the loader's (loader.trust.conf); the sh containers' actions of SYSINIT, STARTUP and the other runtime phases read no kenv and share names with loader actions (sentinel_act), so their phases are not walked
 # @group   provisioning
 # @internal
 # @see     stage require
 # @see     stage loaderconf mk
 #@end
 ___stage_leafs2() {
-        local f="" lines=0
-        for f in "$ELEBAKE_BASE/stage/$1"/phases/*; do
-                [ -f "$f" ] || continue
-                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage phase leafs '$1' '${f##*/}' '$2'"
+        local ph="" lines=0 loc="$ELEBAKE_BASE/stage/$1/work/stand/efi/loader/local"
+        for ph in $(sed -n '/enum phase {/,/};/p' "$loc/policy.h" 2>/dev/null | grep -o 'PHASE_[A-Z_]*'); do
+                [ -f "$ELEBAKE_BASE/stage/$1/phases/$ph" ] || continue
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage phase leafs '$1' '$ph' '$2'"
                 lines=$((lines + 1))
         done
-        test "$lines" -gt 0 || printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'stage $1 binds nothing: no leaf demanded'"
+        test "$lines" -gt 0 || printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'stage $1 binds no loader phase: no leaf demanded'"
 }
 
 #@help ___stage_phase_leafs3
@@ -873,54 +952,54 @@ ___stage_trigger_leafs4() {
 
 #@help ___stage_action_leafs4
 # @command stage action leafs <stage> <gate> <action> <require|demand>
-# @summary Every kenv leaf the action reads (template/awk/action-leafs.awk over the checkout's action.c, the action_<name>() body): 'stage conf <verb> <stage> <gate> <action> <leaf>'; an action reading none says so
+# @summary Every kenv leaf the action reads (template/awk/action-leafs.awk over the checkout's action.c, the action_<name>() body): 'stage kenv <verb> <stage> <gate> <action> <leaf>'; an action reading none says so
 # @env     ELEBAKE_TEMPLATE_DIR  the template directory (awk programs, tables)
 # @group   provisioning
 # @internal
-# @see     stage conf demand
-# @see     stage conf require
+# @see     stage kenv demand
+# @see     stage kenv require
 #@end
 ___stage_action_leafs4() {
         local leaf="" lines=0
         awk -v action="${3%_act}" -f "$ELEBAKE_TEMPLATE_DIR/awk/action-leafs.awk" "$ELEBAKE_BASE/stage/$1/work/stand/efi/loader/local/action.c" 2>/dev/null | while read -r leaf; do
-                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage conf '$4' '$1' '$2' '$3' '$leaf'"
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage kenv '$4' '$1' '$2' '$3' '$leaf'"
         done
         awk -v action="${3%_act}" -f "$ELEBAKE_TEMPLATE_DIR/awk/action-leafs.awk" "$ELEBAKE_BASE/stage/$1/work/stand/efi/loader/local/action.c" 2>/dev/null | grep -q . || printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'action $3 reads no kenv leaf'"
 }
 
-#@help __stage_conf_demand4
-# @command stage conf demand <stage> <gate> <action> <leaf>
-# @summary The stage has a conf record for loader.trust.<gate>.<leaf>: a note with the value, else a note MISSING with the remedy
+#@help __stage_kenv_demand4
+# @command stage kenv demand <stage> <gate> <action> <leaf>
+# @summary The stage has a kenv record for loader.trust.<gate>.<leaf>: a note with the value, else a note MISSING with the remedy
 # @group   provisioning
 # @internal
 # @see     stage action leafs
 #@end
-__stage_conf_demand4() {
-        if test -f "$ELEBAKE_BASE/stage/$1/conf/loader.trust.$2.$4"; then
-                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" log '  loader.trust.$2.$4  ($3)  = "$(sed -n 1p "$ELEBAKE_BASE/stage/$1/conf/loader.trust.$2.$4" 2>/dev/null)"'"
+__stage_kenv_demand4() {
+        if test -f "$ELEBAKE_BASE/stage/$1/kenv/loader.trust.$2.$4"; then
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" log '  loader.trust.$2.$4  ($3)  = "$(sed -n 1p "$ELEBAKE_BASE/stage/$1/kenv/loader.trust.$2.$4" 2>/dev/null)"'"
         else
-                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" log '  loader.trust.$2.$4  ($3)  MISSING -- stage conf add $1 loader.trust.$2.$4 <value>'"
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" log '  loader.trust.$2.$4  ($3)  MISSING -- stage kenv add $1 loader.trust.$2.$4 <value>'"
         fi
 }
 
-#@help __stage_conf_require4
-# @command stage conf require <stage> <gate> <action> <leaf>
-# @summary The stage has a conf record for loader.trust.<gate>.<leaf>: a comment, else an error line
+#@help __stage_kenv_require4
+# @command stage kenv require <stage> <gate> <action> <leaf>
+# @summary The stage has a kenv record for loader.trust.<gate>.<leaf>: a comment, else an error line
 # @group   provisioning
 # @internal
 # @see     stage action leafs
 #@end
-__stage_conf_require4() {
-        if test -f "$ELEBAKE_BASE/stage/$1/conf/loader.trust.$2.$4"; then
+__stage_kenv_require4() {
+        if test -f "$ELEBAKE_BASE/stage/$1/kenv/loader.trust.$2.$4"; then
                 printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'loader.trust.$2.$4 has its value'"
         else
-                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'stage loaderconf mk $1: no value for loader.trust.$2.$4 (stage conf add first; stage require lists them)'"
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'stage loaderconf mk $1: no value for loader.trust.$2.$4 (stage kenv add first; stage require lists them)'"
         fi
 }
 
 #@help ___stage_loaderconf_mk1
 # @command stage loaderconf mk <stage>
-# @summary Write boot/loader.trust.conf of the stage from its conf records: the stage and its checkout exist, boot/loader.conf names the file in loader_conf_files (stage edit adds it), every leaf a bound action reads has its value (stage require), then the file is written. It rides on the medium in clear, the manifest covers it (stage manifest after this)
+# @summary Write boot/loader.trust.conf of the stage from its kenv records: the stage and its checkout exist, boot/loader.conf names the file in loader_conf_files (stage edit adds it), every leaf a bound action reads has its value (stage require), then the file is written. It rides on the medium in clear, the manifest covers it (stage manifest after this)
 # @group   provisioning
 # @example elebake stage loaderconf mk daily-v1
 # @see     stage require
@@ -951,14 +1030,14 @@ __stage_loaderconf_named1() {
 
 #@help _stage_loaderconf_write1
 # @command stage loaderconf write <stage>
-# @summary Act terminal: the script that writes boot/loader.trust.conf.new from the conf records (one key="value" per record, byte order, deterministic) and moves it into place, mode 0644
+# @summary Act terminal: the script that writes boot/loader.trust.conf.new from the kenv records (one key="value" per record, byte order, deterministic) and moves it into place, mode 0644
 # @group   provisioning
 # @internal
 # @see     stage loaderconf mk
 #@end
 _stage_loaderconf_write1() {
         cat <<EOF
-{ printf '# generated by elebake stage loaderconf mk -- do not edit\\n'; for f in '$ELEBAKE_BASE/stage/$1'/conf/*; do test -f "\$f" && printf '%s="%s"\\n' "\${f##*/}" "\$(sed -n 1p "\$f")"; done; } > '$ELEBAKE_BASE/stage/$1/boot/loader.trust.conf.new'
+{ printf '# generated by elebake stage loaderconf mk -- do not edit\\n'; for f in '$ELEBAKE_BASE/stage/$1'/kenv/*; do test -f "\$f" && printf '%s="%s"\\n' "\${f##*/}" "\$(sed -n 1p "\$f")"; done; } > '$ELEBAKE_BASE/stage/$1/boot/loader.trust.conf.new'
 mv '$ELEBAKE_BASE/stage/$1/boot/loader.trust.conf.new' '$ELEBAKE_BASE/stage/$1/boot/loader.trust.conf' && chmod 0644 '$ELEBAKE_BASE/stage/$1/boot/loader.trust.conf'
 printf '# loader.trust.conf of %s written -- stage manifest, sign, push to arm it\\n' '$1' >&2
 EOF
@@ -966,7 +1045,7 @@ EOF
 
 #@help ___stage_loaderconf_check1
 # @command stage loaderconf check <stage>
-# @summary Regenerate loader.trust.conf from the conf records and compare with the stage's boot/loader.trust.conf: drift per key is reported, agreement is one line -- the conf under tamper detection
+# @summary Regenerate loader.trust.conf from the kenv records and compare with the stage's boot/loader.trust.conf: drift per key is reported, agreement is one line -- the conf under tamper detection
 # @group   provisioning
 # @example elebake stage loaderconf check daily-v1
 # @see     stage loaderconf mk
@@ -1002,7 +1081,7 @@ __stage_loaderconf_exists1() {
 _stage_loaderconf_compare1() {
         cat <<EOF
 t=\$(mktemp) || exit 1
-{ printf '# generated by elebake stage loaderconf mk -- do not edit\\n'; for f in '$ELEBAKE_BASE/stage/$1'/conf/*; do test -f "\$f" && printf '%s="%s"\\n' "\${f##*/}" "\$(sed -n 1p "\$f")"; done; } > "\$t"
+{ printf '# generated by elebake stage loaderconf mk -- do not edit\\n'; for f in '$ELEBAKE_BASE/stage/$1'/kenv/*; do test -f "\$f" && printf '%s="%s"\\n' "\${f##*/}" "\$(sed -n 1p "\$f")"; done; } > "\$t"
 if cmp -s "\$t" '$ELEBAKE_BASE/stage/$1/boot/loader.trust.conf'; then printf '# loaderconf of %s: agrees with the records\\n' '$1'; else printf '# loaderconf DRIFT of %s (- medium, + database):\\n' '$1'; diff '$ELEBAKE_BASE/stage/$1/boot/loader.trust.conf' "\$t" | sed 's/^/#   /'; fi
 rm -f "\$t"
 EOF

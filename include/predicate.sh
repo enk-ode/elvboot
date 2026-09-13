@@ -80,9 +80,9 @@ disk_name_ok() {
         return 0
 }
 
-# conf_key_ok <key> -- a loader.trust.* kenv name, or password_sha256 (the
+# kenv_key_ok <key> -- a loader.trust.* kenv name, or password_sha256 (the
 # loader prompt password, stage password set)
-conf_key_ok() {
+kenv_key_ok() {
         case "$1" in
                 loader.trust.[a-z]*|password_sha256) ;;
                 *) return 1 ;;
@@ -91,8 +91,8 @@ conf_key_ok() {
         return 0
 }
 
-# conf_value_ok <value> -- fits one loader.conf line, key="value"
-conf_value_ok() {
+# kenv_value_ok <value> -- fits one loader.conf line, key="value"
+kenv_value_ok() {
         local nl
         nl=$(printf '\nx'); nl=${nl%x}
         case "$1" in *'"'*|*'\'*|*"$nl"*) return 1 ;; esac

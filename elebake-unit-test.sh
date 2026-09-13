@@ -560,10 +560,11 @@ test_stage_marker_emission_inspects_only() {
   else
     fail "no efivar emission found: $out"
   fi
-  if printf '%s\n' "$out" | grep -q "openssl rand" && printf '%s\n' "$out" | grep -q "NEW value: empty"; then
-    pass "value file absent -> generate, decided at generation time; the VALUE itself is runtime"
+  if printf '%s\n' "$out" | grep -q "restoring the known marker" && printf '%s\n' "$out" | grep -q "is empty or unreadable" \
+     && ! printf '%s\n' "$out" | grep -q "openssl rand"; then
+    pass "restore never mints: the value file is read by the privileged act, empty or unreadable is an error there"
   else
-    fail "generation decision wrong: $out"
+    fail "restore decision wrong: $out"
   fi
   printf 'cafe\n' > "$TEST_DIR/markerfile"
   run_elebake stage marker record unitn Boot00AB "$TEST_DIR/markerfile" > /dev/null 2>&1
@@ -911,6 +912,117 @@ fixture_worktree() {
   printf 'extern const struct action\ttest_act;\nextern const struct action\thandover_act;\n' > "$fix/action.h"
   ln -sfn "$TEST_BASE_DIR/fix-work-$TESTS_RUN-$1" "$TEST_DIR/stage/$1/work"
   printf 'fixture-ref\n' > "$TEST_DIR/stage/$1/checkout"
+}
+
+test_expectation_key() {
+  test_header "expectation key: a leaf the loader reads at run time -- form checked, rendered as MEASUREMENT_KEY, demanded by stage require, learned by stage kenv learn"
+  test_setup
+  if run_elebake expectation add pcr-expected key PcrBank pcr.expected | grep -q "stored" \
+     && run_elebake expectation add bad-key key X 'Bad Key' | grep -q "kenv leaf" \
+     && [ ! -e "$TEST_DIR/foundation/expectations/bad-key" ]; then
+    pass "a key expectation is a leaf of letters, digits, _ and .; anything else is refused"
+  else
+    fail "key form: $(run_elebake expectation add bad-key key X 'Bad Key')"
+  fi
+  run_elebake claim add c-pcr measure_alpha - pcr.sha256 pcr-expected > /dev/null
+  if run_elebake expectation show pcr-expected | grep -q 'MEASUREMENT_KEY("PcrBank", "pcr.expected")' \
+     && run_elebake claim render c c-pcr | grep -q 'CLAIM(measure_alpha, NULL, "pcr.sha256", MEASUREMENT_KEY("PcrBank", "pcr.expected"))'; then
+    pass "show and the C rendering carry the key, not a value"
+  else
+    fail "render: $(run_elebake claim render c c-pcr)"
+  fi
+  run_elebake stage add unitk > /dev/null 2>&1
+  fixture_worktree unitk
+  run_elebake gate add kernellock > /dev/null
+  run_elebake gate claim add kernellock c-pcr > /dev/null
+  run_elebake trigger add t-k when_always test_act > /dev/null
+  run_elebake policy add p-k kernellock > /dev/null
+  run_elebake policy trigger add p-k t-k > /dev/null
+  run_elebake stage phase policy add unitk PHASE_TWO p-k > /dev/null 2>&1
+  local req; req=$(run_elebake stage require unitk)
+  if printf '%s\n' "$req" | grep -q "loader.trust.kernellock.pcr.expected  (claim c-pcr)  MISSING"; then
+    pass "stage require names the kenv record a bound key expectation reads"
+  else
+    fail "require: $req"
+  fi
+  if run_elebake stage kenv learn unitk bad.key loader.trust.x | grep -q "loader.trust.\* names" \
+     && run_elebake stage kenv learn unitk loader.trust.kernellock.pcr.expected loader.trust.unit.nothing.here | grep -q "no value in this kenv"; then
+    pass "kenv learn validates both names and refuses an absent variable"
+  else
+    fail "kenv learn: $(run_elebake stage kenv learn unitk loader.trust.kernellock.pcr.expected loader.trust.unit.nothing.here)"
+  fi
+  run_elebake stage kenv add unitk loader.trust.kernellock.pcr.expected 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef > /dev/null
+  if run_elebake stage require unitk | grep -q "loader.trust.kernellock.pcr.expected  (claim c-pcr)  = 0123456789abcdef"; then
+    pass "with the record in place require shows its value"
+  else
+    fail "require after add: $(run_elebake stage require unitk | grep pcr)"
+  fi
+  if run_elebake stage foundation check unitk 2>&1 | grep -q "foundation check ok"; then
+    pass "foundation check accepts a key expectation in the loader"
+  else
+    fail "foundation check: $(run_elebake stage foundation check unitk 2>&1 | grep -i key)"
+  fi
+}
+
+test_stage_inventory() {
+  test_header "stage inventory: records side by side, add semantics, the sets rendered for site.mk, replayed by the dump"
+  test_setup
+  run_elebake stage add unitinv > /dev/null 2>&1
+  local rec="$TEST_DIR/stage/unitinv/inventory/records"
+  mkdir -p "$rec"
+  printf 'loader.trust.list.acpi.0="FACP/-:276:aaaaaaaa,PHAT/-:3110:bbbbbbbb,SSDT/SaSsdt:1574:cccccccc"\nloader.trust.list.acpi.set="members=0,missing=0"\nloader.trust.list.efivars.0="8be4df61/BootOrder:7:12:dddddddd,ea1fcaee/MotherBoardHealth:7:16:eeeeeeee"\n' > "$rec/20260912T034417"
+  printf 'loader.trust.list.acpi.0="FACP/-:276:aaaaaaaa,PHAT/-:3110:b2b2b2b2,SSDT/SaSsdt:1574:cccccccc"\nloader.trust.list.efivars.0="8be4df61/BootOrder:7:12:dddddddd,ea1fcaee/MotherBoardHealth:7:16:e2e2e2e2,c94f8c4d/MemoryConfig:3:54229:ffffffff"\n' > "$rec/20260912T092127"
+  local show; show=$(run_elebake stage inventory show unitinv acpi)
+  if printf '%s\n' "$show" | grep -q "^PHAT/-.* 2/2  MOVES - .*bbbbbbbb b2b2b2b2" \
+     && printf '%s\n' "$show" | grep -q "^FACP/-.* 2/2  same  - .*aaaaaaaa aaaaaaaa" \
+     && printf '%s\n' "$show" | grep -q "2 record(s), 20260912T034417 .. 20260912T092127"; then
+    pass "show: per item the digest of each boot, same or MOVES, oldest first"
+  else
+    fail "show acpi: $show"
+  fi
+  show=$(run_elebake stage inventory show unitinv efivars)
+  if printf '%s\n' "$show" | grep -q "^c94f8c4d/MemoryConfig .*54229 NV,BS .* 1/2  same" \
+     && printf '%s\n' "$show" | grep -q "^8be4df61/BootOrder .* NV,BS,RT .* 2/2  same"; then
+    pass "show efivars: attributes in words, a boot that did not list the item counts as absent"
+  else
+    fail "show efivars: $show"
+  fi
+  if run_elebake stage inventory add unitinv acpi FACP/- | grep -q "added to the acpi set" \
+     && run_elebake stage inventory add unitinv acpi FACP/- | grep -q "already" \
+     && run_elebake stage inventory add unitinv acpi NOPE/x | grep -q "no imported record lists NOPE/x" \
+     && run_elebake stage inventory add unitinv bogus x/y | grep -q "acpi or efivars" \
+     && run_elebake stage inventory add unitinv acpi 'bad entry' | grep -q "identity form\|<a>/<b>"; then
+    pass "add: only what the newest record lists, kind and form validated, idempotent"
+  else
+    fail "add: $(run_elebake stage inventory add unitinv acpi NOPE/x; run_elebake stage inventory add unitinv acpi 'bad entry')"
+  fi
+  run_elebake stage inventory add unitinv acpi SSDT/SaSsdt > /dev/null
+  if [ "$(run_elebake stage inventory list unitinv acpi | tr '\n' ' ')" = "FACP/- SSDT/SaSsdt " ] \
+     && run_elebake stage inventory make unitinv | grep -q 'CFLAGS+= -DLOADER_TRUST_ACPI_SET=\\"FACP/-,SSDT/SaSsdt\\"' \
+     && ! run_elebake stage inventory make unitinv | grep -q "EFIVARS_SET"; then
+    pass "list is sorted, make renders the set sorted and comma-joined, an empty set renders nothing"
+  else
+    fail "list/make: $(run_elebake stage inventory list unitinv acpi | tr '\n' ' ') / $(run_elebake stage inventory make unitinv)"
+  fi
+  if run_elebake stage dump unitinv | grep -q "stage inventory add 'unitinv' 'acpi' 'SSDT/SaSsdt'"; then
+    pass "the dump replays the entries"
+  else
+    fail "dump: $(run_elebake stage dump unitinv | grep inventory)"
+  fi
+  if run_elebake stage inventory drop unitinv acpi FACP/- | grep -q "removed" \
+     && [ "$(run_elebake stage inventory list unitinv acpi | tr '\n' ' ')" = "SSDT/SaSsdt " ] \
+     && run_elebake stage inventory drop unitinv acpi FACP/- | grep -q "not in the acpi set"; then
+    pass "drop removes the line, a second drop is refused"
+  else
+    fail "drop: $(run_elebake stage inventory list unitinv acpi | tr '\n' ' ')"
+  fi
+  run_elebake stage kenv add unitinv loader.trust.inventory.images.expected 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef > /dev/null
+  if run_elebake stage constant images unitinv | grep -q "^readonly ELV_IMAGES_EXPECTED='0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'$" \
+     && run_elebake stage constant images unitk 2>/dev/null | grep -q "^readonly ELV_IMAGES_EXPECTED=''$" || true; then
+    pass "the earlboot constant ELV_IMAGES_EXPECTED comes from the kenv record, empty without it"
+  else
+    fail "constant images: $(run_elebake stage constant images unitinv)"
+  fi
 }
 
 test_foundation_expectation_crud() {
@@ -1411,6 +1523,21 @@ test_stage_foundation_emitter() {
     pass "a macro record an expectation names cannot be dropped (the world cannot drift under the bindings)"
   else
     fail "referenced macro dropped: $(run_elebake macro drop ALPHA_DIGEST 2>&1)"
+  fi
+  # the build refuses a worktree without the root of trust (the source is set: the guard is the next step)
+  run_elebake setenv ELEBAKE_FREEBSD_SRC "/fake-src" > /dev/null
+  if run_elebake stage build unite 2>&1 | grep -q "no trust anchor in the worktree"; then
+    pass "stage build refuses without ta_openpgp.asc and site.trust.mk (stage trust first)"
+  else
+    fail "build without trust anchor not refused: $(run_elebake stage build unite 2>&1 | head -3)"
+  fi
+  mkdir -p "$TEST_BASE_DIR/fix-work-$TESTS_RUN-unite/lib/libsecureboot"
+  printf 'x\n' > "$TEST_BASE_DIR/fix-work-$TESTS_RUN-unite/lib/libsecureboot/ta_openpgp.asc"
+  printf 'x\n' > "$TEST_BASE_DIR/fix-work-$TESTS_RUN-unite/lib/libsecureboot/site.trust.mk"
+  if ! run_elebake stage build unite 2>&1 | grep -q "no trust anchor in the worktree"; then
+    pass "with both anchor files present the build passes the anchor check"
+  else
+    fail "anchor check wrong with files present"
   fi
   # a gate bound only in a container phase measures with sh providers: it never enters the loader's C
   run_elebake gate add shgate > /dev/null
@@ -2142,8 +2269,8 @@ test_stage_disks_records() {
   fi
 }
 
-test_stage_conf_require_loaderconf() {
-  test_header "stage conf / require / loaderconf: bound actions demand keys, mk refuses, writes, check detects drift"
+test_stage_kenv_require_loaderconf() {
+  test_header "stage kenv / require / loaderconf: bound actions demand keys, mk refuses, writes, check detects drift"
   test_setup
   run_elebake stage add unitcf > /dev/null 2>&1
   fixture_worktree unitcf
@@ -2173,23 +2300,23 @@ test_stage_conf_require_loaderconf() {
   else
     fail "mk did not refuse: $(run_elebake stage loaderconf mk unitcf)"
   fi
-  run_elebake stage conf add unitcf loader.trust.kernellock.question "Lieblingsspielzeug:" > /dev/null
-  run_elebake stage conf add unitcf loader.trust.kernellock.rescue zfs:zcard/ROOT/rescue > /dev/null
+  run_elebake stage kenv add unitcf loader.trust.kernellock.question "Lieblingsspielzeug:" > /dev/null
+  run_elebake stage kenv add unitcf loader.trust.kernellock.rescue zfs:zcard/ROOT/rescue > /dev/null
   mkdir -p "$TEST_DIR/.tmp/password" && printf '%s\n' 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef > "$TEST_DIR/.tmp/password/unitcf"
   run_elebake stage password hashed store unitcf > /dev/null
-  if [ "$(cat "$TEST_DIR/stage/unitcf/conf/password_sha256" 2>/dev/null)" = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" ] \
+  if [ "$(cat "$TEST_DIR/stage/unitcf/kenv/password_sha256" 2>/dev/null)" = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" ] \
      && [ ! -f "$TEST_DIR/.tmp/password/unitcf" ] \
-     && run_elebake stage conf add unitcf password x 2>&1 | grep -q "loader.trust"; then
-    pass "the hashed password becomes the conf record password_sha256, the hash file is consumed, other keys stay refused"
+     && run_elebake stage kenv add unitcf password x 2>&1 | grep -q "loader.trust"; then
+    pass "the hashed password becomes the kenv record password_sha256, the hash file is consumed, other keys stay refused"
   else
-    fail "password record: $(cat "$TEST_DIR/stage/unitcf/conf/password_sha256" 2>&1)"
+    fail "password record: $(cat "$TEST_DIR/stage/unitcf/kenv/password_sha256" 2>&1)"
   fi
-  if run_elebake stage conf add unitcf loader.trust.kernellock.question "anders" | grep -q "immutable" \
-     && run_elebake stage conf add unitcf bad.key x | grep -q "loader.trust" \
-     && run_elebake stage conf add unitcf loader.trust.k.v 'a"b' | grep -q "one loader.conf line"; then
-    pass "conf add: immutable, key and value validated"
+  if run_elebake stage kenv add unitcf loader.trust.kernellock.question "anders" | grep -q "immutable" \
+     && run_elebake stage kenv add unitcf bad.key x | grep -q "loader.trust" \
+     && run_elebake stage kenv add unitcf loader.trust.k.v 'a"b' | grep -q "one loader.conf line"; then
+    pass "kenv add: immutable, key and value validated"
   else
-    fail "conf validation gap: $(run_elebake stage conf add unitcf loader.trust.k.v 'a"b'; run_elebake stage conf add unitcf bad.key x)"
+    fail "kenv validation gap: $(run_elebake stage kenv add unitcf loader.trust.k.v 'a"b'; run_elebake stage kenv add unitcf bad.key x)"
   fi
   run_elebake stage loaderconf mk unitcf > /dev/null
   if grep -q '^loader.trust.kernellock.question="Lieblingsspielzeug:"$' "$TEST_DIR/.staging/$sid/boot/loader.trust.conf" \
@@ -2197,6 +2324,19 @@ test_stage_conf_require_loaderconf() {
     pass "loaderconf mk writes boot/loader.trust.conf from the records"
   else
     fail "loader.trust.conf wrong: $(cat "$TEST_DIR/.staging/$sid/boot/loader.trust.conf" 2>&1)"
+  fi
+  # a policy bound in a container phase only: its action's namesake in action.c demands nothing of loader.trust.conf
+  printf 'extern const struct action\tghost_act;\n' >> "$fix/action.h"
+  printf 'static void\naction_ghost(const struct appraisal *a)\n{\n\tconst char *g = kenv(a, "ghost");\n}\n' >> "$fix/action.c"
+  run_elebake trigger add t-ghost when_always ghost_act > /dev/null
+  run_elebake policy add p-ghost kernellock > /dev/null
+  run_elebake policy trigger add p-ghost t-ghost > /dev/null
+  run_elebake stage phase policy append unitcf SYSINIT p-ghost > /dev/null 2>&1
+  if ! run_elebake stage require unitcf | grep -q "ghost" \
+     && run_elebake stage loaderconf mk unitcf 2>&1 | grep -q "loader.trust.conf of unitcf written"; then
+    pass "require and loaderconf mk walk the loader phases only (a SYSINIT binding demands no kenv leaf)"
+  else
+    fail "container phase walked: $(run_elebake stage require unitcf 2>&1 | grep ghost; run_elebake stage loaderconf mk unitcf 2>&1 | tail -2)"
   fi
   if run_elebake stage loaderconf check unitcf | grep -q "agrees with the records"; then
     pass "loaderconf check agrees right after mk"
@@ -2209,8 +2349,8 @@ test_stage_conf_require_loaderconf() {
   else
     fail "drift not detected"
   fi
-  if run_elebake stage dump unitcf | grep -q "stage conf add 'unitcf' 'loader.trust.kernellock.question' 'Lieblingsspielzeug:'"; then
-    pass "stage dump replays the conf records"
+  if run_elebake stage dump unitcf | grep -q "stage kenv add 'unitcf' 'loader.trust.kernellock.question' 'Lieblingsspielzeug:'"; then
+    pass "stage dump replays the kenv records"
   else
     fail "dump replay missing"
   fi
@@ -2417,7 +2557,7 @@ test_answer_family() {
   else
     fail "answer add without salt: $(run_elebake answer add unitan SYSINIT kl fish-3 react-note 2>&1 | head -2)"
   fi
-  run_elebake stage conf add unitan loader.trust.kl.salt abc > /dev/null 2>&1
+  run_elebake stage kenv add unitan loader.trust.kl.salt abc > /dev/null 2>&1
   local tf="$TEST_BASE_DIR/answers-$TESTS_RUN.txt"
   printf '# name template word\nfish-7  react-note  tuesday only\nfish-8  react-note\n' > "$tf"
   chmod 0644 "$tf"
@@ -2432,7 +2572,7 @@ test_answer_family() {
   if [ "$(cat "$TEST_DIR/foundation/expectations/fish-7")" = "string kl $h7" ] \
      && [ "$(cat "$TEST_DIR/foundation/expectations/fish-8")" = "string kl $h8" ] \
      && grep -qx "fish-7" "$TEST_DIR/.staging/$sid/phases/SYSINIT" && grep -qx "fish-8" "$TEST_DIR/.staging/$sid/phases/SYSINIT"; then
-    pass "answer file add: the word is the rest of the line with its spaces, an absent word is the empty answer, salt from stage conf"
+    pass "answer file add: the word is the rest of the line with its spaces, an absent word is the empty answer, salt from stage kenv"
   else
     fail "answer file add: $(cat "$TEST_DIR/foundation/expectations/fish-7" "$TEST_DIR/foundation/expectations/fish-8" 2>&1)"
   fi
@@ -2519,6 +2659,12 @@ test_container_emitters() {
   run_elebake policy trigger add kp hand > /dev/null
   run_elebake stage phase policy add unitem PHASE_TWO kp > /dev/null 2>&1
   run_elebake stage baseline add unitem LOADER_TRUST_WORD_SECRET string 00112233445566778899aabbccddeeff > /dev/null
+  if run_elebake stage baseline show unitem LOADER_TRUST_WORD_SECRET | grep -q "<redacted>" \
+     && ! run_elebake stage baseline show unitem LOADER_TRUST_WORD_SECRET | grep -q "00112233445566778899aabbccddeeff"; then
+    pass "baseline show redacts a secret's value (head line and -D line)"
+  else
+    fail "secret shown: $(run_elebake stage baseline show unitem LOADER_TRUST_WORD_SECRET)"
+  fi
   run_elebake stage device unitem t /dev/testda9p1 /mnt > /dev/null 2>&1
   run_elebake stage earlboot mk unitem > /dev/null 2>&1
   local hk; hk="$TEST_DIR/.staging/$(basename "$(readlink "$TEST_DIR/stage/unitem")")/hooks"
@@ -2625,6 +2771,8 @@ test_container_emitters() {
     run_elebake setenv ELEBAKE_INTERPRETER_$pin cat > /dev/null 2>&1
   done
   if run_elebake stage earlboot install unitem | grep -q "install -o root -g wheel -m 0500 '.*/hooks/earlboot' /etc/rc.d/earlboot" \
+     && run_elebake stage earlboot install unitem | grep -q "printf '%s\\\\n' 'earlboot_enable=\"YES\"' > /etc/rc.conf.d/earlboot" \
+     && run_elebake stage elvbootd install unitem | grep -q "printf '%s\\\\n' 'elvbootd_enable=\"YES\"' > /etc/rc.conf.d/elvbootd" \
      && run_elebake stage elvbootd install unitem | grep -q "devd/elvboot.conf" \
      && run_elebake stage elvbootd install unitem | grep -q "install -o root -g wheel -m 0500 '.*/hooks/elvbootd' /usr/local/etc/rc.d/elvbootd"; then
     pass "install emits the root-side copies and glue (displayed here, sudo sh in the profile)"
@@ -2917,7 +3065,9 @@ main() {
   should_run_test test_foundation_prereqs_arrays
   should_run_test test_stage_baseline_records
   should_run_test test_stage_disks_records
-  should_run_test test_stage_conf_require_loaderconf
+  should_run_test test_stage_kenv_require_loaderconf
+  should_run_test test_expectation_key
+  should_run_test test_stage_inventory
   should_run_test test_gate_duress_slot
   should_run_test test_container_catalogs_and_binding
   should_run_test test_container_emitters

@@ -307,13 +307,13 @@ $ELEBAKE_BASE/foundation/policies/<name>        "gate <gate>" + ordered "trigger
 ```
 
 Per stage: the bindings `.staging/<id>/phases/<PHASE>` (ordered policy
-names), the conf values `.staging/<id>/conf/<key>` (§5), and the
+names), the kenv values `.staging/<id>/kenv/<key>` (§5), and the
 build-provided VALUES (§5a): `.staging/<id>/baselines/<MACRO>` and
 `.staging/<id>/disks`.
 
 Dump: one foundation section in the database dump (CLI replays per
 family, dependency order: macros, expectations, claims, triggers,
-gates, policies); the stage dump replays only its phase and conf
+gates, policies); the stage dump replays only its phase and kenv
 bindings.
 
 
@@ -437,6 +437,61 @@ LOADER_TRUST_RECORD_SALT string <value>`, the loader.conf line, and the
 `stage require <stage>` / `stage foundation check` demand for the salt
 once a record claim is bound.
 
+## 5b. Key expectations and inventory sets
+
+Two values the loader measures include the loader itself: the PCR bank
+(PCR 4 carries the firmware's hash of the loader image) and the loaded
+EFI images (the loader is one of them). An expectation compiled into the
+loader can never match them -- learn, compile, and the binary has moved.
+Such an expectation is read at run time instead:
+
+- **`expectation add <name> key <label> <leaf>`** -- the type word `key`
+  names the leaf of a kenv record, `loader.trust.<gate>.<leaf>`, that the
+  loader reads from its conf when the claim is weighed (`MEASUREMENT_KEY`
+  in C; the type is the measurement's). No record: the claim is skipped,
+  as an unprovisioned macro is. A record that does not parse: a failure.
+- **`stage kenv learn <stage> <key> <kenv-variable>`** -- the sibling of
+  `stage baseline learn`: takes the value a trusted boot's loader
+  published and records it as a kenv record. `stage loaderconf mk`,
+  `include`, `sign`, `push` carry it to the medium; no build. `stage
+  require` lists the records the bound key expectations read (`claim
+  <name>`), MISSING with the remedy.
+- **The second witness** lives in earlboot: `measure_pcr_agree` reads
+  PCR 0..7 from the TPM (tpm2_pcrread) and compares with what the loader
+  published; `measure_images_expected` compares the loader's LoadedImages
+  with `ELV_IMAGES_EXPECTED`, the stage's kenv record rendered into the
+  hook at generation time (`stage constant images`). The loader's word
+  against the TPM's and against the stage's.
+
+The platform claims AcpiTables and EfiVariables measure a **set** the
+stage names -- add semantics, never an exclusion (JB 12.09.):
+
+- The loader lists every item it sees, with an 8-hex digest, as
+  `loader.trust.list.<kind>.<n>`; an ACPI table as
+  `<signature>/<OEM table id>` (thirty SSDTs tell apart only so), an EFI
+  variable as `<guid's first word>/<name>`. elvbootd's
+  `inventory_record_act` files the lists per boot under
+  `/var/db/elvboot/inventory/<boot time>`.
+- `stage inventory import <stage>` fetches them (sudo) into
+  `inventory/records/`; `stage inventory show <stage> <kind>` lays the
+  records side by side: per item its size, for efivars the attributes in
+  words, in how many boots it appeared, `same` or `MOVES`, whether it is
+  in the set, and the digest of each boot. What moves is what the
+  firmware rewrites; the owner leaves it out.
+- `stage inventory add <stage> <kind> <entry>` takes an item into the set
+  (only what the newest record lists), `drop` takes it out, `list` shows
+  the set; the set lives in `inventory/<kind>`, one entry per line, and
+  the dump replays the entries (records are observations, imported again).
+- `stage inventory make <stage>`, a part of `stage site mk`, renders
+  `LOADER_TRUST_ACPI_SET` and `LOADER_TRUST_EFIVARS_SET`, sorted and
+  comma-joined -- the order the loader hashes the members' digests in, so
+  neither the firmware's order nor an item outside the set can move the
+  digest; a member gone hashes as missing; an empty set claims nothing,
+  the claim is skipped. After a change of the set: site mk, build, boot,
+  then `stage baseline learn LOADER_TRUST_<KIND>_DIGEST ...`, site mk,
+  build (or, once those digests are key expectations too, `stage kenv
+  learn` and no build).
+
 ## 5. loaderconf and the require axis
 
 The user's selection implies kenv keys that MUST exist in loader.conf:
@@ -450,7 +505,7 @@ The require axis has two sides with different owners:
   an action reads is decided by the action's implementation. The user
   cannot invent consumers from elebake — a new consumer is a new
   action, born as a patch (like every catalog entry).
-- The VALUE side is the user's: `elebake stage conf add <stage> <key>
+- The VALUE side is the user's: `elebake stage kenv add <stage> <key>
   <value>` is a dumb store, per stage (messages and secret hashes are
   medium-specific), and it is OPEN — any `loader.trust.*` key may be
   stored and will be emitted. require defines the mandatory FLOOR, not
@@ -459,12 +514,12 @@ The require axis has two sides with different owners:
 
 The artifact mechanics:
 
-- `elebake stage conf add|drop|show <stage> <key> [<value>]` is the
+- `elebake stage kenv add|drop|show <stage> <key> [<value>]` is the
   dumb, immutable store (keys `loader.trust.*`, values fit one
   loader.conf line); `elebake stage require <stage>` lists the keys the
   bound actions read, each with its value or MISSING.
 - `elebake stage loaderconf mk <stage>` crosses bound phases x
-  require catalog x conf records and REFUSES on any missing value
+  require catalog x kenv records and REFUSES on any missing value
   (fail early, no implicit defaults), and refuses while the stage's
   boot/loader.conf does not name the file in `loader_conf_files`. It
   writes `boot/loader.trust.conf`, a file wholly owned by elebake —
@@ -719,8 +774,8 @@ $ elebake stage require smoke1
 ...
 $ elebake stage loaderconf mk smoke1
 elebake: error: loaderconf: no value for 'loader.trust.loaderlock.secret'
-                (bound via LOADER/backstop -> unlock_act; stage conf add first)
-$ elebake stage conf add smoke1 loader.trust.loaderlock.secret "<sha256-hex>"
+                (bound via LOADER/backstop -> unlock_act; stage kenv add first)
+$ elebake stage kenv add smoke1 loader.trust.loaderlock.secret "<sha256-hex>"
 $ elebake stage loaderconf mk smoke1
 ```
 
@@ -817,7 +872,7 @@ have travelled, never expect it to vanish from a running system.
   `fish_1`, gates are C identifiers), a policy carrying the template's
   triggers, and the binding. `answer add` reads the word hidden from
   the terminal at generation time, twice, and hashes it with the
-  stage's salt (`stage conf` `loader.trust.<gate>.salt`): the word never
+  stage's salt (`stage kenv` `loader.trust.<gate>.salt`): the word never
   reaches argv, trace, history or the batch. `answer hash add` is the
   same batch for a hash computed elsewhere (a table, a test). `answer
   drop` reverses, `answer show` lists the classes by trigger set. The
@@ -867,7 +922,7 @@ Two operational consequences, spelled out:
   persisting — no readable residue on the running system.
 
 - **The question lives on the medium, per stage.** The question text
-  travels via `stage conf add` into loader.trust.conf, and `stage
+  travels via `stage kenv add` into loader.trust.conf, and `stage
   conf` is per-stage by construction — so each medium can carry its
   own question. That is the right default: identical questions across
   media would tie the devices to one owner for anyone who reads two
@@ -956,7 +1011,7 @@ the emitter blocks (that is sequencing, not deferral):
     untouched, the new emission classifies the new word.
 13. **Erosion detector**: a COMFORTABLE database — every key backend,
     several stages (markers, backups, boot trees, site.mk), the full
-    arsenal, conf values and bindings — built by ONE fixture script
+    arsenal, kenv values and bindings — built by ONE fixture script
     that exercises every storing command family. dump -> restore ->
     `diff -r --no-dereference` byte-identical, and the re-dump equals
     the dump. The fixture script IS the coverage contract: a new
