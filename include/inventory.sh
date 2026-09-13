@@ -5,7 +5,7 @@
 # Copyright (c) 2026 Dr. Johannes Brügmann
 # elebake inventory - the SETS the loader's platform claims measure.
 #
-# AcpiTables and EfiVariables claim a set the stage names -- add semantics,
+# AcpiTables, EfiVariables and LoadedImages claim a set the stage names -- add semantics,
 # never an exclusion (JB 12.09.): what is not added is listed, not claimed.
 # The loader publishes every item it saw, one entry with an 8-hex digest,
 # as loader.trust.list.<kind>.<n>; elvbootd's inventory_record_act files
@@ -15,8 +15,9 @@
 #                                   fetched by stage inventory import
 #   inventory/<kind>                the set: one entry per line, added by
 #                                   stage inventory add; <kind> is acpi
-#                                   (<signature>/<OEM table id>) or efivars
-#                                   (<guid's first word>/<name>)
+#                                   (<signature>/<OEM table id>), efivars
+#                                   (<guid's first word>/<name>) or images
+#                                   (fv/<guid word>, file/<name>, dp/<8 hex>)
 #
 # stage inventory show lays the records side by side -- an item's digest per
 # boot, how many boots agree, whether it is in the set -- so the owner sees
@@ -57,7 +58,7 @@ EOF
 
 #@help ___stage_inventory_show2
 # @command stage inventory show <stage> <kind>
-# @summary Lay the imported records side by side for one kind (acpi | efivars): per item its identity, size, for efivars the attributes in words, in how many boots it appeared, whether every boot saw the same digest (same) or not (MOVES), whether it is in the set (+), and the digest of each boot, oldest first. What moves is what the firmware rewrites: leave it out of the set
+# @summary Lay the imported records side by side for one kind (acpi | efivars | images): per item its identity, size, for efivars the attributes in words, in how many boots it appeared, whether every boot saw the same digest (same) or not (MOVES), whether it is in the set (+), and the digest of each boot, oldest first. What moves is what the firmware rewrites: leave it out of the set
 # @group   provisioning
 # @example elebake stage inventory show daily-v1 efivars
 # @see     stage inventory import
@@ -66,81 +67,58 @@ EOF
 ___stage_inventory_show2() {
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage check stage '$1'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage inventory kind valid '$2'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage inventory show head '$1' '$2'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage inventory show rows '$1' '$2'"
 }
 
 #@help __stage_inventory_kind_valid1
 # @command stage inventory kind valid <kind>
-# @summary The kind is acpi or efivars, the two lists the loader publishes: a comment line, else an error line
+# @summary The kind is acpi, efivars or images, the three lists the loader publishes: a comment line, else an error line
 # @group   provisioning
 # @internal
 # @see     stage inventory show
 #@end
 __stage_inventory_kind_valid1() {
-        if test "$1" = acpi || test "$1" = efivars; then
+        if test "$1" = acpi || test "$1" = efivars || test "$1" = images; then
                 printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'inventory kind $1'"
         else
-                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'stage inventory: the kind is acpi or efivars, not $1'"
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'stage inventory: the kind is acpi, efivars or images, not $1'"
         fi
 }
 
-#@help _stage_inventory_show_rows2
-# @command stage inventory show rows <stage> <kind>
-# @summary Text terminal: the table over inventory/records/* of the stage for one kind -- a header naming the records, then one row per item sorted by identity (identity, size, attributes for efivars, boots seen, same|MOVES, + if in the set, the digests oldest first, ........ where a boot did not list the item or listed it without a digest); a note when no record was imported
+#@help _stage_inventory_show_head2
+# @command stage inventory show head <stage> <kind>
+# @summary Text terminal: the two header lines of the table -- the records imported (count, oldest .. newest) and the size of the set, then the column names; without a record the one line naming the remedy (stage inventory import after a boot)
 # @group   provisioning
 # @internal
 # @see     stage inventory show
 #@end
+_stage_inventory_show_head2() {
+        local dir="$ELEBAKE_BASE/stage/$1/inventory" n=0 first="" last=""
+        n=$(ls "$dir/records" 2>/dev/null | grep -c .)
+        first=$(ls "$dir/records" 2>/dev/null | sort | sed -n 1p); last=$(ls "$dir/records" 2>/dev/null | sort | sed -n '$p')
+        test "$n" -eq 0 && printf '# inventory %s of %s: no record imported (stage inventory import after a boot)\n' "$2" "$1"
+        test "$n" -gt 0 && printf '# inventory %s of %s: %s record(s), %s .. %s; set: %s entries\n' "$2" "$1" "$n" "$first" "$last" "$(grep -c . "$dir/$2" 2>/dev/null || echo 0)"
+        test "$n" -gt 0 && printf '# %-42s %7s %-14s %5s %-5s %s %s\n' identity size attrs boots agree set 'digests (oldest .. newest)'
+}
+
+#@help _stage_inventory_show_rows2
+# @command stage inventory show rows <stage> <kind>
+# @summary Text terminal: one row per item over inventory/records/* of the stage for one kind, sorted by identity (identity, size, attributes for efivars in words, boots seen/records, same or MOVES, + when in the set, the digests oldest .. newest) -- template/awk/inventory-rows.awk
+# @env     ELEBAKE_TEMPLATE_DIR  the template directory (awk programs, tables)
+# @group   provisioning
+# @internal
+# @see     stage inventory show head
+#@end
 _stage_inventory_show_rows2() {
-        local dir="$ELEBAKE_BASE/stage/$1/inventory" f="" set="" n=0 first="" last=""
+        local dir="$ELEBAKE_BASE/stage/$1/inventory" set=""
         set=$(cat "$dir/$2" 2>/dev/null | tr '\n' ' ')
-        for f in "$dir"/records/*; do test -f "$f" || continue; n=$((n + 1)); done
-        if test "$n" -eq 0; then
-                printf '# inventory %s of %s: no record imported (stage inventory import after a boot)\n' "$2" "$1"
-                return 0
-        fi
-        first=$(ls "$dir/records" | sort | sed -n 1p); last=$(ls "$dir/records" | sort | sed -n '$p')
-        printf '# inventory %s of %s: %s record(s), %s .. %s; set: %s entries\n' "$2" "$1" "$n" "$first" "$last" "$(grep -c . "$dir/$2" 2>/dev/null || echo 0)"
-        printf '# %-42s %7s %-14s %5s %-5s %s %s\n' identity size attrs boots agree set 'digests (oldest .. newest)'
-        ls "$dir/records" | sort | sed "s|^|$dir/records/|" | awk -v kind="$2" -v set=" $set " '
-        function hex(s,    i, v, c) { v = 0; for (i = 1; i <= length(s); i++) { c = index("0123456789abcdef", tolower(substr(s, i, 1))) - 1; if (c < 0) return -1; v = v * 16 + c } return v }
-        function words(a,    v, w) { if (a == "") return "-"; v = hex(a); if (v < 0) return a; w = ""
-                if (v % 2 >= 1) w = w "NV,"; if (int(v / 2) % 2 >= 1) w = w "BS,"; if (int(v / 4) % 2 >= 1) w = w "RT,"
-                if (int(v / 8) % 2 >= 1) w = w "HW,"; if (int(v / 16) % 2 >= 1) w = w "AW,"; if (int(v / 32) % 2 >= 1) w = w "TA,"; if (int(v / 64) % 2 >= 1) w = w "AP,"
-                sub(/,$/, "", w); return w }
-        { files[++nf] = $0 }
-        END {
-                for (r = 1; r <= nf; r++) {
-                        while ((getline line < files[r]) > 0) {
-                                if (line !~ ("^loader\\.trust\\.list\\." kind "\\.[0-9]+=")) continue
-                                sub(/^[^=]*="/, "", line); sub(/"$/, "", line)
-                                n = split(line, ent, ",")
-                                for (i = 1; i <= n; i++) {
-                                        m = split(ent[i], fld, ":")
-                                        if (m < 3) continue
-                                        id = fld[1]
-                                        if (!(id in seen)) { seen[id] = 1; ids[++ni] = id }
-                                        dig[id, r] = fld[m]; size[id] = fld[m - 1]; attrs[id] = (m >= 4) ? fld[2] : ""
-                                }
-                        }
-                        close(files[r])
-                }
-                for (k = 1; k <= ni; k++) {
-                        id = ids[k]; boots = 0; distinct = 0; row = ""; split("", had)
-                        for (r = 1; r <= nf; r++) {
-                                d = dig[id, r]
-                                if (d == "" || d == "-") { row = row " ........"; continue }
-                                boots++; if (!(d in had)) { had[d] = 1; distinct++ }
-                                row = row " " d
-                        }
-                        printf "%-44s %7s %-14s %2d/%-2d %-5s %s %s\n", id, size[id], words(attrs[id]), boots, nf, (distinct <= 1 ? "same" : "MOVES"), (index(set, " " id " ") > 0 ? "+" : "-"), row
-                }
-        }' | sort
+        ls "$dir/records" 2>/dev/null | sort | sed "s|^|$dir/records/|" | awk -v kind="$2" -v set=" $set " -f "$ELEBAKE_TEMPLATE_DIR/awk/inventory-rows.awk" | sort
 }
 
 #@help ___stage_inventory_add3
 # @command stage inventory add <stage> <kind> <entry>
-# @summary Take one item into the set of a kind: the stage exists, the kind is acpi or efivars, the entry has the identity form (<a>/<b>, letters, digits, _ . -), the newest imported record lists it (the loader saw it -- stage inventory import first), then it is appended to inventory/<kind> unless already there. The set is what AcpiTables / EfiVariables measure; after a change: stage site mk, build, boot, then learn the digest
+# @summary Take one item into the set of a kind: the stage exists, the kind is acpi, efivars or images, the entry has the identity form (<a>/<b>, letters, digits, _ . -), the newest imported record lists it (the loader saw it -- stage inventory import first), then it is appended to inventory/<kind> unless already there. The set is what AcpiTables / EfiVariables measure; after a change: stage site mk, build, boot, then learn the digest
 # @group   provisioning
 # @example elebake stage inventory add daily-v1 efivars 8be4df61/BootOrder
 # @see     stage inventory show
@@ -216,6 +194,53 @@ _stage_inventory_entry_append3() {
         emit_note "$3 added to the $2 set of $1 (stage site mk renders LOADER_TRUST_$(printf '%s' "$2" | tr '[:lower:]' '[:upper:]')_SET)"
 }
 
+#@help ___stage_inventory_adopt2
+# @command stage inventory adopt <stage> <kind>
+# @summary Take into the set every item that every imported record lists with the same digest -- what held across all boots -- one 'stage inventory add' per item: the stage exists, the kind is valid, at least two records are imported (one boot proves nothing), then the stable entries (stage inventory stable). What moved stays out; the loader itself (file/BOOTX64.EFI) is stable too and is dropped by hand when the set must not include it
+# @group   provisioning
+# @example elebake stage inventory adopt daily-v1 efivars
+# @see     stage inventory show
+# @see     stage inventory add
+# @see     stage inventory drop
+#@end
+___stage_inventory_adopt2() {
+        local e=""
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage check stage '$1'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage inventory kind valid '$2'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage inventory records enough '$1' '$2'"
+        _stage_inventory_stable2 "$1" "$2" | while read -r e; do
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage inventory add '$1' '$2' $(sq "$e")"
+        done
+}
+
+#@help __stage_inventory_records_enough2
+# @command stage inventory records enough <stage> <kind>
+# @summary At least two imported records (inventory/records/*) carry lists of the kind (a record from a loader that did not list the kind yet says nothing about it): a comment line, else an error line -- one boot cannot tell what moves
+# @group   provisioning
+# @internal
+# @see     stage inventory adopt
+#@end
+__stage_inventory_records_enough2() {
+        if test "$(grep -ls "^loader\.trust\.list\.$2\." "$ELEBAKE_BASE/stage/$1"/inventory/records/* 2>/dev/null | wc -l | tr -d ' ')" -ge 2; then
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'stage $1: at least two inventory records list $2'"
+        else
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'stage inventory adopt: fewer than two imported records list $2 for $1 (stage inventory import after a second boot) -- one boot cannot tell what moves'"
+        fi
+}
+
+#@help _stage_inventory_stable2
+# @command stage inventory stable <stage> <kind>
+# @summary Text terminal: the identities of a kind that EVERY imported record carrying that kind lists with the same digest, one per line, sorted -- the candidates for the set (template/awk/inventory-stable.awk)
+# @env     ELEBAKE_TEMPLATE_DIR  the template directory (awk programs, tables)
+# @group   provisioning
+# @internal
+# @see     stage inventory adopt
+#@end
+_stage_inventory_stable2() {
+        local dir="$ELEBAKE_BASE/stage/$1/inventory"
+        ls "$dir/records" 2>/dev/null | sort | sed "s|^|$dir/records/|" | awk -v kind="$2" -f "$ELEBAKE_TEMPLATE_DIR/awk/inventory-stable.awk" | sort
+}
+
 #@help ___stage_inventory_drop3
 # @command stage inventory drop <stage> <kind> <entry>
 # @summary Take one item out of the set of a kind: the stage exists, the kind is valid, the entry is in the set, then its line is removed from inventory/<kind>
@@ -287,7 +312,7 @@ _stage_inventory_entries2() {
 
 #@help ___stage_inventory_make1
 # @command stage inventory make <stage>
-# @summary Render the sets of the stage as site.mk lines, one 'stage inventory make set <stage> <kind>' per kind: LOADER_TRUST_ACPI_SET and LOADER_TRUST_EFIVARS_SET, the entries sorted and comma-joined -- the order the loader hashes the members in. A part of stage site mk; an empty set renders nothing, the claim is then skipped
+# @summary Render the sets of the stage as site.mk lines, one 'stage inventory make set <stage> <kind>' per kind: LOADER_TRUST_ACPI_SET, LOADER_TRUST_EFIVARS_SET and LOADER_TRUST_IMAGES_SET, the entries sorted and comma-joined -- the order the loader hashes the members in. A part of stage site mk; an empty set renders nothing, the claim is then skipped
 # @group   provisioning
 # @example elebake stage inventory make daily-v1
 # @see     stage site mk
@@ -297,6 +322,7 @@ ___stage_inventory_make1() {
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage check stage '$1'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage inventory make set '$1' acpi"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage inventory make set '$1' efivars"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage inventory make set '$1' images"
 }
 
 #@help __stage_inventory_make_set2
@@ -334,7 +360,7 @@ _stage_inventory_set_line2() {
 #@end
 ___stage_dump_inventory1() {
         local kind="" e=""
-        for kind in acpi efivars; do
+        for kind in acpi efivars images; do
                 grep -s . "$ELEBAKE_BASE/stage/$1/inventory/$kind" 2>/dev/null | while read -r e; do
                         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage inventory add '$1' '$kind' $(sq "$e")"
                 done

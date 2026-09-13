@@ -20,7 +20,9 @@ TEST_BASE_DIR="${TMPDIR:-/tmp}/elebake-unit-test.$$"
 TEST_SCRIPT="./elebake.sh"
 
 # Options: --maxprocs N runs the test functions in parallel (xargs -P N).
-MAXPROCS=1
+# Default: every CPU (JB 13.09.: all suites run parallel); --maxprocs 1 is
+# the classic sequential run.
+MAXPROCS=$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 1)
 while [ $# -gt 0 ]; do
   case "$1" in
     --maxprocs)   MAXPROCS="${2:?--maxprocs needs a value}"; shift 2 ;;
@@ -971,7 +973,7 @@ test_stage_inventory() {
   local rec="$TEST_DIR/stage/unitinv/inventory/records"
   mkdir -p "$rec"
   printf 'loader.trust.list.acpi.0="FACP/-:276:aaaaaaaa,PHAT/-:3110:bbbbbbbb,SSDT/SaSsdt:1574:cccccccc"\nloader.trust.list.acpi.set="members=0,missing=0"\nloader.trust.list.efivars.0="8be4df61/BootOrder:7:12:dddddddd,ea1fcaee/MotherBoardHealth:7:16:eeeeeeee"\n' > "$rec/20260912T034417"
-  printf 'loader.trust.list.acpi.0="FACP/-:276:aaaaaaaa,PHAT/-:3110:b2b2b2b2,SSDT/SaSsdt:1574:cccccccc"\nloader.trust.list.efivars.0="8be4df61/BootOrder:7:12:dddddddd,ea1fcaee/MotherBoardHealth:7:16:e2e2e2e2,c94f8c4d/MemoryConfig:3:54229:ffffffff"\n' > "$rec/20260912T092127"
+  printf 'loader.trust.list.acpi.0="FACP/-:276:aaaaaaaa,PHAT/-:3110:b2b2b2b2,SSDT/SaSsdt:1574:cccccccc"\nloader.trust.list.efivars.0="8be4df61/BootOrder:7:12:dddddddd,ea1fcaee/MotherBoardHealth:7:16:e2e2e2e2,c94f8c4d/MemoryConfig:3:54229:ffffffff"\nloader.trust.list.images.0="fv/1a2b3c4d:65536:11111111,file/BOOTX64.EFI:800768:22222222"\n' > "$rec/20260912T092127"
   local show; show=$(run_elebake stage inventory show unitinv acpi)
   if printf '%s\n' "$show" | grep -q "^PHAT/-.* 2/2  MOVES - .*bbbbbbbb b2b2b2b2" \
      && printf '%s\n' "$show" | grep -q "^FACP/-.* 2/2  same  - .*aaaaaaaa aaaaaaaa" \
@@ -987,10 +989,12 @@ test_stage_inventory() {
   else
     fail "show efivars: $show"
   fi
-  if run_elebake stage inventory add unitinv acpi FACP/- | grep -q "added to the acpi set" \
+  if run_elebake stage inventory add unitinv images fv/1a2b3c4d | grep -q "added to the images set" \
+     && run_elebake stage inventory make unitinv | grep -q 'CFLAGS+= -DLOADER_TRUST_IMAGES_SET=\\"fv/1a2b3c4d\\"' \
+     && run_elebake stage inventory add unitinv acpi FACP/- | grep -q "added to the acpi set" \
      && run_elebake stage inventory add unitinv acpi FACP/- | grep -q "already" \
      && run_elebake stage inventory add unitinv acpi NOPE/x | grep -q "no imported record lists NOPE/x" \
-     && run_elebake stage inventory add unitinv bogus x/y | grep -q "acpi or efivars" \
+     && run_elebake stage inventory add unitinv bogus x/y | grep -q "acpi, efivars or images" \
      && run_elebake stage inventory add unitinv acpi 'bad entry' | grep -q "identity form\|<a>/<b>"; then
     pass "add: only what the newest record lists, kind and form validated, idempotent"
   else
@@ -1004,6 +1008,23 @@ test_stage_inventory() {
   else
     fail "list/make: $(run_elebake stage inventory list unitinv acpi | tr '\n' ' ') / $(run_elebake stage inventory make unitinv)"
   fi
+  run_elebake stage inventory drop unitinv acpi SSDT/SaSsdt > /dev/null
+  run_elebake stage inventory drop unitinv acpi FACP/- > /dev/null
+  if run_elebake stage inventory adopt unitinv acpi | grep -c "added to the acpi set" | grep -qx 2 \
+     && [ "$(run_elebake stage inventory list unitinv acpi | tr '\n' ' ')" = "FACP/- SSDT/SaSsdt " ] \
+     && run_elebake stage inventory adopt unitinv efivars | grep -c "added to the efivars set" | grep -qx 1 \
+     && [ "$(run_elebake stage inventory list unitinv efivars | tr '\n' ' ')" = "8be4df61/BootOrder " ]; then
+    pass "adopt takes in what every record lists with the same digest: not PHAT, not MotherBoardHealth, not an item one boot did not list"
+  else
+    fail "adopt: $(run_elebake stage inventory adopt unitinv acpi; run_elebake stage inventory list unitinv efivars | tr '\n' ' ')"
+  fi
+  rm -f "$rec/20260912T092127"
+  if run_elebake stage inventory adopt unitinv acpi | grep -q "fewer than two"; then
+    pass "adopt refuses with a single record"
+  else
+    fail "adopt with one record: $(run_elebake stage inventory adopt unitinv acpi)"
+  fi
+  printf 'loader.trust.list.acpi.0="FACP/-:276:aaaaaaaa,PHAT/-:3110:b2b2b2b2,SSDT/SaSsdt:1574:cccccccc"\nloader.trust.list.efivars.0="8be4df61/BootOrder:7:12:dddddddd,ea1fcaee/MotherBoardHealth:7:16:e2e2e2e2,c94f8c4d/MemoryConfig:3:54229:ffffffff"\nloader.trust.list.images.0="fv/1a2b3c4d:65536:11111111,file/BOOTX64.EFI:800768:22222222"\n' > "$rec/20260912T092127"
   if run_elebake stage dump unitinv | grep -q "stage inventory add 'unitinv' 'acpi' 'SSDT/SaSsdt'"; then
     pass "the dump replays the entries"
   else
@@ -1016,10 +1037,10 @@ test_stage_inventory() {
   else
     fail "drop: $(run_elebake stage inventory list unitinv acpi | tr '\n' ' ')"
   fi
-  run_elebake stage kenv add unitinv loader.trust.inventory.images.expected 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef > /dev/null
+  run_elebake stage baseline add unitinv LOADER_TRUST_IMAGES_DIGEST digest 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef > /dev/null
   if run_elebake stage constant images unitinv | grep -q "^readonly ELV_IMAGES_EXPECTED='0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'$" \
      && run_elebake stage constant images unitk 2>/dev/null | grep -q "^readonly ELV_IMAGES_EXPECTED=''$" || true; then
-    pass "the earlboot constant ELV_IMAGES_EXPECTED comes from the kenv record, empty without it"
+    pass "the earlboot constant ELV_IMAGES_EXPECTED comes from the images baseline, empty without it"
   else
     fail "constant images: $(run_elebake stage constant images unitinv)"
   fi
@@ -2300,8 +2321,13 @@ test_stage_kenv_require_loaderconf() {
   else
     fail "mk did not refuse: $(run_elebake stage loaderconf mk unitcf)"
   fi
-  run_elebake stage kenv add unitcf loader.trust.kernellock.question "Lieblingsspielzeug:" > /dev/null
+  run_elebake stage kenv add unitcf loader.trust.kernellock.question "Do you have fish?" > /dev/null
   run_elebake stage kenv add unitcf loader.trust.kernellock.rescue zfs:zcard/ROOT/rescue > /dev/null
+  if run_elebake stage require unitcf | grep -q "loader.trust.kernellock.question  (ask_act)  = Do you have fish?"; then
+    pass "require shows a value with blanks in one piece (the line is single-quoted as a whole)"
+  else
+    fail "require with blanks: $(run_elebake stage require unitcf 2>&1 | grep -i "question\|xargs" | head -3)"
+  fi
   mkdir -p "$TEST_DIR/.tmp/password" && printf '%s\n' 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef > "$TEST_DIR/.tmp/password/unitcf"
   run_elebake stage password hashed store unitcf > /dev/null
   if [ "$(cat "$TEST_DIR/stage/unitcf/kenv/password_sha256" 2>/dev/null)" = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" ] \
@@ -2319,7 +2345,7 @@ test_stage_kenv_require_loaderconf() {
     fail "kenv validation gap: $(run_elebake stage kenv add unitcf loader.trust.k.v 'a"b'; run_elebake stage kenv add unitcf bad.key x)"
   fi
   run_elebake stage loaderconf mk unitcf > /dev/null
-  if grep -q '^loader.trust.kernellock.question="Lieblingsspielzeug:"$' "$TEST_DIR/.staging/$sid/boot/loader.trust.conf" \
+  if grep -q '^loader.trust.kernellock.question="Do you have fish?"$' "$TEST_DIR/.staging/$sid/boot/loader.trust.conf" \
      && grep -q '^loader.trust.kernellock.rescue="zfs:zcard/ROOT/rescue"$' "$TEST_DIR/.staging/$sid/boot/loader.trust.conf"; then
     pass "loaderconf mk writes boot/loader.trust.conf from the records"
   else
@@ -2349,7 +2375,7 @@ test_stage_kenv_require_loaderconf() {
   else
     fail "drift not detected"
   fi
-  if run_elebake stage dump unitcf | grep -q "stage kenv add 'unitcf' 'loader.trust.kernellock.question' 'Lieblingsspielzeug:'"; then
+  if run_elebake stage dump unitcf | grep -q "stage kenv add 'unitcf' 'loader.trust.kernellock.question' 'Do you have fish?'"; then
     pass "stage dump replays the kenv records"
   else
     fail "dump replay missing"
@@ -2970,8 +2996,10 @@ parallel_main() {
   else
     tests="$TEST_FILTER"
   fi
-  printf '%s\n' $tests | xargs -n1 -P "$MAXPROCS" -I{} \
-    sh -c 'sh "$0" "$1" "$2" {} > "$3/{}.out" 2>&1; echo $? > "$3/{}.rc"' \
+  # The test name travels as an argument ($4), not through -I (xargs(1)
+  # caps a replaced command line at 255 bytes).
+  printf '%s\n' $tests | xargs -n1 -P "$MAXPROCS" \
+    sh -c 'sh "$0" --maxprocs 1 "$1" "$2" "$4" > "$3/$4.out" 2>&1; echo $? > "$3/$4.rc"' \
     "$0" "$TEST_PROFILE" "$KEEP_DATABASES" "$outdir"
   for t in $tests; do
     cat "$outdir/$t.out" 2>/dev/null

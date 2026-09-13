@@ -450,6 +450,18 @@ Such an expectation is read at run time instead:
   loader reads from its conf when the claim is weighed (`MEASUREMENT_KEY`
   in C; the type is the measurement's). No record: the claim is skipped,
   as an unprovisioned macro is. A record that does not parse: a failure.
+  Only for gates of PHASE_KERNEL and later: the loader reads
+  loader.trust.conf when the Lua chain processes loader_conf_files, i.e.
+  after PHASE_LOADER -- a key expectation in a bootlock or inventory gate
+  finds no value and stays skipped (illyria 13.09.: PcrBank in kernellock
+  passed, LoadedImages in inventory did not arm). LoadedImages moreover
+  moved between two boots of the same signed loader: it is the third
+  inventory kind, `images` -- an image identified by the last node of its
+  file path (`fv/<guid word>` for a firmware volume file, `file/<name>`,
+  `dp/<8 hex>` of the whole path, `img/<n>` without a path), its digest
+  the image's contents, the set `LOADER_TRUST_IMAGES_SET`, the digest a
+  compiled baseline again. The loader itself is listed too and stays out
+  of the set (PcrBank covers it).
 - **`stage kenv learn <stage> <key> <kenv-variable>`** -- the sibling of
   `stage baseline learn`: takes the value a trusted boot's loader
   published and records it as a kenv record. `stage loaderconf mk`,
@@ -463,8 +475,8 @@ Such an expectation is read at run time instead:
   hook at generation time (`stage constant images`). The loader's word
   against the TPM's and against the stage's.
 
-The platform claims AcpiTables and EfiVariables measure a **set** the
-stage names -- add semantics, never an exclusion (JB 12.09.):
+The platform claims AcpiTables, EfiVariables and LoadedImages measure a
+**set** the stage names -- add semantics, never an exclusion (JB 12.09.):
 
 - The loader lists every item it sees, with an 8-hex digest, as
   `loader.trust.list.<kind>.<n>`; an ACPI table as
@@ -479,7 +491,10 @@ stage names -- add semantics, never an exclusion (JB 12.09.):
   in the set, and the digest of each boot. What moves is what the
   firmware rewrites; the owner leaves it out.
 - `stage inventory add <stage> <kind> <entry>` takes an item into the set
-  (only what the newest record lists), `drop` takes it out, `list` shows
+  (only what the newest record lists), `stage inventory adopt <stage>
+  <kind>` takes in everything every record lists with the same digest
+  (at least two records: one boot cannot tell what moves), `drop` takes
+  an item out, `list` shows
   the set; the set lives in `inventory/<kind>`, one entry per line, and
   the dump replays the entries (records are observations, imported again).
 - `stage inventory make <stage>`, a part of `stage site mk`, renders

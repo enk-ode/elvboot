@@ -840,29 +840,74 @@ __stage_kenv_learn_read3() {
 
 #@help ___stage_keys1
 # @command stage keys <stage>
-# @summary The kenv records the bound claims read at run time: per loader phase the stage binds, per policy its gate, per claim of the gate whose expectation is a key -- one 'stage kenv demand <stage> <gate> claim <claim> <key>' each (a note with the value, or MISSING with the remedy stage kenv learn; a missing key skips the claim, it never blocks loaderconf mk)
+# @summary The kenv records the bound claims read at run time: per loader phase the stage binds (enum phase of the checkout's policy.h with a policy record) one 'stage keys phase <stage> <phase>' -- the stack grows to the right until the claim is known, then 'stage kenv demand' names the key (a note with the value, or MISSING with the remedy stage kenv learn; a missing key skips the claim, it never blocks loaderconf mk)
 # @group   provisioning
 # @internal
 # @see     stage require
+# @see     stage keys phase
 # @see     stage kenv learn
 #@end
 ___stage_keys1() {
-        local ph="" p="" gate="" c="" m="" d="" pb="" exp="" type="" label="" value="" lines=0 loc="$ELEBAKE_BASE/stage/$1/work/stand/efi/loader/local"
+        local ph="" lines=0 loc="$ELEBAKE_BASE/stage/$1/work/stand/efi/loader/local"
         for ph in $(sed -n '/enum phase {/,/};/p' "$loc/policy.h" 2>/dev/null | grep -o 'PHASE_[A-Z_]*'); do
                 [ -f "$ELEBAKE_BASE/stage/$1/phases/$ph" ] || continue
-                while read -r p; do
-                        gate=$(sed -n "s/^gate //p" "$ELEBAKE_BASE/foundation/policies/$p" 2>/dev/null)
-                        [ -n "$gate" ] || continue
-                        while read -r c; do
-                                read -r m d pb exp 2>/dev/null < "$ELEBAKE_BASE/foundation/claims/$c"
-                                read -r type label value 2>/dev/null < "$ELEBAKE_BASE/foundation/expectations/$exp"
-                                [ "$type" = key ] || continue
-                                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage kenv demand '$1' '$gate' 'claim $c' '$value'"
-                                lines=$((lines + 1))
-                        done 2>/dev/null < "$ELEBAKE_BASE/foundation/gates/$gate/claims"
-                done 2>/dev/null < "$ELEBAKE_BASE/stage/$1/phases/$ph"
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage keys phase '$1' '$ph'"
+                lines=$((lines + 1))
         done
-        test "$lines" -gt 0 || printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'no bound claim of $1 reads a kenv value (no key expectation)'"
+        test "$lines" -gt 0 || printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'stage $1 binds no loader phase: no kenv record demanded'"
+}
+
+#@help ___stage_keys_phase2
+# @command stage keys phase <stage> <phase>
+# @summary Every policy the phase record binds (stage/<stage>/phases/<phase>): one 'stage keys policy <stage> <policy>' each; a phase without a policy is a comment line
+# @group   provisioning
+# @internal
+# @see     stage keys
+# @see     stage keys policy
+#@end
+___stage_keys_phase2() {
+        local p="" lines=0
+        while read -r p; do
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage keys policy '$1' '$p'"
+                lines=$((lines + 1))
+        done 2>/dev/null < "$ELEBAKE_BASE/stage/$1/phases/$2"
+        test "$lines" -gt 0 || printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'phase $2 of stage $1 binds no policy'"
+}
+
+#@help ___stage_keys_policy2
+# @command stage keys policy <stage> <policy>
+# @summary The gate of the policy (foundation/policies/<policy>) and every claim of that gate (foundation/gates/<gate>/claims): one 'stage keys claim <stage> <gate> <claim>' each; a policy without a gate is a comment line
+# @group   provisioning
+# @internal
+# @see     stage keys phase
+# @see     stage keys claim
+#@end
+___stage_keys_policy2() {
+        local gate="" c=""
+        gate=$(sed -n "s/^gate //p" "$ELEBAKE_BASE/foundation/policies/$2" 2>/dev/null)
+        test -n "$gate" || printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'policy $2 names no gate: no kenv record demanded'"
+        test -n "$gate" && while read -r c; do
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage keys claim '$1' '$gate' '$c'"
+        done 2>/dev/null < "$ELEBAKE_BASE/foundation/gates/$gate/claims"
+}
+
+#@help ___stage_keys_claim3
+# @command stage keys claim <stage> <gate> <claim>
+# @summary The expectation of the claim (foundation/claims/<claim>, fourth word) read: type key demands its kenv record -- 'stage kenv demand <stage> <gate> claim <claim> <key>'; any other type is a comment line (the claim reads no kenv value)
+# @group   provisioning
+# @internal
+# @see     stage keys policy
+# @see     stage kenv demand
+#@end
+___stage_keys_claim3() {
+        local m="" d="" pb="" exp="" type="" label="" value=""
+        read -r m d pb exp 2>/dev/null < "$ELEBAKE_BASE/foundation/claims/$3"
+        read -r type label value 2>/dev/null < "$ELEBAKE_BASE/foundation/expectations/$exp"
+        if test "$type" = key; then
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage kenv demand '$1' '$2' 'claim $3' '$value'"
+        else
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'claim $3 of gate $2 reads no kenv value (expectation $exp is ${type:-absent}, not key)'"
+        fi
 }
 
 #@help ___stage_require1
@@ -975,8 +1020,10 @@ ___stage_action_leafs4() {
 # @see     stage action leafs
 #@end
 __stage_kenv_demand4() {
+        local value=""
+        value=$(sed -n 1p "$ELEBAKE_BASE/stage/$1/kenv/loader.trust.$2.$4" 2>/dev/null)
         if test -f "$ELEBAKE_BASE/stage/$1/kenv/loader.trust.$2.$4"; then
-                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" log '  loader.trust.$2.$4  ($3)  = "$(sed -n 1p "$ELEBAKE_BASE/stage/$1/kenv/loader.trust.$2.$4" 2>/dev/null)"'"
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" log $(sq "  loader.trust.$2.$4  ($3)  = $value")"
         else
                 printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" log '  loader.trust.$2.$4  ($3)  MISSING -- stage kenv add $1 loader.trust.$2.$4 <value>'"
         fi

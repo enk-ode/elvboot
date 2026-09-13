@@ -247,7 +247,7 @@ __expectation_fields_valid4() {
 
 #@help ___expectation_add4
 # @command expectation add <expectation> <type> <label> <value>
-# @summary Store a named, reusable expectation: <type> byte | sha256 | string | macro | key; a macro expectation names a macro an arsenal macro record defines (the reference never dangles; the type word dispatches the check); a key expectation names the leaf of a kenv record the loader reads at run time, loader.trust.<gate>.<key> -- for a value that includes the loader itself (PcrBank, LoadedImages) and so cannot be compiled into it; stage kenv learn records it, no build follows. Then the record is written -- an identical re-add is a no-op, a different one is refused (immutable; drop first)
+# @summary Store a named, reusable expectation: <type> byte | sha256 | string | macro | key; a macro expectation names a macro an arsenal macro record defines (the reference never dangles; the type word dispatches the check); a key expectation names the leaf of a kenv record the loader reads at run time, loader.trust.<gate>.<key> -- for a value that includes the loader itself (PcrBank, LoadedImages) and so cannot be compiled into it; stage kenv learn records it, no build follows. Only for gates of PHASE_KERNEL and later: the loader reads loader.trust.conf after PHASE_LOADER, a key bound earlier finds no value and the claim stays skipped (illyria 13.09.). Then the record is written -- an identical re-add is a no-op, a different one is refused (immutable; drop first)
 # @group   foundation
 # @example elebake expectation add fish-0-byte byte AnswerClass 1
 # @see     expectation drop

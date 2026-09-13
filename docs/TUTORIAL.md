@@ -909,11 +909,18 @@ generation time.
 
 ## 19. Where the walk stands
 
-Boot 18  of `daily-v1`,  12 September:  every gate green,  the ledger  without a
-failed gate,  record counter 7, the  chain intact; skipped only  the four claims
-whose sets and  keys are being learned.  The time windows (BootWindow  300 s for
+Boot  E of  `daily-v1`, 13  September: every  gate green,  the ledger  without a
+failed gate, record counter  16, the chain intact, no claim  skipped any more --
+the three  inventory sets are adopted  (acpi 40 identities, efivars  116, images
+253 of 333; the  50 images whose data sections move between  boots stay out, the
+loader itself is covered by the PCR bank), and the PCR bank is a key expectation
+the kenv  answers. The  database is published:  `elvboot-dump-publish.sh` writes
+the attested,  encrypted dump into  the private repository  `elvboot-dump` under
+`<host>/<db>/` and the export bundle beside it, serial 4 today; both passphrases
+are   on   paper   first   (hkdf-tree   `brj/cold-storage/elvboot-dump-v1`   and
+`elvboot-export-v1`), never in  a shell. The time windows (BootWindow  300 s for
 now)  wait  for a  series  of  settled boots  --  the  times measured  during  a
 walkthrough,  with  questions in  between,  are  an  attacker's times,  not  the
-owner's. Open,  and decided together as  they come: `stage inventory  adopt` for
-the  one-liner above,  a  uniform  verb for  `mk`/`make`,  the  pipeline in  one
-command, and the second witnesses bound into custody once their values exist.
+owner's. Open, and decided together as they  come: the restore probe of the dump
+into a  second database, the  earlboot witnesses  bound into custody  once their
+values exist, a uniform verb for `mk`/`make`, and the pipeline in one command.

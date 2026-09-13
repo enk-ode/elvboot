@@ -540,15 +540,16 @@ _stage_constant_esp1() {
 
 #@help _stage_constant_images1
 # @command stage constant images <stage>
-# @summary Print readonly ELV_IMAGES_EXPECTED: the value of the stage's kenv record loader.trust.<gate>.images.expected (the LoadedImages expectation the loader reads at run time, recorded by stage kenv learn), for measure_images_expected -- the second witness in earlboot; empty without the record
+# @summary Print readonly ELV_IMAGES_EXPECTED: the stage's baseline LOADER_TRUST_IMAGES_DIGEST (the digest over the image set, learned by stage baseline learn), for measure_images_expected -- the second witness in earlboot, the loader's word against the stage's; empty without the baseline
 # @group   foundation
 # @internal
 # @see     stage container render constants
 # @see     stage kenv learn
 #@end
 _stage_constant_images1() {
-        local f="" v=""
-        for f in "$ELEBAKE_BASE/stage/$1"/kenv/loader.trust.*.images.expected; do test -f "$f" && v=$(sed -n 1p "$f" 2>/dev/null); done
+        local type="" v=""
+        read -r type v 2>/dev/null < "$ELEBAKE_BASE/stage/$1/baselines/LOADER_TRUST_IMAGES_DIGEST"
+        test "$type" = digest || v=""
         printf 'readonly ELV_IMAGES_EXPECTED=%s\n' "$(sq "$v")"
 }
 

@@ -1793,7 +1793,7 @@ line_pos_ok() {
 # line_insert_emit <file> <pos> <line> — emit the shell that inserts <line>
 # at 1-based <pos> of <file> (position validated at generation time)
 line_insert_emit() {
-  printf '%s\n' "{ head -n $(($2 - 1)) '$1'; printf '%s\\n' '$3'; tail -n +$2 '$1'; } > '$1.new' && mv '$1.new' '$1'"
+  printf '%s\n' "{ test $(($2 - 1)) -gt 0 && head -n $(($2 - 1)) '$1'; printf '%s\\n' '$3'; tail -n +$2 '$1'; } > '$1.new' && mv '$1.new' '$1'"
 }
 
 
