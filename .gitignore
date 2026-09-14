@@ -1,3 +1,5 @@
 # Site-specific test protocols are infrastructure documentation, not part of
 # the tool; they live in the (offline) Infrastruktur repo.
 docs/TEST-illyria.md
+# scratch root of 'make man' (help before any database keeps its .tmp under the root)
+.man-root/

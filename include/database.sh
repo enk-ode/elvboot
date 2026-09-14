@@ -242,25 +242,47 @@ __environment_cache0() {
         echo '"$ELEBAKE_CONTEXT_SCRIPT" environment cache status'
 }
 
-#@help _environment_cache_on0
+#@help ___environment_cache_on0
 # @command environment cache on
-# @summary Build the environment cache NOW (a fresh scan of .env/, written at generation time) so every later invocation skips the layered lookup
-# @group   configuration
-# @env     ELEBAKE_CACHE_ENV_ARGS  the cache file this command writes
-# @see     environment cache off
+# @summary Build the environment cache, the pattern of stage site mk: 'environment cache render' redirected into .env/local/ELEBAKE_CACHE_ENV_ARGS.new (a fresh scan of .env/), then 'environment cache place' moves it into place (0600) and says how many variables. The scan happens when the lines run, not when this command generates: a compiled script carries them, and they see the setenv acts before them. A database whose cache predates this version knows no pin for 'place' and only displays it: re-sync first (environment init <profile>), it drops the cache
+# @group   setup
+# @env     ELEBAKE_CACHE_ENV_ARGS  the cache file the lines write
+# @see     environment cache render
+# @see     environment cache place
+# @see     environment cache status
 #@end
-_environment_cache_on0() {
-        local cache_file="$ELEBAKE_BASE/.env/local/ELEBAKE_CACHE_ENV_ARGS" var_count
-        # Generation time: write the cache directly (ESSENCE). Force a fresh disk
-        # scan: build_env_args_full short-circuits on an in-memory
-        # ELEBAKE_CACHE_ENV_ARGS (inherited via env -), so without unsetting it
-        # here a rebuild would just rewrite the stale value it is meant to
-        # replace. Unset in a subshell so the scan reads .env/ afresh.
-        ( unset ELEBAKE_CACHE_ENV_ARGS; build_env_args_full ) > "$cache_file"
-        $MODIFY_FILE_PERMS 0600 "$cache_file"
-        var_count=$(wc -w < "$cache_file" | tr -d ' ')
-        echo "echo '# Environment cache ENABLED' >&2"
-        echo "echo '# Cached $var_count variables' >&2"
+___environment_cache_on0() {
+        local f="$ELEBAKE_BASE/.env/local/ELEBAKE_CACHE_ENV_ARGS"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" environment cache render > '$f.new'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" environment cache place"
+}
+
+#@help _environment_cache_render0
+# @command environment cache render
+# @summary Text terminal: the layered store .env/ as one line of NAME='value' pairs, local over default, scanned afresh (the in-memory cache a parent handed down is set aside for the scan) -- the content of the cache, what 'environment cache on' redirects into the .new file
+# @group   setup
+# @internal
+# @env     ELEBAKE_CACHE_ENV_ARGS  the value a parent may have handed down -- ignored here, the scan reads .env/
+# @see     environment cache on
+#@end
+_environment_cache_render0() {
+        ( unset ELEBAKE_CACHE_ENV_ARGS; build_env_args_full )
+}
+
+#@help _environment_cache_place0
+# @command environment cache place
+# @summary Act terminal: the script that moves .env/local/ELEBAKE_CACHE_ENV_ARGS.new into place (0600) and says how many variables the cache holds. Before 14.09. the cache was written while 'environment cache on' generated; a compiled script had nothing to run, and a display pin was not innocent
+# @group   setup
+# @internal
+# @env     ELEBAKE_CACHE_ENV_ARGS  the cache file this script places
+# @see     environment cache on
+#@end
+_environment_cache_place0() {
+        local f="$ELEBAKE_BASE/.env/local/ELEBAKE_CACHE_ENV_ARGS"
+        printf '%s\n' "test -s '$f.new' || { printf '# Error: environment cache not rendered (%s)\\n' '$f.new' >&2; exit 1; }"
+        printf '%s\n' "$MODIFY_FILE_PERMS 0600 '$f.new' && mv '$f.new' '$f'"
+        printf '%s\n' "echo '# Environment cache ENABLED' >&2"
+        printf '%s\n' "echo \"# Cached \$(wc -w < '$f' | tr -d ' ') variables\" >&2"
 }
 
 #@help _environment_cache_off0
@@ -299,7 +321,7 @@ _environment_cache_status0() {
 
 #@help ___init1
 # @command init <profile>
-# @summary Initialize the database at ELEBAKE_BASE: the layout (database init), then the profile's environment (environment init)
+# @summary Initialize the database at ELEBAKE_BASE: the layout (database init), then the profile's environment (environment init), then the environment cache (environment cache on) -- every later invocation reads one file instead of the layered store
 # @group   setup
 # @param   profile  minimal or all
 # @example elebake init minimal
@@ -308,6 +330,7 @@ _environment_cache_status0() {
 ___init1() {
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" database init"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" environment init '$1'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" environment cache on"
 }
 
 #@help __init0
@@ -827,7 +850,7 @@ ___dump_epilogue0() {
 
 #@help __restore1
 # @command restore <dump> [<base>]
-# @summary Replay a dump into the current database -- only a dump signed by the PINNED attest key, at or above the lineage's serial; <base> binds where its base elements come from (default: this database). The dump's format (its '# Version:' header) selects the restore that speaks it: 'restore v<format> <dump> <base>'
+# @summary Replay a dump into the current database -- only a dump signed by the PINNED attest key, at or above the lineage's serial; <base> binds where its base elements come from (default: this database). The dump's format (its '# Version:' header) selects the restore that speaks it: 'restore v<format> <dump> <base>' -- ONLY into an EMPTY database (see import): records already present collide with the replay
 # @group   database
 # @env     ELEBAKE_ARCHIVE_ATTEST_KEY  the openpgp record naming the signer the dump must carry
 # @example elebake restore backup.sh
@@ -1833,7 +1856,7 @@ ___export_pair5() {
 
 #@help ___import2
 # @command import <dump> <bundle>
-# @summary Replay an exported pair into the current database, checked end to end BEFORE anything lands, cheapest first: the pinned signer, the dump's signature, the seal (this bundle is the one the dump names), then -- unpacked into import's own scratch under incoming/ -- the bundle's MANIFEST (pinned signer, every hash). The receipt is filed BEFORE the replay (restore applies its own admissibility: signer, serial floor; the replay runs keep-going, so a redacted pair's withheld elements cost no receipt). restore re-checks the dump as every restore does
+# @summary Replay an exported pair into the current database, checked end to end BEFORE anything lands, cheapest first: the pinned signer, the dump's signature, the seal (this bundle is the one the dump names), then -- unpacked into import's own scratch under incoming/ -- the bundle's MANIFEST (pinned signer, every hash). The receipt is filed BEFORE the replay (restore applies its own admissibility: signer, serial floor; the replay runs keep-going, so a redacted pair's withheld elements cost no receipt). restore re-checks the dump as every restore does -- ONLY into an EMPTY database (a fresh bootstrap with the attest key pinned): on a database that already holds records the replay collides with them -- an identical add is a no-op, a differing one is refused, an imported file replaces the one it names, the work link of the source displaces a worktree of your own (JB 14.09.)
 # @group   database
 # @env     ELEBAKE_ARCHIVE_ATTEST_KEY  the openpgp record naming the signer both artifacts must carry -- the receiver's pin
 # @example elebake import dump.sh ~/.elebake/bundle/a1b2c3d.tar.gz

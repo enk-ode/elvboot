@@ -924,3 +924,71 @@ walkthrough,  with  questions in  between,  are  an  attacker's times,  not  the
 owner's. Open, and decided together as they  come: the restore probe of the dump
 into a  second database, the  earlboot witnesses  bound into custody  once their
 values exist, a uniform verb for `mk`/`make`, and the pipeline in one command.
+
+## 20. The restore probe: the database on a second machine
+
+A backup that was never restored is a  hope. On 13 and 14 September the database
+left the laptop:  `elvboot-dump-publish.sh full` wrote the attested  dump into a
+private  repository  and  the  export  bundle beside  it,  both  encrypted  with
+passphrases      that      exist       on      paper      first      (hkdf-tree,
+`brj/cold-storage/elvboot-dump-v1`  and  `elvboot-export-v1`),   and  the  older
+desktop received them:
+
+```
+elebake bootstrap probe minimal
+elebake openpgp add archive 7CD2BCDFF6D8567A
+elebake setenv ELEBAKE_ARCHIVE_ATTEST_KEY archive
+elebake import /tmp/ram/dump.sh /tmp/ram/7.tar.gz
+```
+
+Four serials it took, and each one paid for itself:
+
+- **Serial  4** stopped at  the first `stage inventory  add`: the add  demands a
+  record that  lists the identity, the  bundle carried the records,  but no dump
+  line imported them  -- on the source  machine they had always  been there. The
+  dump imports the records first now.
+- **The  bootstrap took two  minutes** on the  old machine: before  any database
+  exists  the engine  had bound  its scratch  to `${TMPDIR:-/tmp}`,  an implicit
+  default of  the kind  the tool forbids,  and every one  of the  ~330 bootstrap
+  lines rebuilt  the environment from 311  template files. The scratch  lives in
+  the database being created now, and init ends with the environment cache on.
+- **Serial 6** failed on `stage import daily-v1 . …/work`: the dump imported the
+  work symlink, the collection had never bundled it.
+- **Serial 7**  ran to the end  -- signature, seal, a manifest  of 1367 entries,
+  every record  -- and failed  only in its  closing `stage build`:  the checkout
+  record  named `ptg-15.1-next^0`,  a ref  of the  laptop's repository,  and the
+  dangling work link passed  for a worktree. The record names  the commit now, a
+  dangling link is no worktree, and  the dump closes with `stage rebuild`, which
+  without a worktree names the way instead of failing.
+
+The import  itself is a replay  of some 600  lines, each an elebake  process: 22
+minutes on  the old  desktop. Two changes  took the count  down from  about 5600
+process starts to under 200 -- the  three inventory sets travel as files (`stage
+import  <stage>  inventory <file>`,  three  lines  for  what  had been  240  add
+batches), and the boot tree is one  `stage import tree` line instead of one line
+per file. The next  lever, lines of a batch in one process,  is an engine change
+and waits for its plan.
+
+Then the  comparison. On the desktop  the worktree is re-anchored  from the same
+fork -- `stage checkout daily-v1 platform-trust-gates-15.1`, 109111 files -- and
+`stage require  daily-v1` prints on  both machines the  same 34 lines:  the five
+kenv  leafs the  bound actions  read, the  one key  expectation, every  baseline
+provisioned, the  three digests that have  no value yet. The  database describes
+the same chain wherever it is.
+
+The probe is passed:  `stage require daily-v1` prints the same  34 lines on both
+machines, and the database  on the desktop was made by  the dump's own commands,
+checked by  their own predicates,  in order. What  the 22 minutes  taught became
+`elebake-binary.sh` the  same day:  the import  in one  process, the  anchors as
+functions, every emitted line  a call -- 20 seconds for the same  dump, 25 on an
+empty database. Its second name, `elebake-compile.sh`, writes the script instead
+of running  it; compiled  against an  empty database that  script has  862 error
+fragments,  because a  predicate judged  at  compile time  is an  answer in  the
+script, not a check  -- the order survives, the state  does not. The interpreter
+is for import; the compiled script is for reading.
+
+What does  not travel, on purpose:  key material.  `stage trust`  on the desktop
+fails at once -- the attest key record names `/root/secureboot/manifest/.gnupg`,
+a keyring  that exists  on the laptop  and nowhere else.   Building on  a second
+machine is an air-gap decision, not a side effect of an import; the boot tree in
+the bundle is what a rescue needs, and it is there.

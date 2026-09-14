@@ -81,104 +81,54 @@ EOF
 # Lets a variable be disabled by commenting/blanking its file without deleting
 # it, while keeping resolution simple: a comment does NOT block the default.
 should_skip_env_value() {
-  local value="$1"
-
-  # Empty line - skip
-  case "$value" in
-    '') return 0 ;;
-  esac
-
-  # Whitespace-only line - skip
-  case "$value" in
-    *[![:space:]]*) ;;  # Has non-whitespace - continue checking
-    *) return 0 ;;      # Only whitespace - skip
-  esac
-
-  # Comment line (with optional leading whitespace) - skip
-  local trimmed=$(echo "$value" | sed 's/^[[:space:]]*//')
-  case "$trimmed" in
-    \#*) return 0 ;;    # Comment - skip
-  esac
-
-  return 1  # Use this value
+  # empty, only whitespace, or a comment: skip. Trimming by expansion --
+  # the echo | sed of before was two processes per variable.
+  local value="$1" trimmed
+  case "$value" in '') return 0 ;; esac
+  case "$value" in *[![:space:]]*) ;; *) return 0 ;; esac
+  trimmed=${value#"${value%%[![:space:]]*}"}
+  case "$trimmed" in \#*) return 0 ;; esac
+  return 1
 }
 
 build_env_args_full() {
-  # Full environment scan (excludes cache file to avoid recursion)
-  # Called by build_env_args() when cache is not available
-  # Called by "environment cache on" to generate cache content
-
-  # Return in-memory cached value if available (passed through env -)
+  # The layered store as one line of NAME='value' pairs: local first, then
+  # default (a name seen in local wins); ELEBAKE_CACHE_ENV_ARGS and
+  # ELEBAKE_BASE never; empty values never. Per variable: the name by
+  # expansion, the first line by read, the quoting by sq -- basename,
+  # head -n1 and printf | sed were 1300 process starts for 321 variables
+  # (6.5 s on the old desktop), this is 42 ms.
   if [ -n "${ELEBAKE_CACHE_ENV_ARGS:-}" ]; then
-    echo "$ELEBAKE_CACHE_ENV_ARGS"
+    printf '%s\n' "$ELEBAKE_CACHE_ENV_ARGS"
     return 0
   fi
-
-  local env_base="$ELEBAKE_ENV_DIR"
-  local env_args=""
-  local seen_vars=""
-
-  # First pass: Load local overrides (highest priority)
+  local env_base="$ELEBAKE_ENV_DIR" env_args="" seen_vars="" varfile varname value
   if [ -d "$env_base/local" ]; then
     for varfile in "$env_base/local"/*; do
-      [ ! -f "$varfile" ] && continue
-
-      local varname=$(basename "$varfile")
-
-      # CRITICAL: Skip cache file to avoid recursion
-      if [ "$varname" = "ELEBAKE_CACHE_ENV_ARGS" ]; then
-        continue
-      fi
-
-      local value=$(head -n1 "$varfile")
-
-      # Use helper to check if should skip
-      if should_skip_env_value "$value"; then
-        # DON'T mark as seen - allow default to load (less surprising)
-        continue
-      fi
-
-      # Mark as seen ONLY when we actually use the value
+      [ -f "$varfile" ] || continue
+      varname=${varfile##*/}
+      [ "$varname" != "ELEBAKE_CACHE_ENV_ARGS" ] || continue
+      IFS= read -r value < "$varfile" || value=""
+      should_skip_env_value "$value" && continue
       seen_vars="$seen_vars $varname "
-
-      # Escape single quotes for shell eval: ' becomes '\''
-      local escaped_value=$(printf '%s\n' "$value" | sed "s/'/'\\\\''/g")
-      env_args="$env_args $varname='$escaped_value'"
+      env_args="$env_args $varname=$(sq "$value")"
     done
   fi
-
-  # Second pass: Load defaults (only if not already set by local)
   if [ -d "$env_base/default" ]; then
     for varfile in "$env_base/default"/*; do
-      [ ! -f "$varfile" ] && continue
-
-      local varname=$(basename "$varfile")
-
-      # Skip ELEBAKE_BASE - it's passed explicitly in run_env()
+      [ -f "$varfile" ] || continue
+      varname=${varfile##*/}
       if [ "$varname" = "ELEBAKE_BASE" ]; then
         display_warning "ELEBAKE_BASE found in .env files but will be ignored (must be set via environment)" >&2
         continue
       fi
-
-      # Skip if already loaded from local
-      case "$seen_vars" in
-        *" $varname "*) continue ;;
-      esac
-
-      local value=$(head -n1 "$varfile")
-
-      # Use helper to check if should skip
-      if should_skip_env_value "$value"; then
-        continue
-      fi
-
-      # Escape single quotes for shell eval: ' becomes '\''
-      local escaped_value=$(printf '%s\n' "$value" | sed "s/'/'\\\\''/g")
-      env_args="$env_args $varname='$escaped_value'"
+      case "$seen_vars" in *" $varname "*) continue ;; esac
+      IFS= read -r value < "$varfile" || value=""
+      should_skip_env_value "$value" && continue
+      env_args="$env_args $varname=$(sq "$value")"
     done
   fi
-
-  echo "$env_args"
+  printf '%s\n' "$env_args"
 }
 
 # build_env_args_template -- the SHIPPED baseline as env args: every variable
@@ -188,17 +138,19 @@ build_env_args_full() {
 # bootstrap and its children see the same pins a bootstrapped database
 # installs, and no line needs an environment prefix.
 build_env_args_template() {
-  local varfile varname value escaped_value env_args=""
+  # the shipped baseline (template/environment) as NAME='value' pairs --
+  # what a command sees before any database exists; same mechanics as
+  # build_env_args_full
+  local varfile varname value env_args=""
   for varfile in "$ELEBAKE_TEMPLATE_DIR/environment"/ELEBAKE_* "$ELEBAKE_TEMPLATE_DIR/environment/PATH"; do
     [ -f "$varfile" ] || continue
-    varname=$(basename "$varfile")
+    varname=${varfile##*/}
     case "$varname" in ELEBAKE_PROFILE_*|ELEBAKE_CACHE_ENV_ARGS|ELEBAKE_BASE) continue ;; esac
-    value=$(head -n1 "$varfile")
+    IFS= read -r value < "$varfile" || value=""
     should_skip_env_value "$value" && continue
-    escaped_value=$(printf '%s\n' "$value" | sed "s/'/'\\\\''/g")
-    env_args="$env_args $varname='$escaped_value'"
+    env_args="$env_args $varname=$(sq "$value")"
   done
-  echo "$env_args"
+  printf '%s\n' "$env_args"
 }
 
 build_env_args() {
@@ -356,7 +308,88 @@ __wrong_arity1() {
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error $(sq "wrong number of arguments for '$cmd' -- usage:") $(sq "$usage")"
 }
 
+# q <value> -- Q is the single-quoted value: every ' as '\''. Pure shell;
+# the first case is the fast path (a value without an apostrophe is
+# wrapped directly -- the loop's ${s#*\'} is quadratic on long values
+# without one, the ELEBAKE_PROFILE_* lists). sq prints Q.
+q() {
+  local s="$1" rest
+  case "$s" in *\'*) ;; *) Q="'$s'"; return 0 ;; esac
+  Q=""
+  while :; do
+    rest=${s#*\'}
+    if [ "$rest" = "$s" ]; then Q="$Q$s"; break; fi
+    Q="$Q${s%%\'*}'\\''"
+    s=$rest
+  done
+  Q="'$Q'"
+}
+
+# resolve_call <functions> <word>... -- CALL is "<function> 'arg' ...":
+# the dispatch rule. The longest prefix of words that names a function
+# wins, the remaining words are its arguments; at a level the name with
+# the arity suffix (the count of remaining words) before the plain name,
+# ___ before __ before _. Every candidate is asked with command -v -- the
+# functions of the sourced modules -- a builtin, microseconds. When no
+# level has a loaded function the scan over <functions> decides
+# (to_function_call_scan, the rule as before): it names a wrong arity
+# (__wrong_arity1), the unknown command (_unknown_command1) and a function
+# whose module the lazy loader has not sourced yet.
+resolve_call() {
+  local functions="${1:-}" n k name arity cand pfx w i
+  shift
+  n=$#
+  if [ -z "$functions" ] || [ -z "${1:-}" ]; then
+    CALL="_help0"
+    return 0
+  fi
+  k=$n
+  while [ "$k" -ge 1 ]; do
+    name=""; i=0
+    for w in "$@"; do
+      i=$((i + 1)); [ "$i" -le "$k" ] || break
+      case "$w" in *-*) w=$(printf '%s' "$w" | tr '-' '_') ;; esac
+      name="${name:+${name}_}$w"
+    done
+    arity=$((n - k))
+    for cand in "${name}${arity}" "$name"; do
+      for pfx in ___ __ _; do
+        if command -v "${pfx}${cand}" > /dev/null 2>&1; then
+          CALL="${pfx}${cand}"
+          i=0
+          for w in "$@"; do
+            i=$((i + 1)); [ "$i" -gt "$k" ] || continue
+            q "$w"; CALL="$CALL $Q"
+          done
+          return 0
+        fi
+      done
+    done
+    # the deeper path decides first (outside-in, as the scan): a stem that
+    # exists with another arity is a wrong arity here, not a match of a
+    # shallower name with more arguments ('stage build kernel' names
+    # stage build kernel <stage>, not stage build with the stage 'kernel')
+    for i in 0 1 2 3 4 5 6 7 8 9; do
+      for pfx in ___ __ _; do
+        if command -v "${pfx}${name}${i}" > /dev/null 2>&1; then
+          q "$name"; CALL="__wrong_arity1 $Q"
+          return 0
+        fi
+      done
+    done
+    k=$((k - 1))
+  done
+  CALL=$(to_function_call_scan "$functions" "$@")
+}
+
+# to_function_call <functions> <word>... -- resolve_call, printed
 to_function_call() {
+  local CALL
+  resolve_call "$@"
+  printf '%s\n' "$CALL"
+}
+
+to_function_call_scan() {
   # First argument is the function list (mandatory)
   local functions="${1:-}"
   shift
@@ -417,7 +450,7 @@ to_function_call() {
     done
     if [ -n "$filtered_deep" ]; then
       local deep_result
-      deep_result=$(to_function_call "$filtered_deep" "${curr}_${next}" "$@")
+      deep_result=$(to_function_call_scan "$filtered_deep" "${curr}_${next}" "$@")
       case "$deep_result" in
         _unknown_command1*) deep_unknown="$deep_result" ;;    # nothing deeper -- fall through to local match
         *) printf '%s\n' "$deep_result"; return 0 ;;
@@ -443,10 +476,10 @@ to_function_call() {
       # Use printf with %q to properly quote each argument for eval safety
       printf "%s" "$line"
       if [ -n "$next" ]; then
-        printf " %s" "$(printf '%s\n' "$next" | sed "s/'/'\\\\''/g; s/^/'/; s/$/'/")"
+        printf " %s" "$(sq "$next")"
       fi
       for arg in "$@"; do
-        printf " %s" "$(printf '%s\n' "$arg" | sed "s/'/'\\\\''/g; s/^/'/; s/$/'/")"
+        printf " %s" "$(sq "$arg")"
       done
       printf '\n'
       return 0
@@ -461,7 +494,7 @@ to_function_call() {
   for line in $filtered; do
     case "$line" in
       _${curr}[0-9]*|__${curr}[0-9]*|___${curr}[0-9]*)
-        printf '%s %s\n' "__wrong_arity1" "$(printf '%s\n' "$curr" | sed "s/'/'\\\\''/g; s/^/'/; s/$/'/")"
+        printf '%s %s\n' "__wrong_arity1" "$(sq "$curr")"
         return 0 ;;
     esac
   done
@@ -473,7 +506,7 @@ to_function_call() {
     printf '%s\n' "$deep_unknown"
     return 0
   fi
-  printf '%s %s\n' "_unknown_command1" "$(printf '%s\n' "$curr" | sed "s/'/'\\\\''/g; s/^/'/; s/$/'/")"
+  printf '%s %s\n' "_unknown_command1" "$(sq "$curr")"
   return 0
 }
 
@@ -633,55 +666,29 @@ dispatch() {
   return $func_exit
 }
 
-lookup_interpreter() {
-  # Read resolved function call from stdin
-  local function_call
-  read -r function_call
-
-  # Extract function name (first word)
-  local function_name="${function_call%% *}"
-
-  # Try arity-specific override first (most specific)
-  # Example: ELEBAKE_INTERPRETER_getenv1
-  local mangled_with_arity=$(echo "$function_name" | sed 's/^_*//')
-  local interp_var_arity="ELEBAKE_INTERPRETER_${mangled_with_arity}"
-  local override_arity=$(eval echo "\${${interp_var_arity}:-}")
-
-  if [ -n "$override_arity" ]; then
-    echo "$override_arity"
-    return 0
-  fi
-
-  # Try arity-agnostic override (less specific)
-  # Example: ELEBAKE_INTERPRETER_getenv
-  local mangled=$(echo "$function_name" | sed 's/^_*//; s/[0-9]$//')
-  local interp_var="ELEBAKE_INTERPRETER_${mangled}"
-  local override=$(eval echo "\${${interp_var}:-}")
-
-  if [ -n "$override" ]; then
-    echo "$override"
-    return 0
-  fi
-
-  # Use defaults based on underscore count (intrinsic classification)
-  case "$function_name" in
-    ___*)
-      # Triple underscore = batch-combinator function (outputs multiple commands)
-      echo "$ELEBAKE_BATCH_COMBINATOR_INTERPRETER"
-      ;;
-    __*)
-      # Double underscore = combinator function (outputs single command)
-      echo "$ELEBAKE_COMBINATOR_INTERPRETER"
-      ;;
-    _*)
-      # Single underscore = terminal function (outputs shell commands)
-      echo "$ELEBAKE_TERMINAL_INTERPRETER"
-      ;;
-    *)
-      # No underscore prefix (shouldn't happen with proper naming)
-      error "Function name without underscore prefix: $function_name (check function naming convention)"
-      ;;
+# pin_of <function> -- PIN is the interpreter of the function: the
+# arity-specific pin ELEBAKE_INTERPRETER_<name><arity>, then the family pin
+# ELEBAKE_INTERPRETER_<name>, then the class default -- by expansion
+pin_of() {
+  local m=${1#___}
+  m=${m#__}; m=${m#_}
+  eval "PIN=\${ELEBAKE_INTERPRETER_${m}:-}"
+  [ -n "$PIN" ] || eval "PIN=\${ELEBAKE_INTERPRETER_${m%[0-9]}:-}"
+  [ -n "$PIN" ] && return 0
+  case "$1" in
+    ___*) PIN=$ELEBAKE_BATCH_COMBINATOR_INTERPRETER ;;
+    __*)  PIN=$ELEBAKE_COMBINATOR_INTERPRETER ;;
+    _*)   PIN=$ELEBAKE_TERMINAL_INTERPRETER ;;
+    *)    error "Function name without underscore prefix: $1 (check function naming convention)" ;;
   esac
+}
+
+# lookup_interpreter -- the interpreter of the function call on stdin
+lookup_interpreter() {
+  local function_call PIN
+  read -r function_call
+  pin_of "${function_call%% *}"
+  printf '%s\n' "$PIN"
 }
 
 # ANSI color codes (only applied when ELEBAKE_DISPLAY_ANSI=1; defined
@@ -1153,7 +1160,9 @@ combine_exit_codes() {
 # @example elebake note 'gate fish_0: slot LOADER_TRUST_BOOTLOCK_SECRET has no baseline'
 #@end
 _note1() {
-        printf '%s\n' "printf '# %s\\n' '$(printf '%s' "$1" | sed "s/'/'\\\\''/g")' >&2"
+        local t
+        t=$(sq "$1"); t=${t#\'}; t=${t%\'}
+        printf '%s\n' "printf '# %s\\n' '$t' >&2"
 }
 
 #@help _comment1
@@ -1632,11 +1641,17 @@ main() {
 
     # No database exists: the environment is the shipped baseline
     # (template/environment), and the bootstrap batch itself runs under
-    # sh -e -- the batch runner's scratch lives in the database the batch
-    # is about to create (its first act, 'bootstrap scaffold'). ELEBAKE_BASE
-    # points at an existing directory for the trace machinery; the target
-    # database is named by the batch lines themselves.
-    ELEBAKE_BASE="${TMPDIR:-/tmp}"
+    # sh -e. The scratch of every line (.tmp: exit propagation, the batch
+    # ring) lives in the database the batch creates -- its name is the
+    # first argument, checked here before a directory is born (the batch
+    # line 'bootstrap name valid' records the same rule), the directory
+    # made 0700 (what 'bootstrap scaffold' ensures again). Neither TMPDIR
+    # nor /tmp: an implicit default, and a foreign directory (JB 13.09.).
+    database_name_ok "${2:-}" || error "bootstrap: <name> is a plain database name -- no slash, not db: ${2:-(missing)} (e.g. production)"
+    ELEBAKE_BASE="$ELEBAKE_ROOT/$2"
+    if [ ! -d "$ELEBAKE_BASE" ]; then
+      $MODIFY_DIR_CREATE "$ELEBAKE_BASE" && $MODIFY_FILE_PERMS 0700 "$ELEBAKE_BASE"
+    fi
     export LOG_FILE="${LOG_FILE:-/dev/null}"
     export ELEBAKE_CACHE_ENV_ARGS="PATH='/bin:/usr/bin:/usr/local/bin' $(build_env_args_template) ELEBAKE_INTERPRETER_bootstrap='sh -e'"
 
@@ -1669,17 +1684,19 @@ main() {
   # These commands can run before database initialization (e.g., help, bootstrap).
   # ONLY when no database exists: with a database present every command --
   # including the help family -- takes the full path (env loaded, user pins
-  # honoured, and 'help env' resolves the REAL layer cascade; the /tmp
+  # honoured, and 'help env' resolves the REAL layer cascade; the root
   # fallback below would otherwise shadow the database).
   if [ ! -d "$ELEBAKE_BASE/.env" ]; then
   for cmd in $COMMANDS_WITHOUT_DATABASE; do
     for arg in "$@"; do
       if [ "$arg" = "$cmd" ]; then
-        # Help command needs ELEBAKE_BASE set to an existing directory
-        # because process_arguments() uses .tmp for exit code propagation
-        # Other commands (bootstrap, init) handle their own ELEBAKE_BASE
+        # help before any database: process_arguments() needs .tmp for
+        # exit propagation, so the scratch is under the elebake root --
+        # derived from ELEBAKE_BASE, never TMPDIR or /tmp (JB 13.09.);
+        # make man binds a root of its own. Other commands (bootstrap,
+        # init) bind their own ELEBAKE_BASE.
         if [ "$cmd" = "help" ]; then
-          ELEBAKE_BASE="${TMPDIR:-/tmp}"
+          ELEBAKE_BASE="$ELEBAKE_ROOT"
         fi
 
         # No .env layer yet: the environment is the shipped baseline
@@ -1801,7 +1818,9 @@ line_insert_emit() {
 # '\''), for values that travel inside an emitted line: labels, descriptions,
 # error reasons that may contain quotes or parentheses
 sq() {
-  printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"
+  local Q
+  q "$1"
+  printf '%s' "$Q"
 }
 
 # emit_note <text> — emit a runtime stderr note from a terminal: visible
@@ -1811,6 +1830,6 @@ sq() {
 # "# ..." lines; file content inside emitted heredocs is data, not a note.
 emit_note() {
   local t
-  t=$(printf '%s' "$*" | sed "s/'/'\\\\''/g")
+  t=$(sq "$*"); t=${t#\'}; t=${t%\'}
   printf '%s\n' "printf '%s\\n' '# $t' >&2"
 }

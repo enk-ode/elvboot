@@ -496,7 +496,9 @@ The platform claims AcpiTables, EfiVariables and LoadedImages measure a
   (at least two records: one boot cannot tell what moves), `drop` takes
   an item out, `list` shows
   the set; the set lives in `inventory/<kind>`, one entry per line, and
-  the dump replays the entries (records are observations, imported again).
+  the dump imports the records from the bundle first (`stage dump
+  inventory records`, they are the observations the set was adopted from
+  and `stage inventory add` demands them), then replays the entries.
 - `stage inventory make <stage>`, a part of `stage site mk`, renders
   `LOADER_TRUST_ACPI_SET` and `LOADER_TRUST_EFIVARS_SET`, sorted and
   comma-joined -- the order the loader hashes the members' digests in, so

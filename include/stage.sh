@@ -983,15 +983,15 @@ ___stage_checkout2() {
 
 #@help __stage_not_checked_out1
 # @command stage not checked out <stage>
-# @summary The stage has no worktree yet (no work link): a comment line, else an error line naming the checkout it has and 'stage recheckout' -- git refuses a second worktree on the same path, and a record written past that refusal would lie
+# @summary The stage has no worktree -- no directory behind stage/<name>/work (a dangling link, the record of a restored dump, counts as none): a comment line, else an error line naming the recorded commit and stage recheckout
 # @group   stage
 # @internal
 # @see     stage checkout
 # @see     stage recheckout
 #@end
 __stage_not_checked_out1() {
-        if test -L "$ELEBAKE_BASE/stage/$1/work"; then
-                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'stage $1 is checked out at $(sed -n 1p "$ELEBAKE_BASE/stage/$1/checkout" 2>/dev/null) (worktree $(readlink "$ELEBAKE_BASE/stage/$1/work")): stage recheckout $1 <ref> replaces it'"
+        if test -d "$ELEBAKE_BASE/stage/$1/work/"; then
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'stage $1 is checked out at $(sed -n 1p "$ELEBAKE_BASE/stage/$1/checkout" 2>/dev/null) (worktree $(readlink "$ELEBAKE_BASE/stage/$1/work" 2>/dev/null)): stage recheckout $1 <ref> replaces it'"
         else
                 printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'stage $1 has no worktree yet'"
         fi
@@ -1035,36 +1035,41 @@ _stage_worktree_remove1() {
 
 #@help _stage_worktree2
 # @command stage worktree <stage> <ref>
-# @summary Act terminal: git worktree add --detach under $ELEBAKE_ROOT/worktree/<id> (an attached branch would block every later push of that branch into the source repo), the work link, the checkout record
+# @summary Act terminal: git worktree add --detach of the COMMIT the ref names (resolved at generation time -- the record checkout stores the commit hash, so a dump restored on another machine names the same tree; a ref that names no commit is an error line), the work symlink, the checkout record (0600) and the note
 # @group   stage
 # @internal
 # @env     ELEBAKE_FREEBSD_SRC  the source repo
 # @see     stage checkout
 #@end
 _stage_worktree2() {
-        local wt=""
+        local wt="" commit=""
         wt="$ELEBAKE_ROOT/worktree/$(basename "$(readlink "$ELEBAKE_BASE/stage/$1")")"
+        commit=$(git -C "${ELEBAKE_FREEBSD_SRC:-}" rev-parse --verify --quiet "$2^{commit}" 2>/dev/null)
+        if test -z "$commit"; then
+                printf '%s\n' "printf '# Error: stage checkout %s: %s names no commit in %s\\n' '$1' '$2' '${ELEBAKE_FREEBSD_SRC:-}' >&2; exit 1"
+                return 0
+        fi
         printf '%s\n' "$MODIFY_DIR_CREATE '$ELEBAKE_ROOT/worktree'"
-        printf '%s\n' "git -C '${ELEBAKE_FREEBSD_SRC:-}' worktree add --detach '$wt' '$2' || exit 1"
+        printf '%s\n' "git -C '${ELEBAKE_FREEBSD_SRC:-}' worktree add --detach '$wt' '$commit' || exit 1"
         printf '%s\n' "$MODIFY_LINK_FORCE '$wt' '$ELEBAKE_BASE/stage/$1/work'"
-        printf '%s\n' "echo '$2' > '$ELEBAKE_BASE/stage/$1/checkout'"
+        printf '%s\n' "echo '$commit' > '$ELEBAKE_BASE/stage/$1/checkout'"
         printf '%s\n' "$MODIFY_FILE_PERMS 0600 '$ELEBAKE_BASE/stage/$1/checkout'"
-        printf '%s\n' "printf '# Checked out %s at %s (worktree %s)\\n' '$1' '$2' '$wt' >&2"
+        printf '%s\n' "printf '# Checked out %s at %s = %s (worktree %s)\\n' '$1' '$2' '$commit' '$wt' >&2"
 }
 
 #@help __stage_checked_out1
 # @command stage checked out <stage>
-# @summary The stage has its worktree (the work link): a comment line, else an error line (stage checkout first)
+# @summary A directory is behind stage/<name>/work (a dangling link counts as none): a comment line, else an error line
 # @group   stage
 # @internal
 # @see     stage checkout
 # @see     stage build
 #@end
 __stage_checked_out1() {
-        if test -L "$ELEBAKE_BASE/stage/$1/work"; then
+        if test -d "$ELEBAKE_BASE/stage/$1/work/"; then
                 printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'stage $1 checked out'"
         else
-                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'stage $1: not checked out (stage checkout $1 <ref>)'"
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'stage $1: not checked out (stage checkout $1 <ref>; a dangling work link -- a restored record -- counts as none)'"
         fi
 }
 
@@ -2003,6 +2008,50 @@ ___stage_import3() {
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage import file '$1' '$2' '$3'"
 }
 
+#@help ___stage_import_tree3
+# @command stage import tree <stage> <reldir> <absdir>
+# @summary Import a whole subtree of the record from another database: the stage exists, the target is record-relative (never the record root), the source is an absolute directory; then 'stage import tree copy' -- the boot tree of a stage is one line, not one per file (rescue probe 13.09.: ~1100 lines, ~3000 processes)
+# @group   stage
+# @param   reldir   record-relative target directory (e.g. boot); replaced whole
+# @param   absdir   absolute source directory in the OTHER database or the extracted bundle
+# @example elebake stage import tree daily-v1 boot "$ELEBAKE_ARCHIVE_BASE/stage/daily-v1/boot"
+# @see     stage import
+# @see     stage dump boot complete
+#@end
+___stage_import_tree3() {
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage check stage '$1'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage import dir valid '$2'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage import tree source exists '$3'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage import tree copy '$1' '$2' '$3'"
+}
+
+#@help __stage_import_tree_source_exists1
+# @command stage import tree source exists <absdir>
+# @summary The source is an absolute path to an existing directory (a file travels with the 3-arg form of stage import): a comment line, else an error line
+# @group   stage
+# @internal
+# @see     stage import tree
+#@end
+__stage_import_tree_source_exists1() {
+        if test "${1#/}" != "$1" && test -d "$1"; then
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'base tree $1 exists'"
+        else
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'stage import tree: no such directory, or not absolute: $1'"
+        fi
+}
+
+#@help _stage_import_tree_copy3
+# @command stage import tree copy <stage> <reldir> <absdir>
+# @summary Act terminal: the target subtree removed and recreated (0700), then cp -RPp of the source's content into it -- links stay links, modes and times are kept; a failed copy is an error line and exit 1
+# @group   stage
+# @internal
+# @see     stage import tree
+#@end
+_stage_import_tree_copy3() {
+        local dst="$ELEBAKE_BASE/stage/$1/$2"
+        printf '%s\n' "rm -rf '$dst' && $MODIFY_DIR_CREATE '$dst' && $MODIFY_FILE_PERMS 0700 '$dst' && cp -RPp '$3/.' '$dst/' || { printf '# Error: import of tree %s failed\\n' '$3' >&2; exit 1; }"
+}
+
 #@help __stage_import_dir_valid1
 # @command stage import dir valid <reldir>
 # @summary The directory path is record-relative (no leading slash, no ..): a comment line, else an error line
@@ -2106,7 +2155,7 @@ __stage_collect1() {
 
 #@help _stage_collect_files1
 # @command stage collect files <stage>
-# @summary Text terminal: the record's own files by their REAL path (an archive is plain file storage; unpacking through the name symlink is impossible), written against "$ELEBAKE_ARCHIVE_BASE": the single records, then every file under marker, backup, boot, phases, prereqs, baselines, conf, hooks, media, the name symlink LAST (its target must exist before the link). work/ is left out on purpose -- it points at a worktree outside the database, which 'stage checkout' re-creates
+# @summary Text terminal: the record's own files by their REAL path (an archive is plain file storage; unpacking through the name symlink is impossible; the work symlink travels as a link -- the dump's re-anchor note names the checkout), written against "$ELEBAKE_ARCHIVE_BASE": the single records, then every file under marker, backup, boot, phases, prereqs, baselines, conf, hooks, media, the name symlink LAST (its target must exist before the link). work/ is left out on purpose -- it points at a worktree outside the database, which 'stage checkout' re-creates
 # @group   stage
 # @internal
 # @see     stage collect
@@ -2115,7 +2164,7 @@ _stage_collect_files1() {
         local d="" part="" f=""
         d="$ELEBAKE_BASE/.staging/$(basename "$(readlink "$ELEBAKE_BASE/stage/$1")")"
         printf '# stage %s\n' "$1"
-        for part in metadata filter checkout sign-key attest-key disks; do
+        for part in metadata filter checkout work sign-key attest-key disks; do
                 test -f "$d/$part" || test -L "$d/$part" || continue
                 printf '"$ELEBAKE_ARCHIVE_BASE"/%s\n' "${d#"$ELEBAKE_BASE/"}/$part"
         done
@@ -3735,20 +3784,19 @@ ___stage_dump_add1() {
 
 #@help ___stage_dump_boot_complete1
 # @command stage dump boot complete <stage>
-# @summary Every directory and every file of the stage's boot/ as import lines (directories first)
+# @summary Dump block: the stage's boot/ as ONE 'stage import tree <stage> boot <archive boot>' line (the bundle's MANIFEST already vouches for every file; a line per file cost ~1100 batches in the rescue probe of 13.09.); no boot tree is a comment line
 # @group   stage
 # @internal
-# @see     stage dump complete
 # @env     ELEBAKE_ARCHIVE_BASE  the prefix the emitted paths are written against
+# @see     stage dump
+# @see     stage import tree
 #@end
 ___stage_dump_boot_complete1() {
-        local f=""
-        find "$ELEBAKE_BASE/stage/$1/boot" -type d 2>/dev/null | while IFS= read -r f; do
-                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage import '$1' '${f#"$ELEBAKE_BASE/stage/$1/"}'"
-        done
-        find "$ELEBAKE_BASE/stage/$1/boot" \( -type f -o -type l \) 2>/dev/null | while IFS= read -r f; do
-                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage import '$1' '$(dirname "${f#"$ELEBAKE_BASE/stage/$1/"}")' \"\$ELEBAKE_ARCHIVE_BASE/${f#"$ELEBAKE_BASE/"}\""
-        done
+        if test -d "$ELEBAKE_BASE/stage/$1/boot"; then
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage import tree '$1' 'boot' \"\$ELEBAKE_ARCHIVE_BASE/stage/$1/boot\""
+        else
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'stage $1 has no boot tree'"
+        fi
 }
 
 #@help ___stage_dump_boot_minimized1
@@ -3880,16 +3928,56 @@ ___stage_dump_backup1() {
 }
 
 #@help ___stage_dump_rebuild1
-# @internal dump block (cat-pinned): close the stage: idempotent regeneration of what the dump does not move (obj/ via build, destdir/ via install); pins and STAND_*_SUBDIRS arrive with the prologue; nothing built is a comment line
+# @internal dump block (cat-pinned): close the stage: 'stage rebuild <stage>' when the source had obj/ or destdir/ (what the dump does not move); on a database without the worktree the rebuild says how to re-anchor instead of failing; nothing built is a comment line
 #@end
 ___stage_dump_rebuild1() {
-        local n=0
-        test -z "$(ls -A "$ELEBAKE_BASE/stage/$1/obj" 2>/dev/null)" || n=1
-        test -z "$(ls -A "$ELEBAKE_BASE/stage/$1/destdir" 2>/dev/null)" || n=1
-        test "$n" -eq 0 || printf '%s\n' "# rebuild of stage '$1' (artifacts are not moved)"
-        test -z "$(ls -A "$ELEBAKE_BASE/stage/$1/obj" 2>/dev/null)" || printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage build '$1'"
-        test -z "$(ls -A "$ELEBAKE_BASE/stage/$1/destdir" 2>/dev/null)" || printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage install '$1'"
-        test "$n" -eq 1 || printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'stage $1 has nothing built'"
+        if test -n "$(ls -A "$ELEBAKE_BASE/stage/$1/obj" 2>/dev/null)" || test -n "$(ls -A "$ELEBAKE_BASE/stage/$1/destdir" 2>/dev/null)"; then
+                printf '%s\n' "# rebuild of stage '$1' (artifacts are not moved)"
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage rebuild '$1'"
+        else
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'stage $1 has nothing built'"
+        fi
+}
+
+#@help ___stage_rebuild1
+# @command stage rebuild <stage>
+# @summary Regenerate what a dump does not move -- obj/ (stage build) and destdir/ (stage install) -- where the worktree is; without one (a restored record: the work link dangles) a log line names the way: stage checkout <stage> <commit>, stage trust <stage>, then stage rebuild <stage>
+# @group   stage
+# @example elebake stage rebuild daily-v1
+# @see     stage build
+# @see     stage install
+# @see     stage checkout
+#@end
+___stage_rebuild1() {
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage check stage '$1'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage rebuild worktree '$1'"
+}
+
+#@help __stage_rebuild_worktree1
+# @command stage rebuild worktree <stage>
+# @summary The worktree is there (stage/<name>/work/stand/efi/loader/local): rewrite to 'stage rebuild run <stage>'; else a log line with the way to re-anchor (the record checkout names the commit)
+# @group   stage
+# @internal
+# @see     stage rebuild
+#@end
+__stage_rebuild_worktree1() {
+        if test -d "$ELEBAKE_BASE/stage/$1/work/stand/efi/loader/local"; then
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage rebuild run '$1'"
+        else
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" log 'stage $1: no worktree here, nothing rebuilt -- stage checkout $1 $(sed -n 1p "$ELEBAKE_BASE/stage/$1/checkout" 2>/dev/null), stage trust $1, then stage rebuild $1'"
+        fi
+}
+
+#@help ___stage_rebuild_run1
+# @command stage rebuild run <stage>
+# @summary The rebuild itself: stage build, then stage install
+# @group   stage
+# @internal
+# @see     stage rebuild worktree
+#@end
+___stage_rebuild_run1() {
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage build '$1'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage install '$1'"
 }
 
 #@help ___stage_dump_media1

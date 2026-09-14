@@ -85,8 +85,8 @@ test_header() {
 
 # test_setup - fresh sandbox DB per test. Terminal interpreter pinned to sh
 # (experienced-user model: emissions ACT); the cat-pinned display blocks keep
-# their profile pins. NOTE: no 'environment cache on' here — unit tests
-# setenv/unsetenv on purpose, which invalidates the cache anyway (JB).
+# their profile pins. The bootstrap ends with the environment cache on
+# (init, JB 13.09.); every setenv/unsetenv below refreshes it.
 test_setup() {
   TEST_DIR="$TEST_BASE_DIR/test-$TESTS_RUN"
   mkdir -p "$TEST_DIR"
@@ -365,6 +365,28 @@ test_stage_import_cascade() {
   else
     fail "file base element missing"
   fi
+  mkdir -p "$TEST_BASE_DIR/unit-tree/kernel" && printf 'K\n' > "$TEST_BASE_DIR/unit-tree/kernel/kernel" \
+    && ln -sf kernel "$TEST_BASE_DIR/unit-tree/kernel/link" && printf 'stale\n' > "$TEST_DIR/stage/uniti/boot/sub/unit-file"
+  run_elebake stage import tree uniti boot "$TEST_BASE_DIR/unit-tree" > /dev/null 2>&1
+  if [ "$(cat "$TEST_DIR/stage/uniti/boot/kernel/kernel" 2>/dev/null)" = "K" ] \
+     && [ "$(readlink "$TEST_DIR/stage/uniti/boot/kernel/link")" = "kernel" ] \
+     && [ ! -e "$TEST_DIR/stage/uniti/boot/sub/unit-file" ]; then
+    pass "tree import replaces the subtree whole: files and links copied, the stale file gone"
+  else
+    fail "tree import: $(ls -R "$TEST_DIR/stage/uniti/boot" 2>&1 | tr '\n' ' ')"
+  fi
+  out=$(run_elebake stage import tree uniti boot "$TEST_BASE_DIR/unit-file" 2>&1)
+  if printf '%s\n' "$out" | grep -q "no such directory"; then
+    pass "tree import refuses a file as source"
+  else
+    fail "tree import with a file source: $out"
+  fi
+  out=$(run_elebake stage import tree uniti . "$TEST_BASE_DIR/unit-tree" 2>&1)
+  if printf '%s\n' "$out" | grep -q "invalid directory"; then
+    pass "tree import refuses the record root as target"
+  else
+    fail "tree import into the root: $out"
+  fi
 }
 
 test_stage_dump_structure_first() {
@@ -387,13 +409,11 @@ test_stage_dump_structure_first() {
       fail "dump missing: $want"
     fi
   done
-  local dline fline
-  dline=$(printf '%s\n' "$out" | grep -n "stage import 'unitd' 'boot/lua'\$" | head -1 | cut -d: -f1)
-  fline=$(printf '%s\n' "$out" | grep -n "stage import 'unitd' 'boot/lua' " | head -1 | cut -d: -f1)
-  if [ -n "$dline" ] && [ -n "$fline" ] && [ "$dline" -lt "$fline" ]; then
-    pass "structure declared before content ($dline < $fline)"
+  if printf '%s\n' "$out" | grep -q "stage import tree 'unitd' 'boot' \"\$ELEBAKE_ARCHIVE_BASE/stage/unitd/boot\"" \
+     && ! printf '%s\n' "$out" | grep -q "stage import 'unitd' 'boot/lua'"; then
+    pass "the boot tree is one import tree line, not one line per file"
   else
-    fail "structure/content order wrong (dir line: $dline, file line: $fline)"
+    fail "boot tree lines: $(printf '%s\n' "$out" | grep "stage import" | head -3 | tr '\n' ' ')"
   fi
 }
 
@@ -916,6 +936,348 @@ fixture_worktree() {
   printf 'fixture-ref\n' > "$TEST_DIR/stage/$1/checkout"
 }
 
+# --- reference implementations: the engine's helpers before 14.09.2026, renamed
+ref_sq() {
+  printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"
+}
+ref_emit_note() {
+  local t
+  t=$(printf '%s' "$*" | sed "s/'/'\\\\''/g")
+  printf '%s\n' "printf '%s\\n' '# $t' >&2"
+}
+ref_note1() {
+        printf '%s\n' "printf '# %s\\n' '$(printf '%s' "$1" | sed "s/'/'\\\\''/g")' >&2"
+}
+ref_should_skip_env_value() {
+  local value="$1"
+
+  # Empty line - skip
+  case "$value" in
+    '') return 0 ;;
+  esac
+
+  # Whitespace-only line - skip
+  case "$value" in
+    *[![:space:]]*) ;;  # Has non-whitespace - continue checking
+    *) return 0 ;;      # Only whitespace - skip
+  esac
+
+  # Comment line (with optional leading whitespace) - skip
+  local trimmed=$(echo "$value" | sed 's/^[[:space:]]*//')
+  case "$trimmed" in
+    \#*) return 0 ;;    # Comment - skip
+  esac
+
+  return 1  # Use this value
+}
+ref_build_env_args_full() {
+  # Full environment scan (excludes cache file to avoid recursion)
+  # Called by build_env_args() when cache is not available
+  # Called by "environment cache on" to generate cache content
+
+  # Return in-memory cached value if available (passed through env -)
+  if [ -n "${ELEBAKE_CACHE_ENV_ARGS:-}" ]; then
+    echo "$ELEBAKE_CACHE_ENV_ARGS"
+    return 0
+  fi
+
+  local env_base="$ELEBAKE_ENV_DIR"
+  local env_args=""
+  local seen_vars=""
+
+  # First pass: Load local overrides (highest priority)
+  if [ -d "$env_base/local" ]; then
+    for varfile in "$env_base/local"/*; do
+      [ ! -f "$varfile" ] && continue
+
+      local varname=$(basename "$varfile")
+
+      # CRITICAL: Skip cache file to avoid recursion
+      if [ "$varname" = "ELEBAKE_CACHE_ENV_ARGS" ]; then
+        continue
+      fi
+
+      local value=$(head -n1 "$varfile")
+
+      # Use helper to check if should skip
+      if ref_should_skip_env_value "$value"; then
+        # DON'T mark as seen - allow default to load (less surprising)
+        continue
+      fi
+
+      # Mark as seen ONLY when we actually use the value
+      seen_vars="$seen_vars $varname "
+
+      # Escape single quotes for shell eval: ' becomes '\''
+      local escaped_value=$(printf '%s\n' "$value" | sed "s/'/'\\\\''/g")
+      env_args="$env_args $varname='$escaped_value'"
+    done
+  fi
+
+  # Second pass: Load defaults (only if not already set by local)
+  if [ -d "$env_base/default" ]; then
+    for varfile in "$env_base/default"/*; do
+      [ ! -f "$varfile" ] && continue
+
+      local varname=$(basename "$varfile")
+
+      # Skip ELEBAKE_BASE - it's passed explicitly in run_env()
+      if [ "$varname" = "ELEBAKE_BASE" ]; then
+        display_warning "ELEBAKE_BASE found in .env files but will be ignored (must be set via environment)" >&2
+        continue
+      fi
+
+      # Skip if already loaded from local
+      case "$seen_vars" in
+        *" $varname "*) continue ;;
+      esac
+
+      local value=$(head -n1 "$varfile")
+
+      # Use helper to check if should skip
+      if ref_should_skip_env_value "$value"; then
+        continue
+      fi
+
+      # Escape single quotes for shell eval: ' becomes '\''
+      local escaped_value=$(printf '%s\n' "$value" | sed "s/'/'\\\\''/g")
+      env_args="$env_args $varname='$escaped_value'"
+    done
+  fi
+
+  echo "$env_args"
+}
+ref_build_env_args_template() {
+  local varfile varname value escaped_value env_args=""
+  for varfile in "$ELEBAKE_TEMPLATE_DIR/environment"/ELEBAKE_* "$ELEBAKE_TEMPLATE_DIR/environment/PATH"; do
+    [ -f "$varfile" ] || continue
+    varname=$(basename "$varfile")
+    case "$varname" in ELEBAKE_PROFILE_*|ELEBAKE_CACHE_ENV_ARGS|ELEBAKE_BASE) continue ;; esac
+    value=$(head -n1 "$varfile")
+    ref_should_skip_env_value "$value" && continue
+    escaped_value=$(printf '%s\n' "$value" | sed "s/'/'\\\\''/g")
+    env_args="$env_args $varname='$escaped_value'"
+  done
+  echo "$env_args"
+}
+ref_to_function_call() {
+  # First argument is the function list (mandatory)
+  local functions="${1:-}"
+  shift
+
+  local curr="${1:-}"
+  local next="${2:-}"
+
+  # Command words may use hyphens (e.g. `stage sign key`), but shell function and
+  # variable names cannot. Normalize the command token to underscores for
+  # matching only; args ($next-as-arg and "$@") keep their form, so hyphenated
+  # key names still work.
+  curr=$(printf '%s' "$curr" | tr '-' '_')
+
+  # Bare invocation (no command word): route to the help terminal.
+  if [ -z "$functions" ] || [ -z "$curr" ]; then
+    echo "_help0"
+    return 0
+  fi
+
+  # Shift past curr to get remaining args
+  shift
+
+  # Save argument count for accurate arity (after shifting curr)
+  # This is the total count of arguments that will be passed to the function
+  # Includes $next (if present) plus all remaining args in "$@"
+  local arity=$#
+
+  # Now shift $next so "$@" contains only the remaining args
+  if [ -n "$next" ]; then
+    shift
+  fi
+
+  # === STEP 1: Filter FIRST to narrow search space (performance optimization) ===
+  # Only keep functions that match current prefix
+  # This dramatically reduces search space for subsequent operations
+  local deep_unknown=""
+  local filtered=""
+  for line in $functions; do
+    case "$line" in
+      ${curr}|_${curr}|__${curr}|___${curr}|_${curr}_*|__${curr}_*|___${curr}_*|_${curr}[0-9]*|__${curr}[0-9]*|___${curr}[0-9]*)
+        filtered="$filtered $line"
+        ;;
+    esac
+  done
+
+  # === STEP 1b: OUTSIDE-IN (JB's design): try the LONGER name FIRST ===
+  # The longest word chain wins; the arity grows only while shrinking back.
+  # Without this, a short function with a matching arity would swallow
+  # multi-word commands (e.g. _help1 eating 'help env' as an argument).
+  if [ -n "$next" ]; then
+    local filtered_deep=""
+    for line in $filtered; do
+      case "$line" in
+        _${curr}_*|__${curr}_*|___${curr}_*)
+          filtered_deep="$filtered_deep $line"
+          ;;
+      esac
+    done
+    if [ -n "$filtered_deep" ]; then
+      local deep_result
+      deep_result=$(ref_to_function_call "$filtered_deep" "${curr}_${next}" "$@")
+      case "$deep_result" in
+        _unknown_command1*) deep_unknown="$deep_result" ;;    # nothing deeper -- fall through to local match
+        *) printf '%s\n' "$deep_result"; return 0 ;;
+      esac
+    fi
+  fi
+
+  # === STEP 2: Search in filtered set for exact matches ===
+  # Arity was calculated above (total argument count after shifting curr)
+
+  # Try: exact match, with underscore prefix(es), with underscore + arity
+  # Support terminal (_), combinator (__), and set-combinator (___) functions
+  # Search ONLY in filtered set (much faster than full list)
+  for line in $filtered; do
+    if [ "$curr" = "$line" ] || \
+       [ "_${curr}" = "$line" ] || \
+       [ "__${curr}" = "$line" ] || \
+       [ "___${curr}" = "$line" ] || \
+       [ "_${curr}${arity}" = "$line" ] || \
+       [ "__${curr}${arity}" = "$line" ] || \
+       [ "___${curr}${arity}" = "$line" ]; then
+      # Found exact match - output function call with quoted arguments
+      # Use printf with %q to properly quote each argument for eval safety
+      printf "%s" "$line"
+      if [ -n "$next" ]; then
+        printf " %s" "$(printf '%s\n' "$next" | sed "s/'/'\\\\''/g; s/^/'/; s/$/'/")"
+      fi
+      for arg in "$@"; do
+        printf " %s" "$(printf '%s\n' "$arg" | sed "s/'/'\\\\''/g; s/^/'/; s/$/'/")"
+      done
+      printf '\n'
+      return 0
+    fi
+  done
+
+  # === STEP 2b: the words ARE a command path, only the argument count is
+  # wrong (e.g. 'stage build kernel' without the stage, 'stage filter
+  # uncurated <stage>' without the source dir). Say so instead of letting a
+  # shorter command swallow the last word as an argument or reporting the
+  # first word as unknown.
+  for line in $filtered; do
+    case "$line" in
+      _${curr}[0-9]*|__${curr}[0-9]*|___${curr}[0-9]*)
+        printf '%s %s\n' "__wrong_arity1" "$(printf '%s\n' "$curr" | sed "s/'/'\\\\''/g; s/^/'/; s/$/'/")"
+        return 0 ;;
+    esac
+  done
+
+  # === STEP 3: nothing here and nothing deeper: unknown command ===
+  # (the deep branch already ran FIRST -- outside-in). Report the LONGEST
+  # path tried, so 'stage nosuch' is named as such, not as 'stage'.
+  if [ -n "$deep_unknown" ]; then
+    printf '%s\n' "$deep_unknown"
+    return 0
+  fi
+  printf '%s %s\n' "_unknown_command1" "$(printf '%s\n' "$curr" | sed "s/'/'\\\\''/g; s/^/'/; s/$/'/")"
+  return 0
+}
+ref_lookup_interpreter() {
+  # Read resolved function call from stdin
+  local function_call
+  read -r function_call
+
+  # Extract function name (first word)
+  local function_name="${function_call%% *}"
+
+  # Try arity-specific override first (most specific)
+  # Example: ELEBAKE_INTERPRETER_getenv1
+  local mangled_with_arity=$(echo "$function_name" | sed 's/^_*//')
+  local interp_var_arity="ELEBAKE_INTERPRETER_${mangled_with_arity}"
+  local override_arity=$(eval echo "\${${interp_var_arity}:-}")
+
+  if [ -n "$override_arity" ]; then
+    echo "$override_arity"
+    return 0
+  fi
+
+  # Try arity-agnostic override (less specific)
+  # Example: ELEBAKE_INTERPRETER_getenv
+  local mangled=$(echo "$function_name" | sed 's/^_*//; s/[0-9]$//')
+  local interp_var="ELEBAKE_INTERPRETER_${mangled}"
+  local override=$(eval echo "\${${interp_var}:-}")
+
+  if [ -n "$override" ]; then
+    echo "$override"
+    return 0
+  fi
+
+  # Use defaults based on underscore count (intrinsic classification)
+  case "$function_name" in
+    ___*)
+      # Triple underscore = batch-combinator function (outputs multiple commands)
+      echo "$ELEBAKE_BATCH_COMBINATOR_INTERPRETER"
+      ;;
+    __*)
+      # Double underscore = combinator function (outputs single command)
+      echo "$ELEBAKE_COMBINATOR_INTERPRETER"
+      ;;
+    _*)
+      # Single underscore = terminal function (outputs shell commands)
+      echo "$ELEBAKE_TERMINAL_INTERPRETER"
+      ;;
+    *)
+      # No underscore prefix (shouldn't happen with proper naming)
+      error "Function name without underscore prefix: $function_name (check function naming convention)"
+      ;;
+  esac
+}
+
+test_engine_helpers_equal() {
+  test_header "engine helpers: sq, emit_note, note, should_skip, env args, to_function_call, lookup_interpreter -- same output as before 14.09."
+  test_setup
+  local v a b n=0 bad=""
+  for v in "plain" "it's" "a 'b' c" "x\"y\$z" "''" "" "  lead" "-dash-" "# comment" "   " "tab	here" "back\\slash"; do
+    a=$(sq "$v"); b=$(ref_sq "$v"); [ "$a" = "$b" ] || bad="$bad sq($v)"
+    a=$(emit_note "$v"); b=$(ref_emit_note "$v"); [ "$a" = "$b" ] || bad="$bad emit_note($v)"
+    a=$(_note1 "$v"); b=$(ref_note1 "$v"); [ "$a" = "$b" ] || bad="$bad note($v)"
+    should_skip_env_value "$v"; a=$?; ref_should_skip_env_value "$v"; b=$?; [ "$a" = "$b" ] || bad="$bad skip($v)"
+    n=$((n + 4))
+  done
+  if [ -z "$bad" ]; then pass "$n cases of sq, emit_note, note, should_skip agree with the reference"; else fail "helpers differ:$bad"; fi
+  ELEBAKE_ENV_DIR="$TEST_DIR/.env"
+  a=$(unset ELEBAKE_CACHE_ENV_ARGS; build_env_args_full); b=$(unset ELEBAKE_CACHE_ENV_ARGS; ref_build_env_args_full)
+  if [ "$a" = "$b" ] && [ -n "$a" ]; then pass "build_env_args_full agrees with the reference (${#a} chars)"; else fail "build_env_args_full differs"; fi
+  a=$(build_env_args_template); b=$(ref_build_env_args_template)
+  if [ "$a" = "$b" ] && [ -n "$a" ]; then pass "build_env_args_template agrees with the reference"; else fail "build_env_args_template differs"; fi
+  # resolution: every anchor by its words with arity many arguments, plus the edge cases
+  local f words k bad2="" n2=0
+  for f in $ANCHOR_FUNCTIONS; do
+    words=${f#___}; words=${words#__}; words=${words#_}; k=${words##*[!0-9]}; words=${words%[0-9]*}
+    words=$(printf '%s' "$words" | tr '_' ' ')
+    set -- $words
+    case "$k" in 1) set -- "$@" "a'1" ;; 2) set -- "$@" "a'1" b2 ;; 3) set -- "$@" a1 b2 c3 ;; 4) set -- "$@" a1 b2 c3 d4 ;; 5) set -- "$@" a1 b2 c3 d4 e5 ;; 6) set -- "$@" a1 b2 c3 d4 e5 f6 ;; esac
+    a=$(to_function_call "$ANCHOR_FUNCTIONS" "$@"); b=$(ref_to_function_call "$ANCHOR_FUNCTIONS" "$@")
+    [ "$a" = "$b" ] || bad2="$bad2 [$words -> $a | $b]"
+    n2=$((n2 + 1))
+  done
+  for words in "nosuch" "stage nosuch" "stage inventory nosuch" "stage inventory add x" "stage inventory add a b c d" "stage-keys phase a b" "comment" "help" "" "stage build kernel" "stage build" "stage inventory" "environment cache on x" "claim add a"; do
+    set -- $words
+    a=$(to_function_call "$ANCHOR_FUNCTIONS" "$@"); b=$(ref_to_function_call "$ANCHOR_FUNCTIONS" "$@")
+    [ "$a" = "$b" ] || bad2="$bad2 [$words -> $a | $b]"
+    n2=$((n2 + 1))
+  done
+  if [ -z "$bad2" ]; then pass "to_function_call agrees with the reference on $n2 command lines (every anchor, the edge cases)"; else fail "to_function_call differs:$(printf '%s' "$bad2" | cut -c1-600)"; fi
+  local bad3="" n3=0
+  ELEBAKE_INTERPRETER_stage_check_stage1=cat ELEBAKE_INTERPRETER_comment=sh ELEBAKE_TERMINAL_INTERPRETER=cat ELEBAKE_COMBINATOR_INTERPRETER=comb ELEBAKE_BATCH_COMBINATOR_INTERPRETER=batch
+  export ELEBAKE_INTERPRETER_stage_check_stage1 ELEBAKE_INTERPRETER_comment ELEBAKE_TERMINAL_INTERPRETER ELEBAKE_COMBINATOR_INTERPRETER ELEBAKE_BATCH_COMBINATOR_INTERPRETER
+  for f in "__stage_check_stage1 'x'" "_comment1 'x'" "_other_thing2 'a' 'b'" "__stage_kenv_learn_valid2 a b" "___stage_keys1 s"; do
+    a=$(printf '%s\n' "$f" | lookup_interpreter); b=$(printf '%s\n' "$f" | ref_lookup_interpreter)
+    [ "$a" = "$b" ] || bad3="$bad3 [$f -> $a | $b]"
+    n3=$((n3 + 1))
+  done
+  unset ELEBAKE_INTERPRETER_stage_check_stage1 ELEBAKE_INTERPRETER_comment
+  if [ -z "$bad3" ]; then pass "lookup_interpreter agrees with the reference on $n3 calls"; else fail "lookup_interpreter differs:$bad3"; fi
+}
+
 test_expectation_key() {
   test_header "expectation key: a leaf the loader reads at run time -- form checked, rendered as MEASUREMENT_KEY, demanded by stage require, learned by stage kenv learn"
   test_setup
@@ -1025,10 +1387,17 @@ test_stage_inventory() {
     fail "adopt with one record: $(run_elebake stage inventory adopt unitinv acpi)"
   fi
   printf 'loader.trust.list.acpi.0="FACP/-:276:aaaaaaaa,PHAT/-:3110:b2b2b2b2,SSDT/SaSsdt:1574:cccccccc"\nloader.trust.list.efivars.0="8be4df61/BootOrder:7:12:dddddddd,ea1fcaee/MotherBoardHealth:7:16:e2e2e2e2,c94f8c4d/MemoryConfig:3:54229:ffffffff"\nloader.trust.list.images.0="fv/1a2b3c4d:65536:11111111,file/BOOTX64.EFI:800768:22222222"\n' > "$rec/20260912T092127"
-  if run_elebake stage dump unitinv | grep -q "stage inventory add 'unitinv' 'acpi' 'SSDT/SaSsdt'"; then
-    pass "the dump replays the entries"
+  local dump; dump=$(run_elebake stage dump unitinv)
+  local r1 s1
+  r1=$(printf '%s\n' "$dump" | grep -n "stage import 'unitinv' 'inventory/records'$" | head -1 | cut -d: -f1)
+  s1=$(printf '%s\n' "$dump" | grep -n "stage import 'unitinv' 'inventory' \"\$ELEBAKE_ARCHIVE_BASE/stage/unitinv/inventory/acpi\"" | head -1 | cut -d: -f1)
+  if printf '%s\n' "$dump" | grep -q "stage import 'unitinv' 'inventory/records' \"\$ELEBAKE_ARCHIVE_BASE/stage/unitinv/inventory/records/20260912T034417\"" \
+     && printf '%s\n' "$dump" | grep -q "stage import 'unitinv' 'inventory'$" \
+     && ! printf '%s\n' "$dump" | grep -q "stage inventory add " \
+     && [ -n "$r1" ] && [ -n "$s1" ] && [ "$r1" -lt "$s1" ]; then
+    pass "the dump imports the records and the set files from the bundle, no add replay (records=$r1 < set=$s1)"
   else
-    fail "dump: $(run_elebake stage dump unitinv | grep inventory)"
+    fail "dump inventory (records=$r1 set=$s1): $(printf '%s\n' "$dump" | grep inventory | head -4 | tr '\n' ' ')"
   fi
   if run_elebake stage inventory drop unitinv acpi FACP/- | grep -q "removed" \
      && [ "$(run_elebake stage inventory list unitinv acpi | tr '\n' ' ')" = "SSDT/SaSsdt " ] \
@@ -1638,7 +2007,13 @@ test_collect_speaks_archive_base() {
   mkdir -p "$TEST_DIR/stage/c1/boot" "$TEST_DIR/stage/c1/marker"
   printf 'E\n' > "$TEST_DIR/stage/c1/boot/loader.efi"
   printf 'B\n' > "$TEST_DIR/stage/c1/marker/bootvar"
+  ln -sf /nonexistent/worktree "$TEST_DIR/stage/c1/work"
   local out; out=$(run_elebake stage collect c1)
+  if printf '%s\n' "$out" | grep -q '"\$ELEBAKE_ARCHIVE_BASE"/\.staging/.*/work$'; then
+    pass "the work symlink is collected as a link (the dump imports it; the restore probe 14.09. found it missing)"
+  else
+    fail "work link not collected: $(printf '%s\n' "$out" | tr '\n' ' ')"
+  fi
   if printf '%s\n' "$out" | grep -q '"\$ELEBAKE_ARCHIVE_BASE"/\.staging/.*/boot/loader\.efi'; then
     pass "records are listed by their REAL path, against the base variable"
   else
@@ -2066,19 +2441,40 @@ test_stage_recheckout() {
   else
     fail "first checkout: $wt"
   fi
-  if run_elebake stage checkout rstage HEAD 2>&1 | grep -q "is checked out at HEAD~1" \
-     && [ "$(sed -n 1p "$TEST_DIR/.staging"/*/checkout)" = "HEAD~1" ]; then
-    pass "a second checkout is refused and the record keeps the first ref"
+  local c1 c2; c1=$(git -C "$src" rev-parse HEAD~1); c2=$(git -C "$src" rev-parse HEAD)
+  if run_elebake stage checkout rstage HEAD 2>&1 | grep -q "is checked out at $c1" \
+     && [ "$(sed -n 1p "$TEST_DIR/.staging"/*/checkout)" = "$c1" ]; then
+    pass "a second checkout is refused; the record holds the COMMIT of the first, not the ref name"
   else
-    fail "second checkout: $(run_elebake stage checkout rstage HEAD 2>&1 | tail -3)"
+    fail "second checkout: $(run_elebake stage checkout rstage HEAD 2>&1 | tail -3; cat "$TEST_DIR/.staging"/*/checkout)"
   fi
   run_elebake stage recheckout rstage HEAD 2>/dev/null | sh > /dev/null 2>&1
-  if [ "$(git -C "$wt" rev-parse HEAD)" = "$(git -C "$src" rev-parse HEAD)" ] \
-     && [ "$(sed -n 1p "$TEST_DIR/.staging"/*/checkout)" = "HEAD" ] \
+  if [ "$(git -C "$wt" rev-parse HEAD)" = "$c2" ] \
+     && [ "$(sed -n 1p "$TEST_DIR/.staging"/*/checkout)" = "$c2" ] \
      && [ "$(git -C "$src" worktree list | grep -c "$wt")" = "1" ]; then
-    pass "recheckout replaces the worktree at HEAD, registered once"
+    pass "recheckout replaces the worktree at HEAD, registered once, the commit recorded"
   else
     fail "recheckout: $(git -C "$src" worktree list 2>&1; cat "$TEST_DIR/.staging"/*/checkout 2>&1)"
+  fi
+  rm -rf "$wt" && git -C "$src" worktree prune
+  if run_elebake stage checkout rstage nosuchref 2>&1 | grep -q "names no commit"; then
+    pass "a ref that names no commit is refused"
+  else
+    fail "unknown ref: $(run_elebake stage checkout rstage nosuchref 2>&1 | tail -3 | tr '\n' ' ')"
+  fi
+  if run_elebake stage rebuild rstage 2>&1 | grep -q "no worktree here, nothing rebuilt -- stage checkout rstage $c2" \
+     && run_elebake stage checkout rstage HEAD~1 > /dev/null 2>&1 \
+     && [ "$(git -C "$wt" rev-parse HEAD)" = "$c1" ]; then
+    pass "a dangling work link (restored record) is no worktree: rebuild names the way, checkout re-anchors"
+  else
+    fail "dangling link: $(run_elebake stage rebuild rstage 2>&1 | tail -1; run_elebake stage checkout rstage HEAD~1 2>&1 | tail -8 | tr '\n' ' ')"
+  fi
+  mkdir -p "$TEST_DIR/stage/rstage/obj" && printf 'o\n' > "$TEST_DIR/stage/rstage/obj/x"
+  if run_elebake stage dump rstage | grep -q "stage rebuild 'rstage'" \
+     && ! run_elebake stage dump rstage | grep -q "stage build 'rstage'"; then
+    pass "the dump closes with stage rebuild, not with build and install lines"
+  else
+    fail "dump rebuild: $(run_elebake stage dump rstage | grep "rebuild\|stage build" | tr '\n' ' ')"
   fi
 }
 

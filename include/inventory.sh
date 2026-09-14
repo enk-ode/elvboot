@@ -353,16 +353,80 @@ _stage_inventory_set_line2() {
 
 #@help ___stage_dump_inventory1
 # @command stage dump inventory <stage>
-# @summary Dump block: one 'stage inventory add' replay per entry of each set (records are observations, imported again rather than restored)
+# @summary Dump block of the stage's inventory: first the records (stage dump inventory records), then the sets (stage dump inventory sets) -- both travel as files in the bundle
 # @group   provisioning
 # @internal
 # @see     stage dump
+# @see     stage dump inventory records
+# @see     stage dump inventory sets
 #@end
 ___stage_dump_inventory1() {
-        local kind="" e=""
-        for kind in acpi efivars images; do
-                grep -s . "$ELEBAKE_BASE/stage/$1/inventory/$kind" 2>/dev/null | while read -r e; do
-                        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage inventory add '$1' '$kind' $(sq "$e")"
-                done
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage dump inventory records '$1'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage dump inventory sets '$1'"
+}
+
+#@help ___stage_dump_inventory_records1
+# @command stage dump inventory records <stage>
+# @summary Dump block: the record directory declared, then one 'stage import <stage> inventory/records <file>' per imported record (inventory/records/*) -- the observations the sets were adopted from; none is a comment line (stage inventory import after a boot)
+# @env     ELEBAKE_ARCHIVE_BASE  the prefix the emitted paths are written against
+# @group   provisioning
+# @internal
+# @see     stage dump inventory
+# @see     stage import
+#@end
+___stage_dump_inventory_records1() {
+        local f="" n=0
+        for f in "$ELEBAKE_BASE/stage/$1"/inventory/records/*; do
+                test -f "$f" || continue
+                n=$((n + 1))
+                test "$n" -gt 1 || printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage import '$1' 'inventory/records'"
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage import '$1' 'inventory/records' \"\$ELEBAKE_ARCHIVE_BASE/${f#"$ELEBAKE_BASE/"}\""
         done
+        test "${n:-0}" -gt 0 || printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'stage $1 has no inventory record (stage inventory import after a boot)'"
+}
+
+#@help ___stage_dump_inventory_sets1
+# @command stage dump inventory sets <stage>
+# @summary The inventory directory declared (stage dump inventory dir), then one 'stage dump inventory set <stage> <kind>' per kind the loader publishes (acpi, efivars, images)
+# @group   provisioning
+# @internal
+# @see     stage dump inventory
+# @see     stage dump inventory dir
+# @see     stage dump inventory set
+#@end
+___stage_dump_inventory_sets1() {
+        local kind=""
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage dump inventory dir '$1'"
+        for kind in acpi efivars images; do
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage dump inventory set '$1' '$kind'"
+        done
+}
+
+#@help ___stage_dump_inventory_dir1
+# @command stage dump inventory dir <stage>
+# @summary Dump block: the one line that declares the inventory directory of the record ('stage import <stage> inventory') before the set files land in it
+# @group   provisioning
+# @internal
+# @see     stage dump inventory sets
+# @see     stage import
+#@end
+___stage_dump_inventory_dir1() {
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage import '$1' 'inventory'"
+}
+
+#@help ___stage_dump_inventory_set2
+# @command stage dump inventory set <stage> <kind>
+# @summary Dump block: the set is a record file (inventory/<kind>, one identity per line) and travels in the bundle -- one 'stage import <stage> inventory <file>' brings it back whole (240 'stage inventory add' replays cost 240 batches, the probe of 13.09.); an empty set is a comment line
+# @group   provisioning
+# @internal
+# @env     ELEBAKE_ARCHIVE_BASE  the prefix the emitted paths are written against
+# @see     stage dump inventory sets
+# @see     stage import
+#@end
+___stage_dump_inventory_set2() {
+        if grep -qs . "$ELEBAKE_BASE/stage/$1/inventory/$2" 2>/dev/null; then
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage import '$1' 'inventory' \"\$ELEBAKE_ARCHIVE_BASE/stage/$1/inventory/$2\""
+        else
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'stage $1: the $2 set is empty'"
+        fi
 }
