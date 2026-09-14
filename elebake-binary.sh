@@ -28,15 +28,18 @@
 #                          line, so every predicate of a later line sees
 #                          what the earlier lines made.
 #   elebake-compile.sh  -- COMPILE: a terminal pinned to sh is written to
-#                          stdout as a fragment; nothing acts. The result
-#                          is the script the interpreter would have run --
-#                          for THIS state of the database: a predicate is
-#                          evaluated at compile time. For one command that
-#                          is exactly what a run does now; for a dump on
-#                          an empty database the script is wrong, because
-#                          'stage add' has not run when 'stage check stage'
-#                          is judged. Compile is for reading, walkthroughs
-#                          and tests; interpret is for import.
+#                          stdout as a fragment; nothing acts. A CHECK --
+#                          a combinator whose one line is a comment or an
+#                          error -- is not answered at compile time but
+#                          written as a call, 'elv <words> || exit 1', so
+#                          the script asks it when it runs, after the
+#                          fragments before it acted; the script sources
+#                          this file in its header for that. The rest
+#                          (batches, rewriting combinators) is expanded
+#                          for the state the database has at compile
+#                          time -- the state a run of the script starts
+#                          from. Compiled and run on the same database,
+#                          the script does what the interpreter does.
 #
 # Fail-fast and keep-going as in the batch runner: ELEBAKE_BATCH_KEEP_GOING=1
 # lets a batch continue after a failing line; otherwise it stops there.
@@ -46,9 +49,15 @@
 # in the unit suite proves them equal to the ones before.
 
 # ---------------------------------------------------------------- the binary
-ELEBAKE_LIBDIR=$(cd "$(dirname "$0")" && pwd)
-case "${0##*/}" in elebake-compile.sh) ELV_MODE=compile ;; *) ELV_MODE=run ;; esac
-ELEBAKE_BASE=${1:?database}; shift
+if [ -n "${ELV_SOURCED:-}" ]; then
+        # sourced by a compiled script: the binary is where the script says
+        ELEBAKE_LIBDIR=$ELV_LIBDIR
+        ELV_MODE=run
+else
+        ELEBAKE_LIBDIR=$(cd "$(dirname "$0")" && pwd)
+        case "${0##*/}" in elebake-compile.sh) ELV_MODE=compile ;; *) ELV_MODE=run ;; esac
+        ELEBAKE_BASE=${1:?database}; shift
+fi
 ELEBAKE_ROOT=$(dirname "$ELEBAKE_BASE")
 ELEBAKE_CONTEXT_SCRIPT=elv
 ELEBAKE_INCLUDES=$(head -1 "$ELEBAKE_LIBDIR/template/environment/ELEBAKE_INCLUDES")
@@ -145,7 +154,23 @@ elv() {
         name=${call%% *}
         eval "$call" > "$ELV_TMP"
         case "$name" in
-        ___*|__*)
+        __*)
+                own=""
+                while IFS= read -r line || [ -n "$line" ]; do own="$own$line
+"; done < "$ELV_TMP"
+                case "$ELV_MODE:$own" in
+                compile:'"$ELEBAKE_CONTEXT_SCRIPT" comment '*|compile:'"$ELEBAKE_CONTEXT_SCRIPT" error '*)
+                        # a check: asked when the script runs, not answered now
+                        own=""
+                        for line in "$@"; do q "$line"; own="$own $Q"; done
+                        if [ "${ELEBAKE_BATCH_KEEP_GOING:-0}" = 1 ]; then
+                                printf 'elv%s || printf %s >&2\n' "$own" "'# failed: %s\\n' '$*'"
+                        else
+                                printf 'elv%s || exit 1\n' "$own"
+                        fi ;;
+                *)      elv_text "$own"; rc=$? ;;
+                esac ;;
+        ___*)
                 own=""
                 while IFS= read -r line || [ -n "$line" ]; do own="$own$line
 "; done < "$ELV_TMP"
@@ -182,16 +207,21 @@ elv() {
 }
 
 # ------------------------------------------------------------------ main
+# sourced by a compiled script: elv is defined, nothing to run here
+[ -z "${ELV_SOURCED:-}" ] || return 0 2>/dev/null || exit 0
 # a dump names its archive base in the header (# Serial: N -> incoming/N)
 case "$1" in
 batch)  [ -n "${ELEBAKE_ARCHIVE_BASE:-}" ] || ELEBAKE_ARCHIVE_BASE="$ELEBAKE_ROOT/incoming/$(sed -n 's/^# Serial: //p' "$2" 2>/dev/null | head -1)"
         export ELEBAKE_ARCHIVE_BASE ;;
 esac
 if [ "$ELV_MODE" != run ]; then
-        # the header: an act may call "$ELEBAKE_CONTEXT_SCRIPT" (environment
-        # cache write does), so the script binds it to elebake.sh
+        # the header of a compiled script: the database, then this file
+        # sourced (elv for the checks; "$ELEBAKE_CONTEXT_SCRIPT" is elv, so a
+        # redirecting line runs in-process), then the batch rule
         printf '#!/bin/sh\n# compiled by elebake-compile.sh from: %s\n# database %s, %s\n' "$*" "$ELEBAKE_BASE" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-        printf 'ELEBAKE_CONTEXT_SCRIPT=%s; ELEBAKE_BASE=%s; export ELEBAKE_CONTEXT_SCRIPT ELEBAKE_BASE\n' "$(sq "$ELEBAKE_LIBDIR/elebake.sh")" "$(sq "$ELEBAKE_BASE")"
+        printf 'ELEBAKE_BASE=%s; export ELEBAKE_BASE\n' "$(sq "$ELEBAKE_BASE")"
+        printf 'ELV_SOURCED=1; ELV_LIBDIR=%s; . %s          # elv: the checks below ask the database when they run\n' "$(sq "$ELEBAKE_LIBDIR")" "$(sq "$ELEBAKE_LIBDIR/elebake-binary.sh")"
+        printf 'ELEBAKE_BATCH_KEEP_GOING=%s\n' "${ELEBAKE_BATCH_KEEP_GOING:-0}"
 fi
 elv "$@"; rc=$?
 exit $rc
