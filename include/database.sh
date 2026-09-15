@@ -280,7 +280,7 @@ _environment_cache_render0() {
 _environment_cache_place0() {
         local f="$ELEBAKE_BASE/.env/local/ELEBAKE_CACHE_ENV_ARGS"
         printf '%s\n' "test -s '$f.new' || { printf '# Error: environment cache not rendered (%s)\\n' '$f.new' >&2; exit 1; }"
-        printf '%s\n' "$MODIFY_FILE_PERMS 0600 '$f.new' && mv '$f.new' '$f'"
+        printf '%s\n' "$MODIFY_FILE_PERMS 0600 '$f.new' && mv -f '$f.new' '$f'"
         printf '%s\n' "echo '# Environment cache ENABLED' >&2"
         printf '%s\n' "echo \"# Cached \$(wc -w < '$f' | tr -d ' ') variables\" >&2"
 }

@@ -92,7 +92,7 @@ _manifest_write2() {
                 fi
         done
         printf '%s\n' "ELVEOF"
-        printf '%s\n' "mv '$2.new' '$2' && $MODIFY_FILE_PERMS 0644 '$2'"
+        printf '%s\n' "mv -f '$2.new' '$2' && $MODIFY_FILE_PERMS 0644 '$2'"
         printf '%s\n' "printf '# MANIFEST written: %s entries\\n' '$n' >&2"
 }
 

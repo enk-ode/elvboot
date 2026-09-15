@@ -476,7 +476,7 @@ __stage_prerequisites_listed3() {
 # @see     stage prerequisites drop
 #@end
 _stage_prerequisites_remove3() {
-        printf '%s\n' "grep -vxF '$3' '$ELEBAKE_BASE/stage/$1/prereqs/$2' > '$ELEBAKE_BASE/stage/$1/prereqs/$2.new'; mv '$ELEBAKE_BASE/stage/$1/prereqs/$2.new' '$ELEBAKE_BASE/stage/$1/prereqs/$2'"
+        printf '%s\n' "grep -vxF '$3' '$ELEBAKE_BASE/stage/$1/prereqs/$2' > '$ELEBAKE_BASE/stage/$1/prereqs/$2.new'; mv -f '$ELEBAKE_BASE/stage/$1/prereqs/$2.new' '$ELEBAKE_BASE/stage/$1/prereqs/$2'"
         emit_note "prerequisites $2 of $1: - $3"
 }
 
@@ -1440,7 +1440,7 @@ _stage_manifest_write1() {
                 printf '%s sha256=%s\n' "$rel" "$(sha256 -q "$ELEBAKE_BASE/stage/$1/boot/$rel" 2>/dev/null)"
         done
         printf '%s\n' "ELVEOF"
-        printf '%s\n' "mv '$ELEBAKE_BASE/stage/$1/boot/manifest.new' '$ELEBAKE_BASE/stage/$1/boot/manifest' && chmod 0644 '$ELEBAKE_BASE/stage/$1/boot/manifest'"
+        printf '%s\n' "mv -f '$ELEBAKE_BASE/stage/$1/boot/manifest.new' '$ELEBAKE_BASE/stage/$1/boot/manifest' && chmod 0644 '$ELEBAKE_BASE/stage/$1/boot/manifest'"
         printf '%s\n' "printf '# manifest written: %s entries\\n' '$n' >&2"
 }
 
@@ -1857,7 +1857,7 @@ __stage_filter_listed2() {
 # @see     stage filter drop
 #@end
 _stage_filter_remove2() {
-        printf '%s\n' "grep -vxF '$2' '$ELEBAKE_BASE/stage/$1/filter' > '$ELEBAKE_BASE/stage/$1/filter.new'; mv '$ELEBAKE_BASE/stage/$1/filter.new' '$ELEBAKE_BASE/stage/$1/filter'"
+        printf '%s\n' "grep -vxF '$2' '$ELEBAKE_BASE/stage/$1/filter' > '$ELEBAKE_BASE/stage/$1/filter.new'; mv -f '$ELEBAKE_BASE/stage/$1/filter.new' '$ELEBAKE_BASE/stage/$1/filter'"
         printf '%s\n' "printf '# filter of %s: - %s\\n' '$1' '$2' >&2"
 }
 
@@ -3595,7 +3595,7 @@ __stage_site_mk_clean1() {
 _stage_site_mk_place2() {
         local owner=""
         owner=$(stat -f %Su "$ELEBAKE_BASE/stage/$1/" 2>/dev/null)
-        printf '%s\n' "mv '$2.new' '$2' && chown '${owner:-$(id -un)}' '$2' 2>/dev/null || true"
+        printf '%s\n' "mv -f '$2.new' '$2' && chown '${owner:-$(id -un)}' '$2' 2>/dev/null || true"
         printf '%s\n' "printf '# site.mk written for stage %s -- rebuild + sign + deploy to arm it\\n' '$1' >&2"
 }
 

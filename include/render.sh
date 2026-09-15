@@ -222,7 +222,7 @@ ___stage_elvbootd_hook_render2() {
 #@end
 ___stage_elvbootd_glue_rcd_mk1() {
         if cat "$ELEBAKE_BASE/stage/$1/phases/STARTUP" "$ELEBAKE_BASE/stage/$1/phases/SHUTDOWN" 2>/dev/null | grep -q .; then
-                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage elvbootd glue rcd '$1' > '$ELEBAKE_BASE/stage/$1/hooks/elvbootd.new' && mv '$ELEBAKE_BASE/stage/$1/hooks/elvbootd.new' '$ELEBAKE_BASE/stage/$1/hooks/elvbootd' && chmod 0500 '$ELEBAKE_BASE/stage/$1/hooks/elvbootd'"
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage elvbootd glue rcd '$1' > '$ELEBAKE_BASE/stage/$1/hooks/elvbootd.new' && mv -f '$ELEBAKE_BASE/stage/$1/hooks/elvbootd.new' '$ELEBAKE_BASE/stage/$1/hooks/elvbootd' && chmod 0500 '$ELEBAKE_BASE/stage/$1/hooks/elvbootd'"
         else
                 printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'stage $1: neither STARTUP nor SHUTDOWN binds a policy, no rcd glue'"
         fi
@@ -237,7 +237,7 @@ ___stage_elvbootd_glue_rcd_mk1() {
 #@end
 ___stage_elvbootd_glue_devd_mk1() {
         if test -s "$ELEBAKE_BASE/stage/$1/phases/MEDIA"; then
-                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage elvbootd glue devd '$1' > '$ELEBAKE_BASE/stage/$1/hooks/elvboot.devd.conf.new' && mv '$ELEBAKE_BASE/stage/$1/hooks/elvboot.devd.conf.new' '$ELEBAKE_BASE/stage/$1/hooks/elvboot.devd.conf'"
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage elvbootd glue devd '$1' > '$ELEBAKE_BASE/stage/$1/hooks/elvboot.devd.conf.new' && mv -f '$ELEBAKE_BASE/stage/$1/hooks/elvboot.devd.conf.new' '$ELEBAKE_BASE/stage/$1/hooks/elvboot.devd.conf'"
         else
                 printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'stage $1: MEDIA binds no policy, no devd glue'"
         fi
@@ -975,7 +975,7 @@ _stage_hook_parses1() {
 # @see     stage hook install
 #@end
 _stage_hook_place2() {
-        printf '%s\n' "mv '$2.new' '$2' && chmod 0500 '$2'"
+        printf '%s\n' "mv -f '$2.new' '$2' && chmod 0500 '$2'"
         printf '%s\n' "printf '# stage %s: hook written: %s\\n' '$1' '$2' >&2"
 }
 
@@ -1251,7 +1251,7 @@ _stage_foundation_rendered1() {
 # @see     stage foundation install
 #@end
 _stage_foundation_place1() {
-        printf '%s\n' "mv '$ELEBAKE_BASE/stage/$1/work/stand/efi/loader/local/foundation/foundation.c.new' '$ELEBAKE_BASE/stage/$1/work/stand/efi/loader/local/foundation/foundation.c'"
+        printf '%s\n' "mv -f '$ELEBAKE_BASE/stage/$1/work/stand/efi/loader/local/foundation/foundation.c.new' '$ELEBAKE_BASE/stage/$1/work/stand/efi/loader/local/foundation/foundation.c'"
         emit_note "foundation.c generated -> $ELEBAKE_BASE/stage/$1/work/stand/efi/loader/local/foundation/foundation.c"
 }
 

@@ -1222,7 +1222,7 @@ _gate_claim_listed2() {
 #@end
 _gate_claim_unlink2() {
         local f="$ELEBAKE_BASE/foundation/gates/$1/claims"
-        printf '%s\n' "grep -vxF '$2' '$f' > '$f.new'; mv '$f.new' '$f'"
+        printf '%s\n' "grep -vxF '$2' '$f' > '$f.new'; mv -f '$f.new' '$f'"
         emit_note "gate '$1': claim '$2' unlinked"
 }
 
@@ -1551,7 +1551,7 @@ _policy_trigger_listed2() {
 #@end
 _policy_trigger_unlink2() {
         local f="$ELEBAKE_BASE/foundation/policies/$1"
-        printf '%s\n' "grep -vxF 'trigger $2' '$f' > '$f.new'; mv '$f.new' '$f'"
+        printf '%s\n' "grep -vxF 'trigger $2' '$f' > '$f.new'; mv -f '$f.new' '$f'"
         emit_note "policy '$1': trigger '$2' removed"
 }
 

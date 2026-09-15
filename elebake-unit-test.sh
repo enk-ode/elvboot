@@ -2679,7 +2679,7 @@ test_stage_disks_records() {
     fail "site mk install accepted a poisoned render: $(run_elebake stage site mk install unitdk "$smk" 2>&1)"
   fi
   printf '# header\nCFLAGS.foundation.c += -DLOADER_TRUST_KEYS_DIGEST=1\n' > "$smk.new"
-  if run_elebake stage site mk install unitdk "$smk" | grep -q "mv '$smk.new' '$smk'"; then
+  if run_elebake stage site mk install unitdk "$smk" | grep -q "mv -f '$smk.new' '$smk'"; then
     pass "site mk install accepts a clean render"
   else
     fail "site mk install refused a clean render: $(run_elebake stage site mk install unitdk "$smk" 2>&1)"

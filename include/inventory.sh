@@ -278,7 +278,7 @@ __stage_inventory_entry_exists3() {
 # @see     stage inventory drop
 #@end
 _stage_inventory_entry_unlink3() {
-        printf '%s\n' "grep -vxF $(sq "$3") '$ELEBAKE_BASE/stage/$1/inventory/$2' > '$ELEBAKE_BASE/stage/$1/inventory/$2.new'; mv '$ELEBAKE_BASE/stage/$1/inventory/$2.new' '$ELEBAKE_BASE/stage/$1/inventory/$2'"
+        printf '%s\n' "grep -vxF $(sq "$3") '$ELEBAKE_BASE/stage/$1/inventory/$2' > '$ELEBAKE_BASE/stage/$1/inventory/$2.new'; mv -f '$ELEBAKE_BASE/stage/$1/inventory/$2.new' '$ELEBAKE_BASE/stage/$1/inventory/$2'"
         emit_note "$3 removed from the $2 set of $1"
 }
 

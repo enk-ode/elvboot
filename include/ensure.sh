@@ -1173,7 +1173,7 @@ __stage_phase_policy_bound3() {
 # @see     stage phase policy drop
 #@end
 _stage_phase_policy_unbind3() {
-        printf '%s\n' "grep -vxF '$3' '$ELEBAKE_BASE/stage/$1/phases/$2' > '$ELEBAKE_BASE/stage/$1/phases/$2.new'; mv '$ELEBAKE_BASE/stage/$1/phases/$2.new' '$ELEBAKE_BASE/stage/$1/phases/$2'"
+        printf '%s\n' "grep -vxF '$3' '$ELEBAKE_BASE/stage/$1/phases/$2' > '$ELEBAKE_BASE/stage/$1/phases/$2.new'; mv -f '$ELEBAKE_BASE/stage/$1/phases/$2.new' '$ELEBAKE_BASE/stage/$1/phases/$2'"
         emit_note "stage '$1': policy '$3' unbound from $2"
 }
 
