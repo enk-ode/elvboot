@@ -1,3 +1,0 @@
-sh
-# Act terminal of 'database init': creates a layout directory; sh so init acts.
-# @see ELEBAKE_INTERPRETER_database_dir_validated

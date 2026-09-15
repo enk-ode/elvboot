@@ -1,3 +1,0 @@
-sudo sh
-# Act terminal of 'stage pool import': zpool import and zfs mount need root.
-# @see ELEBAKE_INTERPRETER_stage_pool_unmount

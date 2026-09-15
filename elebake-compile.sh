@@ -1,1 +1,0 @@
-elebake-binary.sh

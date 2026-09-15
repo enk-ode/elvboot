@@ -1,3 +1,0 @@
-sh
-# Act terminal of 'stage loader': copies the external loader into boot/; sh so it acts.
-# @see ELEBAKE_INTERPRETER_stage_mint

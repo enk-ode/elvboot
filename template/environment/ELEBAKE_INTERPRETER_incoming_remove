@@ -1,3 +1,0 @@
-sh
-# Act terminal of 'incoming clear': rm -rf of import's scratch directory; sh so it acts.
-# @see ELEBAKE_INTERPRETER_extract_unpack

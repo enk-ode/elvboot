@@ -1,3 +1,0 @@
-# AUTHORS
-
-Dr. Johannes Brügmann

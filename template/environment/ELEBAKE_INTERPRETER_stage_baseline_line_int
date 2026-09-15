@@ -1,3 +1,0 @@
-cat
-# Text terminal of the baseline family: prints a site.mk or display line.
-# @see ELEBAKE_INTERPRETER_stage_container_prepare

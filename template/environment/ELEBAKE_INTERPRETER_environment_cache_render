@@ -1,4 +1,0 @@
-cat
-# Text terminal: the content of the environment cache; cat so the act
-# 'environment cache write' can redirect it into the file.
-# @see ELEBAKE_INTERPRETER_environment_cache_write

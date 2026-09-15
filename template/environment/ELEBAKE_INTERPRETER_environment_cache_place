@@ -1,4 +1,0 @@
-sh
-# Act terminal: places the rendered environment cache; sh so 'environment
-# cache on' takes effect directly.
-# @see ELEBAKE_INTERPRETER_environment_cache_render
