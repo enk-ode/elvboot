@@ -1,0 +1,3 @@
+sudo sh
+# Act terminal of 'stage site mk disks': raw device reads; sudo sh so it measures.
+# @see ELEBAKE_INTERPRETER_stage_container_prepare

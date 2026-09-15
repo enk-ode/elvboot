@@ -1,0 +1,3 @@
+sh
+# Act terminal of 'stage recheckout': git worktree remove and prune; sh so it acts.
+# @see ELEBAKE_INTERPRETER_stage_worktree

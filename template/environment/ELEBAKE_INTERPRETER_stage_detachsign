@@ -1,0 +1,4 @@
+sudo sh
+# Act terminal 'stage attest' -- the manifest attest key lives in root's
+# keyring (/root/.gnupg); the emission runs elevated and sets GNUPGHOME
+# from the key record.

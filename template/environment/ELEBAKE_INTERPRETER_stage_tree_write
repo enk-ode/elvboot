@@ -1,0 +1,3 @@
+sudo sh
+# Act terminal of 'stage tree copy': writes the mounted dataset as root.
+# @see ELEBAKE_INTERPRETER_stage_tree_snap

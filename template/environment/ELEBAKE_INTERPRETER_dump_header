@@ -1,0 +1,3 @@
+cat
+# Text terminal 'dump header': the header lines of a dump; cat prints them into the dump.
+# @see ELEBAKE_INTERPRETER_dump_env_prologue

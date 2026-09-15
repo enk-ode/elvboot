@@ -1,0 +1,3 @@
+sh
+# Check or act terminal of the render family: one command; sh runs it, the batch stops at a miss.
+# @see ELEBAKE_INTERPRETER_stage_container_prepare

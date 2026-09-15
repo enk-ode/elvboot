@@ -1,0 +1,3 @@
+sh
+# Act terminal: the board script runs (kenv is readable unprivileged); sh so it measures.
+# @see ELEBAKE_INTERPRETER_stage_site_mk_baselines

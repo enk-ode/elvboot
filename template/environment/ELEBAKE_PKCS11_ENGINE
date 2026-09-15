@@ -1,0 +1,6 @@
+/usr/local/lib/engines/pkcs11.so
+# PKCS#11 engine shared object (from libp11) that osslsigncode loads via
+# -pkcs11engine. VERIFY on the signing host: with OpenSSL 3 it is typically
+# /usr/local/lib/engines-3/pkcs11.so. Only opensc-pkcs11.so was visible in this
+# build environment, so this default is unconfirmed.
+# Override per host: elebake setenv ELEBAKE_PKCS11_ENGINE <path>

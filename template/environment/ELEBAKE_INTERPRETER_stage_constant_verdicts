@@ -1,0 +1,3 @@
+cat
+# Text terminal of the render family: prints script text (a part of a generated hook); cat shows it, the mk batch appends it.
+# @see ELEBAKE_INTERPRETER_stage_container_prepare

@@ -1,0 +1,4 @@
+sh
+# Act terminal of 'stage edit': opens the pinned editor on a file of boot/ (stdin and screen on
+# /dev/tty); sh so the editor opens -- cat would only show the line.
+# @see ELEBAKE_EDITOR

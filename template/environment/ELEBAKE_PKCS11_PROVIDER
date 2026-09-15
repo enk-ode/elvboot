@@ -1,0 +1,4 @@
+/usr/local/lib/ossl-modules/pkcs11.so
+# OpenSSL 3 pkcs11 provider module (FreeBSD pkg: openssl-pkcs11provider).
+# Used when ELEBAKE_PKCS11_BRIDGE=provider; the engine bridge uses
+# ELEBAKE_PKCS11_ENGINE (libp11) instead.

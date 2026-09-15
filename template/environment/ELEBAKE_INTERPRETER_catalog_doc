@@ -1,0 +1,3 @@
+sh
+# @summary Interpreter for `catalog doc` -- runs template/catalog-doc.awk over the catalog file and prints the entry with its description
+# @see ELEBAKE_INTERPRETER_catalog_title

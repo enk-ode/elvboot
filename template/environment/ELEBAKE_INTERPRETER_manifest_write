@@ -1,0 +1,3 @@
+sh
+# Act terminal of 'manifest': writes the MANIFEST; sh so it acts.
+# @see ELEBAKE_INTERPRETER_attest_sign

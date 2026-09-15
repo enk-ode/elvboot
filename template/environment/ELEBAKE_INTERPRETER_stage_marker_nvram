@@ -1,0 +1,4 @@
+cat
+# Act terminal of 'stage marker write': NVRAM byte surgery, inspect-by-default -- shown,
+# then piped to sudo sh by the operator. Never sh: the unit tests must never touch NVRAM.
+# @see ELEBAKE_INTERPRETER_stage_marker_store

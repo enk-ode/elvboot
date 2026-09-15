@@ -1,0 +1,3 @@
+sh
+# Act terminal: removes one entry from a set file of the stage (inside the database); sh so it acts.
+# @see ELEBAKE_INTERPRETER_stage_inventory_entry_append

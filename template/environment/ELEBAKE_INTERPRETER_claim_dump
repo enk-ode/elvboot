@@ -1,0 +1,5 @@
+cat
+# @summary Interpreter for the dump block `claim dump` -- dump TEXT
+# Batch machinery: the emitted replay lines are displayed, not executed, so
+# they become part of the dump ('foundation dump' composes the blocks).
+# @see ELEBAKE_INTERPRETER_dump_env_prologue

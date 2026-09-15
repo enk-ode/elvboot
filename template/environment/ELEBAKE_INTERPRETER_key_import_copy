@@ -1,0 +1,3 @@
+sh
+# Act terminal of 'key import' (pem/openpgp/pkcs11 import): copies the file into the record; sh so it acts.
+# @see ELEBAKE_INTERPRETER_key_collect_files

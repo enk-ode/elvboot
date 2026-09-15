@@ -1,0 +1,4 @@
+sh
+# Act terminal of 'bootstrap': points the active-DB symlink; sh so it acts before any
+# database pin exists (the shipped baseline is the environment then).
+# @see ELEBAKE_INTERPRETER_bootstrap_scaffold

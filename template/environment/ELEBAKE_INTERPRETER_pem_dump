@@ -1,0 +1,4 @@
+cat
+# Interpreter for ___pem_dump0 - pem portion of a database dump. Emits
+# 'pem add' replay lines describing the current records. Default cat: the
+# lines are dump TEXT for capture; 'restore' replays them against the target.

@@ -1,0 +1,4 @@
+cat
+# @summary Interpreter for the dump block `stage dump hooks` -- dump TEXT (a note:
+# hooks are regenerated, never replayed)
+# @see ELEBAKE_INTERPRETER_stage_dump_record2

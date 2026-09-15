@@ -1,0 +1,3 @@
+cat
+# @summary Interpreter for `catalog title` -- the heading of one catalog section (display)
+# @see ELEBAKE_INTERPRETER_catalog_doc

@@ -1,0 +1,4 @@
+1
+# Trace retention period (days) - debugging infrastructure.
+# Captures dispatch/execution flow to .log/YYYY-MM-DD/*.trace.
+#   > 0: enabled;  0: disabled

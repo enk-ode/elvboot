@@ -1,0 +1,3 @@
+sh
+# Act terminal of 'stage prerequisites add': appends the path; sh so bookkeeping acts.
+# @see ELEBAKE_INTERPRETER_stage_prerequisites_remove

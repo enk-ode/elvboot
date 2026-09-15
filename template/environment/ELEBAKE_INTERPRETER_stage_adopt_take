@@ -1,0 +1,3 @@
+sudo sh
+# Act terminal of 'stage adopt': reads the mounted dataset and writes boot/ as root.
+# @see ELEBAKE_INTERPRETER_stage_adopt

@@ -1,0 +1,6 @@
+git make clang
+# @summary Curated tool list `freebsd prerequisites` probes at generation time
+# Curated policy: the general FreeBSD source-build toolchain. The generator
+# checks each with command -v in ITS context (World as-is) and fails the
+# generation with a hint when one is missing. Order is irrelevant.
+# @see ELEBAKE_FREEBSD_SRC

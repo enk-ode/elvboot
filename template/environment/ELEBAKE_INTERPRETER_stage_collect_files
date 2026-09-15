@@ -1,0 +1,3 @@
+cat
+# Text terminal of 'stage collect': the file list is shown (collected by export), never run.
+# @see ELEBAKE_INTERPRETER_foundation_collect

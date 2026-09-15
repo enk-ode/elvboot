@@ -1,0 +1,5 @@
+cat
+# Interpreter override for the 'help' function family (_help0, _help1, ...),
+# pinned to 'cat' (display-only). Help must render its text verbatim even when
+# a user opts into execution with ELEBAKE_TERMINAL_INTERPRETER=sh — otherwise
+# the shell would try to run the help text as commands.

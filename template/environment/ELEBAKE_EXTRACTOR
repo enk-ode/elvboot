@@ -1,0 +1,3 @@
+tar -xzf "$a" -C "$d"
+# The unpacking template for 'extract'. $a is the archive, $d the
+# destination. Alternative: unzip -q "$a" -d "$d"

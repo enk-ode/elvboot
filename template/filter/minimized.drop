@@ -1,0 +1,4 @@
+# filter minimized: the operational directories are dropped first; what the keep table does not admit is dropped as 'minimized'.
+# <glob> <reason>
+*/.tmp/* operational
+*/.log/* operational

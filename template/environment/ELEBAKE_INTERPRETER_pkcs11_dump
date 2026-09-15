@@ -1,0 +1,4 @@
+cat
+# Interpreter for ___pkcs11_dump0 - pkcs11 portion of a database dump.
+# Emits 'pkcs11 add' replay lines describing the current records. Default
+# cat: the lines are dump TEXT for capture; 'restore' replays them.

@@ -1,0 +1,3 @@
+sudo sh
+# Act terminal of 'stage tree close': zfs rollback needs root.
+# @see ELEBAKE_INTERPRETER_stage_tree_close

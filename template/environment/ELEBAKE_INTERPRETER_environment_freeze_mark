@@ -1,0 +1,4 @@
+sh
+# Act terminal: writes the marker .env/frozen; sh so 'environment freeze'
+# takes effect directly.
+# @see ELEBAKE_INTERPRETER_environment_freeze_warn

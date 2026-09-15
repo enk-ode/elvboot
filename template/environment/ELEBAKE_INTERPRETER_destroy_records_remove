@@ -1,0 +1,4 @@
+cat
+# Act terminal of 'destroy': cat, so 'elebake destroy <name>' PRINTS what it would do;
+# the user pipes the listing into sh deliberately (nothing here has an undo).
+# @see ELEBAKE_INTERPRETER_destroy_warning

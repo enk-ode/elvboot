@@ -1,0 +1,3 @@
+sh
+# Act terminal of 'stage install kernel': make installkernel into destdir/; sh so it installs.
+# @see ELEBAKE_INTERPRETER_stage_build_kernel_run

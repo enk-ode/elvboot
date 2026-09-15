@@ -1,0 +1,3 @@
+cat
+# Text terminal of 'stage prerequisites show': shown, never run.
+# @see ELEBAKE_INTERPRETER_stage_prerequisites_append

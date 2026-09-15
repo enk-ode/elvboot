@@ -1,0 +1,9 @@
+cat
+# Default interpreter for terminal functions (single underscore prefix: _).
+#
+# Terminal functions EMIT shell commands. The default interpreter 'cat'
+# DISPLAYS those commands without executing them (safe by default): you see
+# exactly what would run, then opt in by piping to a shell yourself.
+#
+# To enable auto-execution (power users):
+#   echo sh > .env/local/ELEBAKE_TERMINAL_INTERPRETER

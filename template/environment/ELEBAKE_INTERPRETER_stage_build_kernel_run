@@ -1,0 +1,3 @@
+sh
+# Act terminal of 'stage build kernel': make buildkernel; sh so it builds.
+# @see ELEBAKE_INTERPRETER_stage_install_kernel_run

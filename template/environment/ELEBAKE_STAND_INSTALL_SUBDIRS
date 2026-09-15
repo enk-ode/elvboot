@@ -1,0 +1,4 @@
+defaults fonts images lua efi
+# Curated stand/ components `stage install` DESTDIR-installs into destdir/.
+# Subset of ELEBAKE_STAND_BUILD_SUBDIRS: man pages and the pure build
+# dependencies (libsa, ficl, liblua, forth) are not boot content.

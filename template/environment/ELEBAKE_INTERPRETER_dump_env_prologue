@@ -1,0 +1,5 @@
+cat
+# @summary Interpreter for `dump env prologue` -- dump TEXT
+# Batch machinery: the setenv lines are displayed, not executed, so they
+# become part of the dump.
+# @see ELEBAKE_INTERPRETER_dump_env_epilogue

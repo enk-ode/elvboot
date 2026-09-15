@@ -1,0 +1,3 @@
+sh
+# Act terminal 'claim record' -- sh so the arsenal record lands in the DB.
+# @see ELEBAKE_INTERPRETER_claim_show1

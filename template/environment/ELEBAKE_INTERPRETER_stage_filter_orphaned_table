@@ -1,0 +1,3 @@
+cat
+# Text terminal of 'stage filter orphaned': shown, never run.
+# @see ELEBAKE_INTERPRETER_stage_filter_table

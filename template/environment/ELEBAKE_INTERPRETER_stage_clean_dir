@@ -1,0 +1,4 @@
+sh
+# Executes directly: unprivileged, stage-local, reviewable via the emission
+# (run the command under cat to inspect). Part of the minimal profile so the
+# pipeline runs without per-machine pinning.

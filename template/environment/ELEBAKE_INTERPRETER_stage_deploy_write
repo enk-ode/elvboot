@@ -1,0 +1,3 @@
+sudo sh
+# Act terminal of 'stage deploy': mounts the ESP and writes the loader as root.
+# @see ELEBAKE_INTERPRETER_stage_rollback_write

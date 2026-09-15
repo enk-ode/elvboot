@@ -1,0 +1,3 @@
+sudo sh
+# Act terminal of 'stage sign pkcs11': osslsigncode with the token; sudo for the PIN prompt and the module.
+# @see ELEBAKE_INTERPRETER_stage_sign_pem_run

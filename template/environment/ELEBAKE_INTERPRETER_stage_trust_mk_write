@@ -1,0 +1,3 @@
+sh
+# Act terminal of 'stage trust mk': writes site.trust.mk into the worktree; sh so it acts.
+# @see ELEBAKE_INTERPRETER_stage_trust_anchor_export

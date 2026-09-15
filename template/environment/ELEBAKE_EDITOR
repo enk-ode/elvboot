@@ -1,0 +1,2 @@
+edit
+# @summary The editor `stage edit` opens on a file of the boot tree (stdin from /dev/tty, so it works under `... | sh`); edit = FreeBSD base ee(1). No fallback to the login environment: an unset pin is a refusal

@@ -1,0 +1,17 @@
+# baseline-demands.tbl -- the -D baselines a catalog name demands, with no
+# default in the code: '<catalog name> <MACRO>', one row per demand. Read by
+# 'stage demands <stage> <name>' (stage foundation check, stage require).
+# The names are the loader's; earlboot and elvbootd names have no rows.
+measure_record        LOADER_TRUST_RECORD_SALT
+measure_counter_step  LOADER_TRUST_RECORD_SALT
+measure_chain         LOADER_TRUST_RECORD_SALT
+measure_lastboot_gap  LOADER_TRUST_RECORD_SALT
+measure_time_boot     LOADER_TRUST_TIME_BOOT_MAX_MS
+measure_time_prompt   LOADER_TRUST_TIME_PROMPT_MIN_MS
+measure_time_prompt   LOADER_TRUST_TIME_PROMPT_MAX_MS
+measure_time_of_day   LOADER_TRUST_TIME_HOUR_MIN
+measure_time_of_day   LOADER_TRUST_TIME_HOUR_MAX
+measure_geli          LOADER_TRUST_GELI_PARTS
+measure_gpt           LOADER_TRUST_GELI_PARTS
+handover_act          LOADER_TRUST_WORD_SECRET
+reveal_act            LOADER_TRUST_WORD_SECRET

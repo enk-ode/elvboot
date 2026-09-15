@@ -1,0 +1,2 @@
+less
+# @summary The pager `last <n> | sh` opens on a trace (stdin from /dev/tty, so it works under `... | sh`). No fallback to the login environment: an unset pin is a refusal

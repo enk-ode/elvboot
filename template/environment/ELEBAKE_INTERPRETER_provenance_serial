@@ -1,0 +1,4 @@
+sh
+# @summary Interpreter for `provenance serial` -- advances export/serial
+# Bookkeeping that must take effect (export calls it first), so sh.
+# @see ELEBAKE_INTERPRETER_provenance_add

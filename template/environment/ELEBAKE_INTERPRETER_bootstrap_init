@@ -1,0 +1,7 @@
+xargs sh -c '[ "$0" = "--" ] || set -- "$0" "$@"; lit=$(printf "\044ELEBAKE_CONTEXT_SCRIPT"); n=$#; while [ $n -gt 0 ]; do a=$1; shift; [ "$a" = "$lit" ] && a=$ELEBAKE_CONTEXT_SCRIPT; set -- "$@" "$a"; n=$((n-1)); done; exec "$@"' --
+# Interpreter for 'bootstrap init' -- the line starts with env (ELEBAKE_BASE bound
+# to the new database), so the combinator default (expand $1) cannot serve it: the
+# words are exec'd as xargs split them, and only the one word that is the literal
+# $ELEBAKE_CONTEXT_SCRIPT (printf \044 spells the dollar sign) is mapped to the
+# script path. Set to cat for a dry-run.
+# @see ELEBAKE_INTERPRETER_restore_replay

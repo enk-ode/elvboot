@@ -1,0 +1,3 @@
+cat
+# Text terminal: prints the ELV_MARKER_VAR/ELV_MARKER_FILE constants of a generated hook; cat so the emitter collects the text.
+# @see ELEBAKE_INTERPRETER_stage_constant_esp

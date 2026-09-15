@@ -1,0 +1,3 @@
+cat
+# Text terminal of the render family: prints C text (a row of a phase table); cat shows it, the emitter appends it.
+# @see ELEBAKE_INTERPRETER_policy_render_c

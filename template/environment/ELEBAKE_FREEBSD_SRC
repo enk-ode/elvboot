@@ -1,0 +1,8 @@
+
+# @summary Path to the FreeBSD source repository the stages build from
+# A git repository: `stage checkout` adds a worktree of it per stage,
+# `destroy` unregisters them again. Empty by default and required by
+# every source-building command, so a missing value fails at generation
+# time rather than silently building the wrong tree.
+#   elebake setenv ELEBAKE_FREEBSD_SRC /home/brj/git/freebsd-src
+# @see ELEBAKE_FREEBSD_PREREQUISITES

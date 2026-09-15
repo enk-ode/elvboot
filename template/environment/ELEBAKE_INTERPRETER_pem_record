@@ -1,0 +1,3 @@
+sh
+# Act terminal of 'pem add': writes the record; sh so bookkeeping acts.
+# @see ELEBAKE_INTERPRETER_key_import_copy

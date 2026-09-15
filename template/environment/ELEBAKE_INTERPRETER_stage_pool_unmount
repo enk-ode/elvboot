@@ -1,0 +1,3 @@
+sudo sh
+# Act terminal of 'stage pool export': zfs umount and zpool export need root.
+# @see ELEBAKE_INTERPRETER_stage_pool_mount

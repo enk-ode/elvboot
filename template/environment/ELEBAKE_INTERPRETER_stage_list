@@ -1,0 +1,2 @@
+cat
+# Display terminal 'stage list' (derived state, one line per stage); cat so the report survives an executing terminal default.

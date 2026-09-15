@@ -1,0 +1,4 @@
+cat
+# @summary Interpreter for `provenance list` -- the lineage, readable
+# Display terminal; cat so the report survives an executing terminal default.
+# @see ELEBAKE_INTERPRETER_provenance_add

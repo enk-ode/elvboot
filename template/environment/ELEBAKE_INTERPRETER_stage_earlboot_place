@@ -1,0 +1,3 @@
+sudo sh
+# Act terminal of an install: writes outside the database (root); sudo sh so it acts.
+# @see ELEBAKE_INTERPRETER_stage_container_prepare

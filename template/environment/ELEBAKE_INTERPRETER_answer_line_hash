@@ -1,0 +1,3 @@
+sh
+# Act terminal of 'answer file add': the script that hashes one line's word into .tmp/answer/; sh so it runs when the batch runs.
+# @see ELEBAKE_INTERPRETER_comment

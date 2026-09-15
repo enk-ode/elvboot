@@ -1,0 +1,4 @@
+cat
+# @summary Interpreter for `provenance collect` -- receipt files for an archive
+# Display family: a collection is data (one path per line), never commands.
+# @see ELEBAKE_INTERPRETER_stage_collect

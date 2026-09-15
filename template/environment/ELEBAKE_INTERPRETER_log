@@ -1,0 +1,3 @@
+sh
+# Interpreter for the 'log' terminal, pinned to 'sh': a report line reaches stdout when the batch runs; cat shows the printf.
+# @see ELEBAKE_INTERPRETER_comment

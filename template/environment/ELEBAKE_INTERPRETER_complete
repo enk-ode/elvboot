@@ -1,0 +1,7 @@
+cat
+# Interpreter override for the 'complete' function family (_complete0 ..
+# _complete9), pinned to 'cat' (display-only). 'elebake complete <words>'
+# prints completion candidates derived from the help corpus; the shell reads
+# them and never executes them. The pin holds even when a user opts into
+# execution with ELEBAKE_TERMINAL_INTERPRETER=sh, and the engine forces it
+# for databases that predate this template.

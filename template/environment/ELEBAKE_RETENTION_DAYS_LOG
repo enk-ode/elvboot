@@ -1,0 +1,4 @@
+1
+# Log retention period (days) - debugging infrastructure.
+# Captures stderr from commands to .log/YYYY-MM-DD/.
+#   > 0: enabled;  0: disabled (stderr -> /dev/null)

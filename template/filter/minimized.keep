@@ -1,0 +1,26 @@
+# filter minimized: BINARY MANAGEMENT only -- what a rescue system swaps or repairs. ONE definition,
+# shared by 'filter minimized' (the collection) and 'stage dump minimized' (the description, via
+# minimized_keep with the record-relative path under .staging/_/), so the two artifacts of a
+# minimized export agree by construction. Database-relative globs, one per line.
+# The database classes that travel whole:
+stage/*
+pem/*
+openpgp/*
+pkcs11/*
+provenance/*
+# Per stage record: the skeleton that makes the artifacts addressable ...
+.staging/*/metadata
+.staging/*/filter
+.staging/*/checkout
+.staging/*/sign-key
+.staging/*/attest-key
+.staging/*/media/*
+.staging/*/backup/*
+# ... and the artifacts: the loader (built and signed), loader.conf, the manifest pair, the kernel and its modules.
+# Everything else -- lua/, defaults/, dtb/, fonts, firmware, the worktree, obj/, destdir/, phase bindings, markers, site.mk -- stays home.
+.staging/*/boot/loader.efi
+.staging/*/boot/loader.efi.signed
+.staging/*/boot/loader.conf
+.staging/*/boot/manifest
+.staging/*/boot/manifest.asc
+.staging/*/boot/kernel/*

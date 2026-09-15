@@ -1,0 +1,8 @@
+# boot-tree-demands.tbl -- what a measurement of an sh container demands of
+# the stage's boot tree at generation time: '<measurement> <path under boot/>
+# <grep pattern or -> <remedy...>'. Read by 'stage measurement requirements'
+# (stage earlboot|elvbootd mk refuse while a demand is missing, stage require
+# reports). measure_bootlock (kldstat -m mac_bootlock at boot) is only true
+# when the loader preloaded the module from the manifest-covered tree.
+measure_bootlock loader.conf ^mac_bootlock_load="YES" stage edit <stage> loader.conf
+measure_bootlock kernel/mac_bootlock.ko - stage build kernel, stage install kernel, stage filter add <stage> kernel/mac_bootlock.ko, stage include

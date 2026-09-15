@@ -1,0 +1,7 @@
+# filter redacted: lines whose database-relative path matches a glob are dropped, with the reason.
+# <glob> <reason>
+*/marker/* redacted
+*/backup/* redacted
+*/site.mk redacted
+*/.tmp/* operational
+*/.log/* operational

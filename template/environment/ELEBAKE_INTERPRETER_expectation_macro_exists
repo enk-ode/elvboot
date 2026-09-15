@@ -1,0 +1,3 @@
+sh
+# Exists terminal of 'expectation add': the awk over foundation/macros; the batch stops when no record defines the macro. sh so it runs; the batch stops at a miss.
+# @see ELEBAKE_INTERPRETER_claim_record

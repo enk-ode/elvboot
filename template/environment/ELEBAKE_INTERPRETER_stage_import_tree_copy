@@ -1,0 +1,5 @@
+sh
+# Terminal behind 'stage import tree <stage> <reldir> <absdir>' (subtree
+# copy); pinned to sh so a restore's replay takes effect directly. The
+# validating batch (___stage_import_tree3) keeps its batch type default.
+# @see ELEBAKE_INTERPRETER_stage_import_file

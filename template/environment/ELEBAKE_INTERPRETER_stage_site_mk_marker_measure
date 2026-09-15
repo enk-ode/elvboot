@@ -1,0 +1,3 @@
+sudo sh
+# Act terminal: reads the Boot#### variable through efivar; sudo sh so it measures.
+# @see ELEBAKE_INTERPRETER_stage_site_mk_baselines

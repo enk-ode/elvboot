@@ -1,0 +1,6 @@
+# setintp / getintp / help intp: the interpreter token (case-insensitive) and the variable it names.
+# Any other token names the per-function pin ELEBAKE_INTERPRETER_<token>.
+terminal ELEBAKE_TERMINAL_INTERPRETER
+combinator ELEBAKE_COMBINATOR_INTERPRETER
+batch ELEBAKE_BATCH_COMBINATOR_INTERPRETER
+batch_combinator ELEBAKE_BATCH_COMBINATOR_INTERPRETER

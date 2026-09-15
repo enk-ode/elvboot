@@ -1,0 +1,3 @@
+sudo sh
+# Act terminal of an import: copies root's per-boot inventory lists into the database; sudo sh so it acts.
+# @see ELEBAKE_INTERPRETER_stage_marker_install
