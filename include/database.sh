@@ -1002,15 +1002,17 @@ __restore_base_exists1() {
 
 #@help __restore_replay2
 # @command restore replay <dump> <base>
-# @summary The one line that replays the dump -- 'batch <dump>' with ELEBAKE_ARCHIVE_BASE bound to <base> in front of it (the child skips the startup re-exec, so the batch expands the dump's "$ELEBAKE_ARCHIVE_BASE/..." against that directory). Its interpreter pin wraps the executing interpreter and sets keep-going for the spawned batch; cat = dry-run
+# @summary The one line that replays the dump -- 'batch <dump>' with ELEBAKE_ARCHIVE_BASE bound to <base> and keep-going set in front of it (the child skips the startup re-exec, so the batch expands the dump's "$ELEBAKE_ARCHIVE_BASE/..." against that directory; a restore survives failing lines and replays everything else). Both settings stand in the line, readable; the pin only maps the script word
 # @group   database
 # @internal
-# @env     ELEBAKE_INTERPRETER_restore_replay  wraps the interpreter and sets keep-going; cat = dry-run
+# @env     ELEBAKE_INTERPRETER_restore_replay  execs the line with the script word mapped; cat = dry-run
+# @env     ELEBAKE_BATCH_KEEP_GOING  set to 1 in the emitted line: the replay survives failing lines
+# @env     ELEBAKE_ARCHIVE_BASE  bound to <base> in the emitted line: where the dump's base elements are
 # @see     restore v2
 # @see     batch
 #@end
 __restore_replay2() {
-        printf '%s\n' "env ELEBAKE_ARCHIVE_BASE='$2' \"\$ELEBAKE_CONTEXT_SCRIPT\" batch '$1'"
+        printf '%s\n' "env ELEBAKE_BATCH_KEEP_GOING=1 ELEBAKE_ARCHIVE_BASE='$2' \"\$ELEBAKE_CONTEXT_SCRIPT\" batch '$1'"
 }
 
 #@help ___batch0

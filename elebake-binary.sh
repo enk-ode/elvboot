@@ -104,6 +104,15 @@ elv_text() {
 "*) text=${text#*
 } ;; *) text="" ;; esac
                 case "$line" in
+                'env '*'"$ELEBAKE_CONTEXT_SCRIPT" '*)
+                        # env NAME=value ... "$ELEBAKE_CONTEXT_SCRIPT" words (restore replay):
+                        # without env the assignments prefix the call of elv --
+                        # the shell hands them into the function
+                        if ! eval "${line#env }"; then
+                                failed=$((failed + 1))
+                                printf '# failed: %s\n' "$line" >&2
+                                [ "${ELEBAKE_BATCH_KEEP_GOING:-0}" = 1 ] || return 1
+                        fi ;;
                 '"$ELEBAKE_CONTEXT_SCRIPT" '*' > '*|'"$ELEBAKE_CONTEXT_SCRIPT" '*' >> '*)
                         # a line that redirects (stage site mk, environment cache on):
                         # interpreted, the redirection binds this process's call;
