@@ -96,6 +96,7 @@ man-html: man
 # BINDIR and MANDIR the targets. A per-user install:
 #
 #   make PREFIX=${HOME} install        -> ~/bin/elebake, ~/share/man/man8/elebake.8
+#   make PREFIX=${HOME} RUNNER=binary install   -> the same, elebake runs in one process
 #
 # Both land on FreeBSD's defaults: ~/bin is on the login PATH and man(1)
 # derives ~/share/man from it. The wrapper execs THIS checkout's
@@ -110,13 +111,27 @@ MANPAGE=	${DESTDIR}${MANDIR}8/elebake.8
 
 .PHONY: install uninstall
 
+# RUNNER selects what the installed 'elebake' runs:
+#   process (default)  elebake.sh -- a process per emitted line, the batch
+#                      ring, trace and log: the runner the test suites inspect
+#   binary             elebake-binary.sh -- one process, the anchors as
+#                      functions; it needs the database's environment cache,
+#                      so before one exists (bootstrap, help without a
+#                      database) the wrapper runs elebake.sh
+RUNNER?=	process
+
 install: docs/elebake.8
 	@mkdir -p ${DESTDIR}${BINDIR} ${DESTDIR}${MANDIR}8
+.if ${RUNNER} == binary
+	@printf '#!/bin/sh\n# elebake wrapper (make install RUNNER=binary from %s)\n# one process for every command; before the database has its\n# environment cache (bootstrap, help without a database) the process runner\nbase=$${ELEBAKE_BASE:-$$HOME/.elebake/db}\nif [ -s "$$base/.env/local/ELEBAKE_CACHE_ENV_ARGS" ]; then\n\texec /bin/sh %s/elebake-binary.sh "$$base" "$$@"\nfi\nexec /bin/sh %s/elebake.sh "$$@"\n' \
+	    '${.CURDIR}' '${.CURDIR}' '${.CURDIR}' > ${WRAPPER}.tmp
+.else
 	@printf '#!/bin/sh\n# elebake wrapper (make install from %s)\nexec /bin/sh %s/elebake.sh "$$@"\n' \
 	    '${.CURDIR}' '${.CURDIR}' > ${WRAPPER}.tmp
+.endif
 	@install -m 0755 ${WRAPPER}.tmp ${WRAPPER} && rm -f ${WRAPPER}.tmp
 	@install -m 0444 docs/elebake.8 ${MANPAGE}
-	@echo "install: ${WRAPPER} -> ${.CURDIR}/elebake.sh"
+	@echo "install: ${WRAPPER} -> ${.CURDIR} (RUNNER=${RUNNER})"
 	@echo "install: ${MANPAGE}"
 
 uninstall:

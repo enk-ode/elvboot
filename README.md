@@ -80,6 +80,7 @@ The family, by name:
   runs a command, or a whole dump (`batch <file>`), inside one process:
   the anchors are functions, the emitted lines are calls. The import of
   a full database went from 22 minutes to 20 seconds on an old desktop.
+  `make install RUNNER=binary` makes it the `elebake` you type.
   `elebake-compile.sh` is the same file by its other name and writes the
   script instead of running it -- what a run would do, for reading (the
   file's header says when that is the right tool and when it is not).
