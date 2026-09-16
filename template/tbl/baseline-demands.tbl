@@ -15,3 +15,4 @@ measure_geli          LOADER_TRUST_GELI_PARTS
 measure_gpt           LOADER_TRUST_GELI_PARTS
 handover_act          LOADER_TRUST_WORD_SECRET
 reveal_act            LOADER_TRUST_WORD_SECRET
+unlock_act            LOADER_TRUST_UNLOCK_SECRET

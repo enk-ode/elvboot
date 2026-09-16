@@ -2935,6 +2935,30 @@ test_gate_add_plain() {
   fi
 }
 
+test_stage_baseline_prompt() {
+  test_header "stage baseline prompt: a hidden line becomes a string baseline (its sha256), the hash file is consumed, the macro name is checked"
+  test_setup
+  run_elebake stage add unitp > /dev/null 2>&1
+  if run_elebake stage baseline prompt unitp bad-name 2>&1 | grep -q "LOADER_TRUST_<NAME>"; then
+    pass "a macro that is not LOADER_TRUST_<NAME> is refused"
+  else
+    fail "name check: $(run_elebake stage baseline prompt unitp bad-name 2>&1)"
+  fi
+  mkdir -p "$TEST_DIR/.tmp/prompt" && printf '%s\n' 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08 > "$TEST_DIR/.tmp/prompt/unitp-LOADER_TRUST_UNLOCK_SECRET"
+  run_elebake stage baseline prompt store unitp LOADER_TRUST_UNLOCK_SECRET > /dev/null
+  if [ "$(cat "$TEST_DIR/stage/unitp/baselines/LOADER_TRUST_UNLOCK_SECRET" 2>/dev/null)" = "string 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08" ] \
+     && [ ! -f "$TEST_DIR/.tmp/prompt/unitp-LOADER_TRUST_UNLOCK_SECRET" ]; then
+    pass "the hash becomes the string baseline and the file is consumed"
+  else
+    fail "prompt store: $(cat "$TEST_DIR/stage/unitp/baselines/LOADER_TRUST_UNLOCK_SECRET" 2>&1)"
+  fi
+  if run_elebake stage baseline prompt store unitp LOADER_TRUST_UNLOCK_SECRET 2>&1 | grep -q "no hash"; then
+    pass "without the file the store step errs instead of writing"
+  else
+    fail "store without file: $(run_elebake stage baseline prompt store unitp LOADER_TRUST_UNLOCK_SECRET 2>&1)"
+  fi
+}
+
 test_stage_require_boot_leafs() {
   test_header "stage require: the gate-free leafs the boot reads (boot-leafs.tbl) -- demanded per checkout file, required ones block loaderconf mk"
   test_setup
@@ -2949,14 +2973,17 @@ test_stage_require_boot_leafs() {
   : > "$fix/tpm_keyfile.c"; : > "$fix/geli_open.c"
   local req; req=$(run_elebake stage require unitb)
   if printf '%s\n' "$req" | grep -q "loader.trust.tpm.keyfile.handle  (boot)  MISSING -- stage kenv add unitb loader.trust.tpm.keyfile.handle" \
+     && printf '%s\n' "$req" | grep -q "loader.trust.tpm.key.handle  (boot)  MISSING" \
      && printf '%s\n' "$req" | grep -q "loader.trust.tpm.keyfile.pcrs  (boot)  MISSING" \
      && printf '%s\n' "$req" | grep -q "loader.trust.tpm.keyfile.providers  (boot)  MISSING" \
+     && printf '%s\n' "$req" | grep -q "loader.trust.tpm.keyfile.duress  (boot)  absent, the code default applies" \
      && printf '%s\n' "$req" | grep -q "loader.trust.geli.tries  (boot)  absent, the code default applies"; then
-    pass "with the files present require names the three required leafs and the optional one"
+    pass "with the files present require names the required leafs and the optional ones"
   else
     fail "require: $req"
   fi
   run_elebake stage kenv add unitb loader.trust.tpm.keyfile.handle 0x81010001 > /dev/null
+  run_elebake stage kenv add unitb loader.trust.tpm.key.handle 0x81000001 > /dev/null
   if run_elebake stage require unitb | grep -q "loader.trust.tpm.keyfile.handle  (boot)  = 0x81010001"; then
     pass "a recorded boot leaf shows its value"
   else
@@ -3722,6 +3749,7 @@ main() {
   should_run_test test_stage_inventory
   should_run_test test_gate_add_plain
   should_run_test test_stage_require_boot_leafs
+  should_run_test test_stage_baseline_prompt
   should_run_test test_container_catalogs_and_binding
   should_run_test test_container_emitters
   should_run_test test_container_test_run

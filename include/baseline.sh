@@ -656,6 +656,70 @@ _stage_kenv_record3() {
         emit_note "kenv $2 of $1 recorded (stage loaderconf mk writes it)"
 }
 
+#@help ___stage_baseline_prompt2
+# @command stage baseline prompt <stage> <MACRO>
+# @summary Set a string baseline from a HIDDEN line: the word is read twice on the terminal when the batch runs, both must match, its sha256 (hex, no salt -- what the loader compares) becomes the string baseline <MACRO> of the stage. The one use today: LOADER_TRUST_UNLOCK_SECRET, the passphrase unlock_act asks for the informed decision on a deviation; the hash opens nothing and tells no second role apart, so it may live in the signed loader (Konzept loader-drei-faktoren, JB 16.09.). The word reaches neither argv, history nor the batch text. Baselines are immutable: stage baseline drop <stage> <MACRO> first to change it
+# @group   provisioning
+# @example elebake stage baseline prompt daily-v1 LOADER_TRUST_UNLOCK_SECRET
+# @see     stage baseline add
+# @see     stage baseline drop
+#@end
+___stage_baseline_prompt2() {
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage check stage '$1'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage baseline prompt name valid '$2'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage baseline prompt read '$1' '$2'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage baseline prompt store '$1' '$2'"
+}
+
+#@help __stage_baseline_prompt_name_valid1
+# @command stage baseline prompt name valid <MACRO>
+# @summary The macro is LOADER_TRUST_<NAME> (A-Z, 0-9, _): a comment line, else an error line
+# @group   provisioning
+# @internal
+# @see     stage baseline prompt
+#@end
+__stage_baseline_prompt_name_valid1() {
+        if printf '%s\n' "$1" | grep -qx 'LOADER_TRUST_[A-Z0-9_]*'; then
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'baseline macro $1 named'"
+        else
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'stage baseline prompt: macro must be LOADER_TRUST_<NAME>: $1'"
+        fi
+}
+
+#@help _stage_baseline_prompt_read2
+# @command stage baseline prompt read <stage> <MACRO>
+# @summary Act terminal: the script that reads the word twice on /dev/tty with echo off, refuses empty or differing entries, hashes it with sha256 and writes the hex to .tmp/prompt/<stage>-<MACRO> of the database -- the word never leaves the script
+# @group   provisioning
+# @internal
+# @see     stage baseline prompt
+#@end
+_stage_baseline_prompt_read2() {
+        cat <<EOF
+{ : < /dev/tty; } 2>/dev/null || { printf '# Error: %s\\n' 'stage baseline prompt: needs a terminal to read the word hidden' >&2; exit 1; }
+printf '%s for $1 (hidden): ' '$2' > /dev/tty; stty -echo < /dev/tty; IFS= read -r a < /dev/tty; stty echo < /dev/tty; printf '\\n' > /dev/tty
+printf 'Again: ' > /dev/tty; stty -echo < /dev/tty; IFS= read -r b < /dev/tty; stty echo < /dev/tty; printf '\\n' > /dev/tty
+[ -n "\$a" ] && [ "\$a" = "\$b" ] || { unset a b; printf '# Error: %s\\n' 'stage baseline prompt: the two entries differ or are empty -- nothing done' >&2; exit 1; }
+mkdir -p '$ELEBAKE_BASE/.tmp/prompt' && chmod 0700 '$ELEBAKE_BASE/.tmp/prompt' && printf '%s' "\$a" | sha256 -q > '$ELEBAKE_BASE/.tmp/prompt/$1-$2' && chmod 0600 '$ELEBAKE_BASE/.tmp/prompt/$1-$2'; unset a b
+EOF
+}
+
+#@help __stage_baseline_prompt_store2
+# @command stage baseline prompt store <stage> <MACRO>
+# @summary The hash file .tmp/prompt/<stage>-<MACRO> the read script left is there: rewrite to 'stage baseline add <stage> <MACRO> string <hash>' and remove the file, else an error line
+# @group   provisioning
+# @internal
+# @see     stage baseline prompt
+#@end
+__stage_baseline_prompt_store2() {
+        local hash=""
+        hash=$(sed -n 1p "$ELEBAKE_BASE/.tmp/prompt/$1-$2" 2>/dev/null); rm -f "$ELEBAKE_BASE/.tmp/prompt/$1-$2"
+        if printf '%s\n' "$hash" | grep -qx '[0-9a-f]\{64\}'; then
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage baseline add '$1' '$2' string '$hash'"
+        else
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'stage baseline prompt: no hash for $1 $2 (the read script left none)'"
+        fi
+}
+
 #@help ___stage_kenv_drop2
 # @command stage kenv drop <stage> <key>
 # @summary Remove one loader.trust.* value of the stage: the stage and the record exist, then it is erased

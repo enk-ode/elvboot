@@ -1,0 +1,3 @@
+sh
+# Act terminal of 'stage baseline prompt': the hidden read on /dev/tty; sh so the word is read and hashed, cat only shows the script.
+# @see ELEBAKE_INTERPRETER_stage_baseline_record

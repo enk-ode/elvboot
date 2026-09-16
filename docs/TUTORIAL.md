@@ -1001,3 +1001,62 @@ fails at once -- the attest key record names `/root/secureboot/manifest/.gnupg`,
 a keyring  that exists  on the laptop  and nowhere else.   Building on  a second
 machine is an air-gap decision, not a side effect of an import; the boot tree in
 the bundle is what a rescue needs, and it is there.
+
+## 21. Three factors: knowledge, possession, this device
+
+16 September. The encrypted root opens with three things, and with nothing
+less: a passphrase the owner knows (`fde-daily-v1`), the key file on the boot
+medium the owner carries (`/boot/keys/zroot.key`), and 32 bytes this laptop's
+TPM releases only under its PCR policy -- firmware code, option ROMs and the
+Secure Boot state unchanged (`tpm-reflected-v1`, sealed as `0x81010001`, see
+the owner's `Playbooks/tpm-sealing-illyria.md`). GELI takes the two key files
+in the kernel's order, zroot.key then the TPM's, folds them with the
+passphrase into the user key, and the master key opens or it does not. The
+TPM bytes decrypt nothing by themselves; they are the second key file, as
+they are.
+
+The loader changed for this, and the change is a subtraction. It compares no
+password any more: no unlock secret, no duress secret, no console lock, no
+loader-prompt password. The reason is the threat model, not taste. The
+loader binary lives on the medium the owner carries, so an attacker who has
+the medium has any hash compiled into it; with a passphrase in hand he could
+tell, at home, which of two hashes it matches -- and a duress passphrase is
+worth exactly nothing once that is possible. So the gates measure and
+publish, none of them halts, none of them asks; the one dialog of the boot
+asks the GELI passphrase and applies the three factors to the providers
+(`geli_open.c`, `loader.trust.geli.tries` lines, then a halt whose retry is
+the reboot). Keys reach the kernel in the keybuf; the kernel asks nothing.
+The TPM key file is released first thing in the KERNEL phase, before any
+gate runs and before anything is typed (`loader.trust.tpm.keyfile.*`, the
+boot's own leafs in `template/tbl/boot-leafs.tbl`; `stage require` lists
+them, `stage loaderconf mk` insists on them). Duress classification lives
+behind the encrypted root, in earlboot's answer gates, and nowhere else.
+
+The rollout, three boots of card b:
+
+- **Two factors, new loader.** `tpm.keyfile="unsealed=1,providers=0"`: the
+  TPM opened, nothing was added yet, slot 0 still took passphrase and
+  zroot.key. The first attempt landed at the loader prompt: the old
+  password.lua had started the autoboot itself when a password hash was
+  set, the stock one does not, and `autoboot_delay="NO"` means "never boot
+  by yourself". It is `"-1"` now. And `stage loaderconf mk` belongs to
+  every command group after a kenv change -- the trust conf on the card was
+  the old one, and the TPM leafs were not there.
+- **Slot 0 re-keyed.** `geli setkey -n 0 -K zroot.key -K tpm.bin` on both
+  providers, after a probe on an md volume that opened with both files and
+  refused with one. The metadata backups went into the owner's repository.
+- **Three factors.** `tpm.keyfile="unsealed=1,providers=2,added=2,ok"`,
+  every gate green but recordlock: the record is keyed from the GELI user
+  key, the user key changed with the slot, so the previous record cannot be
+  checked once and a new chain starts at counter 1 (record.c says so). The
+  next boot closed it. A mistyped boot answer the boot after that made
+  Attempts 4 instead of 3 -- the tell working, not a fault.
+
+Two findings the cards taught, decided on the same day: PcrBank hashed PCR 0
+to 7, and PCR 5 measures the GPT of the boot disk, so two cards of unequal
+size never agree; the claim now takes `loader.trust.kernellock.pcr.require`
+(`0,1,2,3,4,6,7` here). And the chain on the medium is one chain for all
+media: a boot from the reserve card leaves the daily card behind, and that
+deviation is not healed silently -- it asks for an informed decision, the
+unlock with the one passphrase left in the loader, `loader-prompt-v1`, with
+no second role a hash could give away.
