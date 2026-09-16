@@ -112,8 +112,15 @@ BINDIR?=	${PREFIX}/bin
 MANDIR?=	${PREFIX}/share/man/man
 WRAPPER=	${DESTDIR}${BINDIR}/elebake
 MANPAGE=	${DESTDIR}${MANDIR}8/elebake.8
-# bash-completion loads <command> from here on the first Tab
+# bash-completion loads <command> from here on the first Tab. A user
+# install (PREFIX under $HOME) is not ${PREFIX}/share: bash-completion reads
+# the user's completions from ~/.local/share/bash-completion/completions --
+# and there the file is a symlink into this checkout, like the wrapper.
+.if ${PREFIX:M${HOME}*} != ""
+COMPLETIONDIR?=	${HOME}/.local/share/bash-completion/completions
+.else
 COMPLETIONDIR?=	${PREFIX}/share/bash-completion/completions
+.endif
 COMPLETION=	${DESTDIR}${COMPLETIONDIR}/elebake
 
 .PHONY: install uninstall
@@ -139,7 +146,7 @@ install: docs/elebake.8
 	@install -m 0755 ${WRAPPER}.tmp ${WRAPPER} && rm -f ${WRAPPER}.tmp
 	@install -m 0444 docs/elebake.8 ${MANPAGE}
 	@mkdir -p ${DESTDIR}${COMPLETIONDIR}
-	@install -m 0444 completion/elebake.bash ${COMPLETION}
+	@rm -f ${COMPLETION} && ln -s ${.CURDIR}/completion/elebake.bash ${COMPLETION}
 	@echo "install: ${WRAPPER} -> ${.CURDIR} (RUNNER=${RUNNER})"
 	@echo "install: ${MANPAGE}"
 	@echo "install: ${COMPLETION} (bash completion)"
