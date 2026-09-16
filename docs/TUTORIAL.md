@@ -981,11 +981,18 @@ machines, and the database  on the desktop was made by  the dump's own commands,
 checked by  their own predicates,  in order. What  the 22 minutes  taught became
 `elebake-binary.sh` the  same day:  the import  in one  process, the  anchors as
 functions, every emitted line  a call -- 20 seconds for the same  dump, 25 on an
-empty database. Its second name, `elebake-compile.sh`, writes the script instead
-of running  it; compiled  against an  empty database that  script has  862 error
-fragments,  because a  predicate judged  at  compile time  is an  answer in  the
-script, not a check  -- the order survives, the state  does not. The interpreter
-is for import; the compiled script is for reading.
+empty database. Serial 8, the same database with its boot tree, on the desktop's
+disk: 19 minutes per process, 55 seconds in one -- since 15.09. the binary is an
+override  of `process_arguments`,  `"$ELEBAKE_CONTEXT_SCRIPT"`  is the  engine's
+`main` and `env` a function, so the batch runner and the exit arithmetic are the
+engine's  own. On  the laptop  itself,  serial 8  into an  empty database:  2:28
+minutes per process,  7.3 seconds in one;  the six failing lines at  the end are
+the rebuild, which  needs the trust anchor that never  travels. Its second name,
+`elebake-compile.sh`, writes the script instead  of running it; compiled against
+an  empty database  that script  has 862  error fragments,  because a  predicate
+judged at  compile time is  an answer in  the script, not  a check --  the order
+survives, the state does not. The interpreter is for import; the compiled script
+is for reading.
 
 What does  not travel, on purpose:  key material.  `stage trust`  on the desktop
 fails at once -- the attest key record names `/root/secureboot/manifest/.gnupg`,

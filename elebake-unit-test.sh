@@ -772,6 +772,135 @@ EOF
   fi
 }
 
+test_binary_runs_in_one_process() {
+  test_header "elebake-binary.sh: the engine's exit rules in one process -- a command, fail-fast, keep-going, a nested batch, env as a function, the context call after a nested call"
+  test_setup
+  local bin="$(dirname "$TEST_SCRIPT")/elebake-binary.sh" a="$TEST_DIR/.env/local/ELEBAKE_UNIT_A" b="$TEST_DIR/.env/local/ELEBAKE_UNIT_B" rc got
+  cat > "$TEST_BASE_DIR/unit-bin.sh" <<'EOF'
+"$ELEBAKE_CONTEXT_SCRIPT" setenv ELEBAKE_UNIT_A one
+"$ELEBAKE_CONTEXT_SCRIPT" error boom
+"$ELEBAKE_CONTEXT_SCRIPT" setenv ELEBAKE_UNIT_B two
+EOF
+  sh "$bin" "$TEST_DIR" setenv ELEBAKE_UNIT_C three > /dev/null 2>&1; rc=$?
+  if [ "$rc" -eq 0 ] && [ "$(head -1 "$TEST_DIR/.env/local/ELEBAKE_UNIT_C" 2>/dev/null)" = three ]; then
+    pass "a command acts and exits 0"
+  else
+    fail "setenv via the binary: rc=$rc"
+  fi
+  sh "$bin" "$TEST_DIR" error boom > /dev/null 2>&1; rc=$?
+  if [ "$rc" -eq 1 ]; then pass "a failing command exits 1"; else fail "error via the binary: rc=$rc"; fi
+  sh "$bin" "$TEST_DIR" batch "$TEST_BASE_DIR/unit-bin.sh" > /dev/null 2>&1; rc=$?
+  if [ "$rc" -ne 0 ] && [ -f "$a" ] && [ ! -f "$b" ]; then
+    pass "fail-fast: the line after the failure did not replay, exit $rc"
+  else
+    fail "fail-fast: rc=$rc a=$(cat "$a" 2>/dev/null) b=$(cat "$b" 2>/dev/null)"
+  fi
+  rm -f "$a" "$b"
+  ELEBAKE_BATCH_KEEP_GOING=1 sh "$bin" "$TEST_DIR" batch "$TEST_BASE_DIR/unit-bin.sh" > /dev/null 2>&1; rc=$?
+  if [ "$rc" -ne 0 ] && [ -f "$a" ] && [ -f "$b" ]; then
+    pass "keep-going: every line replayed, exit $rc still reports the failure"
+  else
+    fail "keep-going: rc=$rc a=$(cat "$a" 2>/dev/null) b=$(cat "$b" 2>/dev/null)"
+  fi
+  rm -f "$a" "$b"
+  printf '"$ELEBAKE_CONTEXT_SCRIPT" setenv ELEBAKE_UNIT_D four\n"$ELEBAKE_CONTEXT_SCRIPT" batch %s\n"$ELEBAKE_CONTEXT_SCRIPT" setenv ELEBAKE_UNIT_E five\n' "$TEST_BASE_DIR/unit-bin.sh" > "$TEST_BASE_DIR/unit-outer.sh"
+  sh "$bin" "$TEST_DIR" batch "$TEST_BASE_DIR/unit-outer.sh" > /dev/null 2>&1; rc=$?
+  if [ "$rc" -ne 0 ] && [ -f "$a" ] && [ ! -f "$TEST_DIR/.env/local/ELEBAKE_UNIT_E" ]; then
+    pass "a nested batch's failure propagates: the outer batch stops, exit $rc"
+  else
+    fail "nested: rc=$rc a=$(cat "$a" 2>/dev/null) e=$(cat "$TEST_DIR/.env/local/ELEBAKE_UNIT_E" 2>/dev/null)"
+  fi
+  got=$(cd "$(dirname "$TEST_SCRIPT")" && ELV_SOURCED=1 ELV_LIBDIR="$PWD" ELEBAKE_BASE="$TEST_DIR" sh -c '. ./elebake-binary.sh; env ELEBAKE_UNIT_X=1 sh -c "printf %s \"\${ELEBAKE_UNIT_X:-}\""; printf " %s" "${ELEBAKE_UNIT_X-unset}"; main environment cache on > /dev/null 2>&1; printf " %s" "$ELEBAKE_CONTEXT_CALL"' 2>/dev/null)
+  if [ "$got" = "1 unset ___environment_cache_on0" ]; then
+    pass "env binds for the call and drops after; the context call after a nested call is the caller's"
+  else
+    fail "sourced binary: got '$got'"
+  fi
+}
+
+test_compile_writes_the_script() {
+  test_header "elebake-compile.sh: a batch compiles to fragments; the script sources the binary and does what the interpreter does"
+  test_setup
+  local comp="$(dirname "$TEST_SCRIPT")/elebake-compile.sh" script="$TEST_BASE_DIR/unit-compiled.sh" a="$TEST_DIR/.env/local/ELEBAKE_UNIT_A" b="$TEST_DIR/.env/local/ELEBAKE_UNIT_B" rc
+  cat > "$TEST_BASE_DIR/unit-bin.sh" <<'EOF'
+"$ELEBAKE_CONTEXT_SCRIPT" setenv ELEBAKE_UNIT_A one
+"$ELEBAKE_CONTEXT_SCRIPT" error boom
+"$ELEBAKE_CONTEXT_SCRIPT" setenv ELEBAKE_UNIT_B two
+EOF
+  sh "$comp" "$TEST_DIR" batch "$TEST_BASE_DIR/unit-bin.sh" > "$script" 2>/dev/null; rc=$?
+  if [ "$rc" -eq 0 ] && grep -q '^ELV_SOURCED=1' "$script" && grep -q '^# -- _setenv_write2 ' "$script" \
+     && grep -q '^) || exit 1$' "$script" && [ ! -f "$a" ]; then
+    pass "compiled: the header sources the binary, the acts are fragments, nothing acted"
+  else
+    fail "compile: rc=$rc $(head -12 "$script" | tr '\n' '|')"
+  fi
+  sh "$script" > /dev/null 2>&1; rc=$?
+  if [ "$rc" -ne 0 ] && [ -f "$a" ] && [ ! -f "$b" ]; then
+    pass "the script run: A set, the error fragment stops it before B, exit $rc"
+  else
+    fail "script run: rc=$rc a=$(cat "$a" 2>/dev/null) b=$(cat "$b" 2>/dev/null)"
+  fi
+}
+
+test_walkthrough_shows_the_tree() {
+  test_header "elebake-walkthrough.sh: the tree of a command as text -- acts shown under their anchor, checks answered, nothing written"
+  test_setup
+  local walk="$(dirname "$TEST_SCRIPT")/elebake-walkthrough.sh" out rc
+  cat > "$TEST_BASE_DIR/unit-walk.sh" <<'EOF'
+"$ELEBAKE_CONTEXT_SCRIPT" setenv ELEBAKE_UNIT_A one
+"$ELEBAKE_CONTEXT_SCRIPT" error boom
+"$ELEBAKE_CONTEXT_SCRIPT" setenv ELEBAKE_UNIT_B two
+EOF
+  out=$(sh "$walk" "$TEST_DIR" batch "$TEST_BASE_DIR/unit-walk.sh" 2>&1); rc=$?
+  if printf '%s\n' "$out" | grep -q '^# -- _setenv_write2 setenv write ELEBAKE_UNIT_A one' \
+     && printf '%s\n' "$out" | grep -q "^printf '%s\\\\n' 'one' > " \
+     && printf '%s\n' "$out" | grep -q '^# -- _error1 error boom' \
+     && printf '%s\n' "$out" | grep -q '^# -- _setenv_write2 setenv write ELEBAKE_UNIT_B two' \
+     && ! printf '%s\n' "$out" | grep -q '|| exit 1' \
+     && [ ! -f "$TEST_DIR/.env/local/ELEBAKE_UNIT_A" ] && [ ! -f "$TEST_DIR/.env/local/ELEBAKE_UNIT_B" ]; then
+    pass "every act under its anchor line, no fragment wrappers, the line after the error still shown, nothing written"
+  else
+    fail "walkthrough: rc=$rc $(printf '%s\n' "$out" | head -12 | tr '\n' '|')"
+  fi
+  out=$(sh "$walk" "$TEST_DIR" stage add unitwalk 2>&1)
+  if printf '%s\n' "$out" | grep -q '^# -- _stage_mint1 stage mint unitwalk' && [ ! -e "$TEST_DIR/stage/unitwalk" ]; then
+    pass "a command's checks are answered now, its acts shown, the stage not created"
+  else
+    fail "walkthrough stage add: $(printf '%s\n' "$out" | head -6 | tr '\n' '|')"
+  fi
+}
+
+test_environment_freeze() {
+  test_header "environment freeze: the name confirms, weak combinator pins go, the terminal default is sh, the marker refuses later pins"
+  test_setup
+  local real; real=$(basename "$(readlink -f "$TEST_DIR")")
+  run_elebake setenv ELEBAKE_INTERPRETER_stage_check_stage sh > /dev/null
+  run_elebake setenv ELEBAKE_INTERPRETER_comment cat > /dev/null
+  if run_elebake environment freeze nosuch 2>&1 | grep -q "does not match this database" && [ ! -f "$TEST_DIR/.env/frozen" ]; then
+    pass "a wrong name is refused before anything happens"
+  else
+    fail "freeze nosuch: $(run_elebake environment freeze nosuch 2>&1 | head -3)"
+  fi
+  local out; out=$(run_elebake environment freeze "$real" 2>&1)
+  if [ -f "$TEST_DIR/.env/frozen" ] && [ ! -f "$TEST_DIR/.env/local/ELEBAKE_INTERPRETER_stage_check_stage" ] \
+     && [ -f "$TEST_DIR/.env/local/ELEBAKE_INTERPRETER_comment" ] \
+     && [ "$(head -1 "$TEST_DIR/.env/local/ELEBAKE_TERMINAL_INTERPRETER")" = sh ] \
+     && printf '%s\n' "$out" | grep -q "FREEZE '$real'"; then
+    pass "the weak combinator pin is gone, the terminal pin stays, the terminal default is sh, the marker is written"
+  else
+    fail "freeze: $(printf '%s\n' "$out" | tail -6 | tr '\n' '|') frozen=$(ls "$TEST_DIR/.env/frozen" 2>&1)"
+  fi
+  if run_elebake setenv ELEBAKE_COMBINATOR_INTERPRETER sh 2>&1 | grep -q "environment frozen" \
+     && [ ! -f "$TEST_DIR/.env/local/ELEBAKE_COMBINATOR_INTERPRETER" ] \
+     && run_elebake setenv ELEBAKE_INTERPRETER_stage_check_stage cat 2>&1 | grep -q "environment frozen" \
+     && run_elebake setenv ELEBAKE_INTERPRETER_comment sh 2>&1 | grep -q "Set ELEBAKE_INTERPRETER_comment" \
+     && run_elebake environment cache status 2>&1 | grep -q "FROZEN"; then
+    pass "frozen: a combinator pin and a class default are refused, a terminal pin may change, status says FROZEN"
+  else
+    fail "frozen rules: $(run_elebake setenv ELEBAKE_COMBINATOR_INTERPRETER sh 2>&1 | tail -2 | tr '\n' '|')"
+  fi
+}
+
 test_getenv_layer_reporting() {
   test_header "getenv reports the winning layer"
   test_setup
@@ -3236,6 +3365,72 @@ test_container_emitters() {
   fi
 }
 
+test_complete_candidates() {
+  test_header "complete: completion candidates come from the help corpus (words, alternatives, stages, files)"
+  test_setup
+  local out
+  out=$(run_elebake complete "")
+  if printf '%s\n' "$out" | grep -qx stage && printf '%s\n' "$out" | grep -qx help && printf '%s\n' "$out" | grep -qx complete \
+     && ! printf '%s\n' "$out" | grep -q '[<>]'; then
+    pass "top level lists the command words, no placeholder syntax leaks"
+  else
+    fail "top level gave: $(printf '%s' "$out" | tr '\n' ' ' | cut -c1-200)"
+  fi
+  out=$(run_elebake complete stage si)
+  if [ "$(printf '%s\n' "$out" | tr '\n' ' ')" = "sign site " ]; then
+    pass "'stage si' completes to sign and site only"
+  else
+    fail "'stage si' gave: $(printf '%s' "$out" | tr '\n' ' ')"
+  fi
+  out=$(run_elebake complete environment cache "")
+  if printf '%s\n' "$out" | grep -qx on && printf '%s\n' "$out" | grep -qx off && printf '%s\n' "$out" | grep -qx status; then
+    pass "'environment cache' offers on|off|status"
+  else
+    fail "'environment cache' gave: $(printf '%s' "$out" | tr '\n' ' ')"
+  fi
+  out=$(run_elebake complete stage prerequisites show daily "")
+  if [ "$(printf '%s\n' "$out" | tr '\n' ' ')" = "exist verify " ]; then
+    pass "<exist|verify> in angle brackets is a literal alternative"
+  else
+    fail "'stage prerequisites show daily' gave: $(printf '%s' "$out" | tr '\n' ' ')"
+  fi
+  run_elebake stage add cmpl-a >/dev/null 2>&1
+  run_elebake stage add cmpl-b >/dev/null 2>&1
+  out=$(run_elebake complete stage sign cmpl-)
+  if [ "$(printf '%s\n' "$out" | tr '\n' ' ')" = "cmpl-a cmpl-b " ]; then
+    pass "<stage> completes to the stages of the database"
+  else
+    fail "'stage sign cmpl-' gave: $(printf '%s' "$out" | tr '\n' ' ')"
+  fi
+  out=$(run_elebake complete restore "")
+  if [ "$(printf '%s\n' "$out" | tr '\n' ' ')" = "@files " ]; then
+    pass "<dump> hands file completion to the shell"
+  else
+    fail "'restore' gave: $(printf '%s' "$out" | tr '\n' ' ')"
+  fi
+  out=$(run_elebake complete help stage si)
+  if printf '%s\n' "$out" | grep -qx sign && ! printf '%s\n' "$out" | grep -q '@'; then
+    pass "'help stage si' completes the command path"
+  else
+    fail "'help stage si' gave: $(printf '%s' "$out" | tr '\n' ' ')"
+  fi
+  out=$(run_elebake complete help "")
+  if printf '%s\n' "$out" | grep -qx stage && printf '%s\n' "$out" | grep -qx keys && printf '%s\n' "$out" | grep -qx environment; then
+    pass "'help' completes command words, group ids and the topic"
+  else
+    fail "'help' gave: $(printf '%s' "$out" | tr '\n' ' ' | cut -c1-200)"
+  fi
+  # the pin: candidates are printed even with the terminal interpreter on sh
+  # (test_setup sets it) and without the pin variable in the database
+  run_elebake unsetenv ELEBAKE_INTERPRETER_complete >/dev/null 2>&1
+  out=$(run_elebake complete stage si)
+  if [ "$(printf '%s\n' "$out" | tr '\n' ' ')" = "sign site " ]; then
+    pass "candidates are displayed, never executed, without the pin in the database"
+  else
+    fail "without pin: $(printf '%s' "$out" | tr '\n' ' ')"
+  fi
+}
+
 test_dispatch_wrong_arity() {
   test_header "dispatch: a known command path with the wrong argument count says so (not 'unknown', not swallowed)"
   test_setup
@@ -3448,6 +3643,7 @@ main() {
   should_run_test test_dump_version_header
   should_run_test test_restore_keep_going
   should_run_test test_help_env_cascade
+  should_run_test test_complete_candidates
   should_run_test test_error_and_log
   should_run_test test_stage_add_validation
   should_run_test test_stage_device_and_boot_tree
@@ -3457,6 +3653,10 @@ main() {
   should_run_test test_stage_unkey_and_attest
   should_run_test test_batch_fail_fast_default
   should_run_test test_batch_exit_survives_a_closed_pipe
+  should_run_test test_binary_runs_in_one_process
+  should_run_test test_compile_writes_the_script
+  should_run_test test_walkthrough_shows_the_tree
+  should_run_test test_environment_freeze
   should_run_test test_getenv_layer_reporting
   should_run_test test_filter_and_import_path_validation
   should_run_test test_dump_marker_and_backup_blocks

@@ -136,6 +136,11 @@ The ENVIRONMENT section of the manual: one entry per shipped variable
 template, its \(atsummary as the body \(en the templates ARE the corpus
 (help env reads the same files)
 .TP
+\f[B]complete [<words>]\f[R]
+Print completion candidates for a partially typed command line
+(bash\-completion back\-end): the words typed so far, the last one being
+the word under the cursor
+.TP
 \f[B]Inspect\-by\-default\f[R]
 Pipeline commands PRINT their shell: review, then append `| sh' to run
 (`| sudo sh' where the ESP or root\-only keys are involved).

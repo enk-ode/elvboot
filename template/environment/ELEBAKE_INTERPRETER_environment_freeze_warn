@@ -1,0 +1,4 @@
+cat
+# Text terminal: the warning of 'environment freeze', printed before the
+# first unsetenv of the batch.
+# @see ELEBAKE_INTERPRETER_environment_freeze_mark

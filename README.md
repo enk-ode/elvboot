@@ -84,6 +84,9 @@ The family, by name:
   `elebake-compile.sh` is the same file by its other name and writes the
   script instead of running it -- what a run would do, for reading (the
   file's header says when that is the right tool and when it is not).
+  `elebake-walkthrough.sh <db> <command...>` is the third name: the whole
+  tree of a command as text, checks answered against the database as it
+  is, every act shown under its anchor, nothing run -- in seconds.
 
 ## The FreeBSD sources -- read this first
 

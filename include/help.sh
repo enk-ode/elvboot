@@ -7,9 +7,11 @@
 #
 # Help text is assembled from #@help doc-blocks declared above each anchor
 # function. This module owns:
-#   - the @defgroup taxonomy and @topic entries (below),
+#   - the @defgroup taxonomy, @topic entries and the @defcompletion table (below),
 #   - the runtime parser + renderer (help_render),
-#   - the user-facing entry points (_help0 overview, _help1/_help2 detail).
+#   - the user-facing entry points (_help0 overview, _help1/_help2 detail),
+#   - the completion back-end (_completeN: candidates for the shell from the
+#     same corpus - see completion/elebake.bash).
 # A doc-block that lies is a bug; hand-maintained overviews are not accepted.
 
 # --- Help taxonomy: overview sections, ordered by @order ---------------------
@@ -79,6 +81,122 @@
 #   under an explicit interpreter).
 #@end
 
+# --- Completion sources: where a usage placeholder takes its candidates ------
+# One line per placeholder name as it appears in @command usages. 'elebake
+# complete' (the bash-completion back-end) resolves a placeholder through this
+# table; a command block overrides one name with '@completion <name> <source>'
+# (bootstrap/destroy: <name> is a database). A name listed here is a
+# placeholder wherever it appears in <...>; a word in <...> that is NOT listed
+# is a literal alternative (<exist|verify>, <path|->, <stage>|all). Sources are
+# the vocabulary of complete_values() below; 'none' offers nothing (free
+# text). Architecture test C checks that every <placeholder> resolves.
+
+#@help
+# @defcompletion stage         stage
+# @defcompletion medium        medium
+# @defcompletion key           key
+# @defcompletion backend       backend
+# @defcompletion VAR           env-var
+# @defcompletion profile       profile
+# @defcompletion function      interpreter-fn
+# @defcompletion command       command-path
+# @defcompletion location      layer
+# @defcompletion layer         layer
+# @defcompletion claim         foundation-claim
+# @defcompletion gate          foundation-gate
+# @defcompletion policy        foundation-policy
+# @defcompletion trigger       foundation-trigger
+# @defcompletion expectation   foundation-expectation
+# @defcompletion macro         foundation-macro
+# @defcompletion MACRO         foundation-macro
+# @defcompletion file          files
+# @defcompletion dump          files
+# @defcompletion bundle        files
+# @defcompletion collection    files
+# @defcompletion filtered      files
+# @defcompletion archive       files
+# @defcompletion manifest      files
+# @defcompletion certfile      files
+# @defcompletion keyfile       files
+# @defcompletion absfile       files
+# @defcompletion filepath      files
+# @defcompletion path          files
+# @defcompletion relpath       files
+# @defcompletion rel           files
+# @defcompletion loader.efi    files
+# @defcompletion /dev/node     files
+# @defcompletion base          dirs
+# @defcompletion srcdir        dirs
+# @defcompletion dir           dirs
+# @defcompletion absdir        dirs
+# @defcompletion reldir        dirs
+# @defcompletion subdir        dirs
+# @defcompletion directory     dirs
+# @defcompletion mountpoint    dirs
+# @defcompletion gnupghome     dirs
+# @defcompletion destination   dirs
+# @defcompletion root          dirs
+# @defcompletion name          none
+# @defcompletion group         none
+# @defcompletion topic         none
+# @defcompletion value         none
+# @defcompletion label         none
+# @defcompletion description   none
+# @defcompletion text          none
+# @defcompletion n             none
+# @defcompletion id            none
+# @defcompletion type          none
+# @defcompletion kind          none
+# @defcompletion position      none
+# @defcompletion local         none
+# @defcompletion measurement   none
+# @defcompletion action        none
+# @defcompletion partition     none
+# @defcompletion entry         none
+# @defcompletion when          none
+# @defcompletion strategy      none
+# @defcompletion kenv-variable none
+# @defcompletion diagnose      none
+# @defcompletion a1            none
+# @defcompletion a2            none
+# @defcompletion a3            none
+# @defcompletion a4            none
+# @defcompletion a5            none
+# @defcompletion secret-slot   none
+# @defcompletion duress-slot   none
+# @defcompletion policy-template none
+# @defcompletion loader-gate   none
+# @defcompletion mode          none
+# @defcompletion else          none
+# @defcompletion defined       none
+# @defcompletion gpt-label     none
+# @defcompletion component     none
+# @defcompletion BootXXXX      none
+# @defcompletion part          none
+# @defcompletion keyid         none
+# @defcompletion uri           none
+# @defcompletion slot          none
+# @defcompletion remedy        none
+# @defcompletion leaf          none
+# @defcompletion hash          none
+# @defcompletion exec-flag     none
+# @defcompletion who           none
+# @defcompletion snapshot      none
+# @defcompletion line          none
+# @defcompletion interpreter   none
+# @defcompletion filter-strategy none
+# @defcompletion dump-strategy none
+# @defcompletion disk          none
+# @defcompletion catalog-name  none
+# @defcompletion bootvar       none
+# @defcompletion BASELINE      none
+# @defcompletion ref           none
+# @defcompletion pool/dataset  none
+# @defcompletion phase         none
+# @defcompletion container     none
+# @defcompletion words         none
+#@end
+
 # --- Generated-help engine ---------------------------------------------------
 # help_source_files: the files scanned for #@help doc-blocks at runtime.
 
@@ -103,7 +221,7 @@ help_render() {
                 ch="$COLOR_BLUE"; cc="$COLOR_CYAN"; cg="$COLOR_GRAY"; cr="$COLOR_RESET"
         fi
         help_source_files | tr '\n' '\0' | xargs -0 cat 2>>"$LOG_FILE" | awk \
-        -v mode="$mode" -v target="$target" \
+        -v mode="$mode" -v target="$target" -v ctxname="stage" \
         -v ch="$ch" -v cc="$cc" -v cg="$cg" -v cr="$cr" \
         -f "$ELEBAKE_TEMPLATE_DIR/awk/help-render.awk"
 }
@@ -295,4 +413,165 @@ _help_manual_environment0() {
                 [ -n "$sm" ] || continue
                 printf '%s\n' "**$v**" ":   $(printf '%s' "$sm" | sed 's/[<>|]/\\&/g')" ""
         done
+}
+
+# --- Completion back-end -----------------------------------------------------
+# 'elebake complete <words...>' answers the shell's completion request from the
+# help corpus: literal command words come from the @command usages, placeholders
+# resolve through @completion / @defcompletion to a source, and complete_values
+# reads that source from the database. The shell side (completion/elebake.bash)
+# is a thin loop over these lines. Output is candidates, one per line, pinned
+# to cat (ELEBAKE_INTERPRETER_complete) - never executed. Helpers carry no
+# leading underscore: they emit nothing on their own.
+
+# complete_words WORD... - the words typed so far, the last one under the cursor.
+complete_words() {
+        local cur="" words="" a
+        if [ $# -gt 0 ]; then
+                eval "cur=\${$#}"
+                words="$1"; shift
+                for a in "$@"; do words="$words$(printf '\037')$a"; done
+        fi
+        help_render complete "$words" | complete_expand "$cur" | sort -u
+}
+
+# complete_expand CUR - "word ..." lines pass through, "src <source> [<ctx>]"
+# lines expand to values filtered by the prefix under the cursor.
+complete_expand() {
+        local cur="$1" line v src ctx
+        while IFS= read -r line; do
+                case "$line" in
+                "word "*) printf '%s\n' "${line#word }" ;;
+                "src "*)
+                        src=${line#src }; ctx=""
+                        case "$src" in *" "*) ctx=${src#* }; src=${src%% *} ;; esac
+                        complete_values "$src" "$ctx" | while IFS= read -r v; do
+                                case "$v" in "$cur"*|@*) printf '%s\n' "$v" ;; esac
+                        done ;;
+                esac
+        done
+}
+
+# complete_values SOURCE [CTX] - the values behind a @defcompletion source,
+# read straight from the database (the list commands format for humans).
+# CTX is the stage typed earlier on the line (media live per stage). @files
+# and @dirs are directives for the shell to complete paths itself.
+complete_values() {
+        local base="$ELEBAKE_BASE" d f
+        case "$1" in
+        files) echo "@files" ;;
+        dirs)  echo "@dirs" ;;
+        stage)  ls "$base/stage" 2>/dev/null ;;
+        medium) [ -n "${2:-}" ] && ls "$base/stage/$2/media" 2>/dev/null ;;
+        backend)
+                for d in "$base"/*/; do
+                        d=${d%/}; d=${d##*/}
+                        case " $ELEBAKE_PSEUDO_BACKEND " in *" $d "*) continue ;; esac
+                        printf '%s\n' "$d"
+                done ;;
+        key)
+                for d in $(complete_values backend); do ls "$base/$d" 2>/dev/null; done ;;
+        foundation-*)
+                ls "$base/foundation/${1#foundation-}s" 2>/dev/null ;;
+        database)
+                for d in "$ELEBAKE_ROOT"/*/; do
+                        d=${d%/}; [ -d "$d/.env" ] || continue
+                        d=${d##*/}; [ "$d" = db ] || printf '%s\n' "$d"
+                done ;;
+        env-var)
+                {
+                        ls "$ELEBAKE_TEMPLATE_DIR/environment" 2>/dev/null
+                        ls "$base/.env/default" 2>/dev/null
+                        ls "$base/.env/local" 2>/dev/null
+                } | grep -v '^ELEBAKE_PROFILE_' ;;
+        interpreter-fn)
+                printf '%s\n' terminal combinator batch
+                for f in $TERMINAL_FUNCTIONS $COMBINATOR_FUNCTIONS $BATCH_COMBINATOR_FUNCTIONS; do
+                        f=${f#___}; f=${f#__}; f=${f#_}
+                        printf '%s\n' "$f" "${f%[0-9]}"
+                done ;;
+        profile) ls "$ELEBAKE_TEMPLATE_DIR/environment" 2>/dev/null | sed -n 's/^ELEBAKE_PROFILE_//p' | tr 'A-Z' 'a-z' ;;
+        layer)   printf '%s\n' local default template ;;
+        none|*)  ;;
+        esac
+}
+
+#@help _complete0
+# @command complete [<words>]
+# @summary Print completion candidates for a partially typed command line (bash-completion back-end): the words typed so far, the last one being the word under the cursor
+# @group   setup
+# @param   words  the words typed so far; the last one is the (possibly empty) word under the cursor
+# @returns one candidate per line, sorted; the lines @files and @dirs ask the shell to complete paths
+# @env     ELEBAKE_TEMPLATE_DIR  profiles and documented variables come from the shipped templates
+# @env     ELEBAKE_ROOT  where the databases live (bootstrap/destroy complete their names)
+# @env     ELEBAKE_PSEUDO_BACKEND  directories of the base that are not key backends
+# @example elebake complete stage si
+# @example elebake complete stage sign ''
+# @see help
+#@end
+_complete0() {
+        complete_words
+}
+
+#@help _complete1
+# @internal arity-1 sibling of 'complete'
+#@end
+_complete1() {
+        complete_words "$@"
+}
+
+#@help _complete2
+# @internal arity-2 sibling of 'complete'
+#@end
+_complete2() {
+        complete_words "$@"
+}
+
+#@help _complete3
+# @internal arity-3 sibling of 'complete'
+#@end
+_complete3() {
+        complete_words "$@"
+}
+
+#@help _complete4
+# @internal arity-4 sibling of 'complete'
+#@end
+_complete4() {
+        complete_words "$@"
+}
+
+#@help _complete5
+# @internal arity-5 sibling of 'complete'
+#@end
+_complete5() {
+        complete_words "$@"
+}
+
+#@help _complete6
+# @internal arity-6 sibling of 'complete'
+#@end
+_complete6() {
+        complete_words "$@"
+}
+
+#@help _complete7
+# @internal arity-7 sibling of 'complete'
+#@end
+_complete7() {
+        complete_words "$@"
+}
+
+#@help _complete8
+# @internal arity-8 sibling of 'complete'
+#@end
+_complete8() {
+        complete_words "$@"
+}
+
+#@help _complete9
+# @internal arity-9 sibling of 'complete' (the arity digit ends at 9: a tenth word gets no candidates)
+#@end
+_complete9() {
+        complete_words "$@"
 }

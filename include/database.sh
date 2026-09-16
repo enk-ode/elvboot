@@ -9,6 +9,7 @@
 
 #@help __bootstrap1
 # @command bootstrap <name> <profile>
+# @completion name database
 # @summary Create the database ~/.elebake/<name> (under ELEBAKE_ROOT) with the named profile and point the active-DB symlink db at it. <name> is a plain name, not a path: a slash is refused, db is reserved
 # @group   setup
 # @param   name     database name below ELEBAKE_ROOT (e.g. production); no slashes
@@ -304,7 +305,7 @@ _environment_cache_off0() {
 
 #@help _environment_cache_status0
 # @command environment cache status
-# @summary Is the environment cache on, and how many variables does it hold?
+# @summary Is the environment cache on, how many variables does it hold, and is the environment frozen (environment freeze)?
 # @group   configuration
 # @env     ELEBAKE_CACHE_ENV_ARGS  the cache file this command examines
 # @see     environment cache on
@@ -317,6 +318,140 @@ _environment_cache_status0() {
         else
                 echo "echo '# Environment cache: DISABLED' >&2"
         fi
+        if [ -f "$ELEBAKE_BASE/.env/frozen" ]; then
+                echo "echo '# Environment: FROZEN ($(sed -n 1p "$ELEBAKE_BASE/.env/frozen")) -- combinator and batch pins are the shipped defaults' >&2"
+        fi
+}
+
+#@help ___environment_freeze1
+# @command environment freeze <name>
+# @completion name database
+# @summary Freeze the interpreter environment of this database, with no way back: the name IS the confirmation (as destroy), a warning says what goes, then every machine override that weakens a combinator or batch pin is removed (environment freeze pins), the terminal default becomes sh (acts run), the marker .env/frozen is written, the cache rebuilt. Frozen, setenv and unsetenv refuse those pins. The shipped defaults are the only interpreters that read ONE line reliably (head -n1 | xargs ... for a combinator, the batch runner for a batch): a pin of sh or cat there works until two lines stand on stdin. A pin that must deviate is a decision taken BEFORE the freeze, in the template that ships it, never a machine override afterwards. Assumes: the database is provisioned and about to be trusted with acts; there is no thaw
+# @group   setup
+# @param   name  must match the database's own name -- the confirmation
+# @env     ELEBAKE_TERMINAL_INTERPRETER  set to sh by the batch: acts run in a frozen database
+# @example elebake environment freeze production
+# @see     environment freeze pins
+# @see     environment cache status
+# @see     setenv
+# @see     destroy
+#@end
+___environment_freeze1() {
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" environment freeze named '$1'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" environment freeze warn '$1'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" environment freeze pins"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" setenv ELEBAKE_TERMINAL_INTERPRETER sh"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" environment freeze mark"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" environment cache on"
+}
+
+#@help __environment_freeze_named1
+# @command environment freeze named <name>
+# @summary The name is this database's own (the basename the active-DB symlink resolves to): a comment line, else an error line -- naming the database IS the confirmation
+# @group   setup
+# @internal
+# @see     environment freeze
+#@end
+__environment_freeze_named1() {
+        local real=""
+        real=$(basename "$(readlink -f "$ELEBAKE_BASE")")
+        if test "$1" = "$real"; then
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'environment freeze $1 confirmed by name'"
+        else
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error $(sq "environment freeze: name '$1' does not match this database ('$real') -- naming it IS the confirmation")"
+        fi
+}
+
+#@help _environment_freeze_warn1
+# @command environment freeze warn <name>
+# @summary Print what the freeze removes for good and what it fixes -- the warning the batch shows before the first unsetenv
+# @group   setup
+# @internal
+# @env     ELEBAKE_COMBINATOR_INTERPRETER  named in the warning: a class default the freeze pins to the shipped value
+# @env     ELEBAKE_BATCH_COMBINATOR_INTERPRETER  named in the warning: the other class default
+# @env     ELEBAKE_INTERPRETER_  named in the warning: the per-anchor pins of __ and ___ anchors
+# @see     environment freeze
+#@end
+_environment_freeze_warn1() {
+        printf '%s\n' "# FREEZE '$1' -- no way back:"
+        printf '%s\n' "#   every machine override of a combinator or batch pin that is not the shipped"
+        printf '%s\n' "#   default is removed (.env/local/ELEBAKE_INTERPRETER_* of __/___ anchors, the"
+        printf '%s\n' "#   class defaults ELEBAKE_COMBINATOR_INTERPRETER, ELEBAKE_BATCH_COMBINATOR_INTERPRETER),"
+        printf '%s\n' "#   the terminal default becomes sh (acts run), the marker .env/frozen is written."
+        printf '%s\n' "# From then on setenv and unsetenv refuse those pins; a deviation is a template decision."
+}
+
+#@help ___environment_freeze_pins0
+# @command environment freeze pins
+# @summary Every machine override that weakens a combinator or batch pin, per file of .env/local: an ELEBAKE_INTERPRETER_<anchor> whose anchor is a __ or ___ function (the stem table), or one of the two class defaults, holding anything but the shipped default of its class (template/environment): one 'unsetenv <VAR>' each; none: a comment line
+# @group   setup
+# @internal
+# @env     ELEBAKE_TEMPLATE_DIR  the template directory (the shipped defaults)
+# @env     ELEBAKE_COMBINATOR_INTERPRETER  the shipped default a combinator pin must equal
+# @env     ELEBAKE_BATCH_COMBINATOR_INTERPRETER  the shipped default a batch pin must equal
+# @see     environment freeze
+#@end
+___environment_freeze_pins0() {
+        local f="" v="" x="" fns="" want="" lines=0
+        for f in "$ELEBAKE_BASE"/.env/local/ELEBAKE_INTERPRETER_* "$ELEBAKE_BASE"/.env/local/ELEBAKE_COMBINATOR_INTERPRETER "$ELEBAKE_BASE"/.env/local/ELEBAKE_BATCH_COMBINATOR_INTERPRETER; do
+                [ -f "$f" ] || continue
+                v=${f##*/}; x=${v#ELEBAKE_INTERPRETER_}; want=""
+                case "$v" in
+                ELEBAKE_COMBINATOR_INTERPRETER|ELEBAKE_BATCH_COMBINATOR_INTERPRETER) want=$(sed -n 1p "$ELEBAKE_TEMPLATE_DIR/environment/$v") ;;
+                *[!A-Za-z0-9_]*) ;;
+                *)      eval "fns=\"\${ANCHOR_STEM_${x%[0-9]}:-} \${ANCHOR_STEM_${x}:-}\""
+                        case " $fns " in
+                        *" ___"*) want=$(sed -n 1p "$ELEBAKE_TEMPLATE_DIR/environment/ELEBAKE_BATCH_COMBINATOR_INTERPRETER") ;;
+                        *" __"*)  want=$(sed -n 1p "$ELEBAKE_TEMPLATE_DIR/environment/ELEBAKE_COMBINATOR_INTERPRETER") ;;
+                        esac ;;
+                esac
+                [ -n "$want" ] || continue
+                [ "$(sed -n 1p "$f")" != "$want" ] || continue
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" unsetenv '$v'"
+                lines=$((lines + 1))
+        done
+        test "$lines" -gt 0 || printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'no machine override weakens a combinator or batch pin'"
+}
+
+#@help _environment_freeze_mark0
+# @command environment freeze mark
+# @summary Act terminal: write the marker .env/frozen (the date, 0400) -- what environment frozen allows reads
+# @group   setup
+# @internal
+# @see     environment freeze
+#@end
+_environment_freeze_mark0() {
+        printf '%s\n' "printf '%s\\n' \"\$(date -u +%Y-%m-%dT%H:%M:%SZ)\" > '$ELEBAKE_BASE/.env/frozen'"
+        printf '%s\n' "$MODIFY_FILE_PERMS 0400 '$ELEBAKE_BASE/.env/frozen'"
+        printf '%s\n' "printf '%s\\n' '# Environment frozen (.env/frozen)' >&2"
+}
+
+#@help __environment_frozen_allows1
+# @command environment frozen allows <VAR>
+# @summary A frozen database (.env/frozen) refuses to set or unset a combinator or batch pin -- ELEBAKE_INTERPRETER_<anchor> of a __ or ___ function (the stem table), or a class default: an error line naming the rule; any other variable, or no freeze, is a comment line
+# @group   setup
+# @internal
+# @env     ELEBAKE_COMBINATOR_INTERPRETER  a class default: refused when frozen
+# @env     ELEBAKE_BATCH_COMBINATOR_INTERPRETER  the other class default: refused when frozen
+# @see     environment freeze
+# @see     setenv
+#@end
+__environment_frozen_allows1() {
+        local x="" fns=""
+        if [ ! -f "$ELEBAKE_BASE/.env/frozen" ]; then
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'environment not frozen: $1 may change'"
+                return 0
+        fi
+        x=${1#ELEBAKE_INTERPRETER_}
+        case "$1" in
+        ELEBAKE_COMBINATOR_INTERPRETER|ELEBAKE_BATCH_COMBINATOR_INTERPRETER) fns="__" ;;
+        *[!A-Za-z0-9_]*) fns="" ;;
+        *) eval "fns=\"\${ANCHOR_STEM_${x%[0-9]}:-} \${ANCHOR_STEM_${x}:-}\"" ;;
+        esac
+        case " $fns " in
+        *" __"*) printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'environment frozen: $1 is a combinator or batch pin -- the shipped default stays (a deviation is a template decision, taken before the freeze)'" ;;
+        *)       printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'environment frozen: $1 is no combinator or batch pin, it may change'" ;;
+        esac
 }
 
 #@help ___init1
@@ -350,7 +485,7 @@ __init0() {
 
 #@help ___setenv2
 # @command setenv <VAR> <value>
-# @summary Set a machine override: the name is a variable name, the value is written to .env/local/<VAR> (0640, owner of the database when possible), the environment cache refreshed when one is on. Effective with the next command
+# @summary Set a machine override: the name is a variable name, a frozen database allows it (environment frozen allows: no combinator or batch pin after environment freeze), the value is written to .env/local/<VAR> (0640, owner of the database when possible), the environment cache refreshed when one is on. Effective with the next command
 # @group   setup
 # @param   VAR    letters, digits and underscores
 # @param   value  the first line of the variable's file
@@ -361,6 +496,7 @@ __init0() {
 #@end
 ___setenv2() {
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" setenv name valid '$1'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" environment frozen allows '$1'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" setenv write '$1' $(sq "$2")"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" environment cache refresh"
 }
@@ -446,13 +582,14 @@ _getenv_read3() {
 
 #@help ___unsetenv1
 # @command unsetenv <VAR>
-# @summary Remove the machine override .env/local/<VAR> when there is one (else say so), and refresh the environment cache when one is on
+# @summary Remove the machine override .env/local/<VAR> when there is one (else say so) -- a frozen database allows it first (environment frozen allows) -- and refresh the environment cache when one is on
 # @group   setup
 # @example elebake unsetenv ELEBAKE_FREEBSD_SRC
 # @see     setenv
 # @see     getenv
 #@end
 ___unsetenv1() {
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" environment frozen allows '$1'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" unsetenv remove '$1'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" environment cache refresh"
 }
@@ -525,6 +662,7 @@ ___dump_env_epilogue0() {
 }
 #@help ___destroy1
 # @command destroy <name>
+# @completion name database
 # @summary Remove this database and everything it owns, IRRECOVERABLY, as three steps: the worktrees and their registration in the source repo, the records, the scaffolding (bundle handover area, active-DB symlink, empty root). The name IS the confirmation, checked before a line runs
 # @group   database
 # @param   name  must match the database's own name -- the confirmation
@@ -577,6 +715,7 @@ _destroy_warning1() {
 
 #@help __destroy_worktrees1
 # @command destroy worktrees <name>
+# @completion name database
 # @summary Step 1 of destroy: the name is this database's: rewrite to 'destroy worktrees remove' (every stage worktree AND its registration in the source repo -- a plain rm -rf would leave "missing but already registered worktree" behind; the ids are only knowable while the database exists), else an error line
 # @group   database
 # @param   name  the database's own name -- the confirmation
@@ -654,6 +793,7 @@ _destroy_worktree_delete1() {
 
 #@help __destroy_records1
 # @command destroy records <name>
+# @completion name database
 # @summary Step 2 of destroy: the name is this database's: rewrite to 'destroy records remove' (the database directory itself, resolved through the active-DB symlink first -- rm -rf on a symlink removes the LINK and orphans the database), else an error line
 # @group   database
 # @param   name  the database's own name -- the confirmation
@@ -684,6 +824,7 @@ _destroy_records_remove0() {
 
 #@help __destroy_scaffold1
 # @command destroy scaffold <name>
+# @completion name database
 # @summary Step 3 of destroy: the name is this database's: rewrite to 'destroy scaffold remove' (the bundle handover area, the active-DB symlink if it points here, the empty scaffolding), else an error line
 # @group   database
 # @param   name  the database's own name -- the confirmation
@@ -1068,7 +1209,7 @@ _batch2() {
 
         # Get batch ID for exit code storage
         local batch_id
-        batch_id=$(get_batch_id)
+        batch_id_take; batch_id=$BATCH_ID
         if [ -z "$batch_id" ]; then
                 trace_log "!" "_batch2" "Failed to allocate batch ID"
                 export ELEBAKE_INTERPRETER_batch2="$saved_batch_interpreter"
@@ -1167,7 +1308,8 @@ _batch2() {
         trace_log "|" "_batch2" "Executing: $line"
 
         # Get function call for recording (resolve arguments to function name)
-        local function_call=$(to_function_call "$ANCHOR_FUNCTIONS" $remaining_args)
+        resolve_call "$ANCHOR_FUNCTIONS" $remaining_args
+        local function_call=$CALL
 
         # Execute command
         eval "process_arguments $remaining_args"

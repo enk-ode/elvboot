@@ -31,10 +31,14 @@ metadata:
 	    | sed 's/().*//' | tr '\n' ' ' | sed 's/ $$//'); \
 	batches=$$(grep -hE '^___[a-z][a-z0-9_]*\(\)' ${INCLUDES} \
 	    | sed 's/().*//' | tr '\n' ' ' | sed 's/ $$//'); \
+	stems=$$(printf '%s\n' $$terms $$combs $$batches | awk '{ s = $$0; sub(/^_+/, "", s); sub(/[0-9]$$/, "", s); \
+	    if (!(s in t)) { order[++n] = s; t[s] = $$0 } else t[s] = t[s] " " $$0 } \
+	    END { for (i = 1; i <= n; i++) printf "ANCHOR_STEM_%s=\047%s\047 ", order[i], t[order[i]] }' | sed 's/ $$//'); \
 	sed -i.mkbak \
 	    -e "s|^TERMINAL_FUNCTIONS=.*|TERMINAL_FUNCTIONS=\"$$terms\"|" \
 	    -e "s|^COMBINATOR_FUNCTIONS=.*|COMBINATOR_FUNCTIONS=\"$$combs\"|" \
 	    -e "s|^BATCH_COMBINATOR_FUNCTIONS=.*|BATCH_COMBINATOR_FUNCTIONS=\"$$batches\"|" \
+	    -e "s|^ANCHOR_STEM_TABLE=.*|ANCHOR_STEM_TABLE=\"$$stems\"|" \
 	    -e "s|^FUNCTION_MODULES=.*|FUNCTION_MODULES=\"$$mods\"|" ${SCRIPT}; \
 	rm -f ${SCRIPT}.mkbak; \
 	for t in ${TESTS}; do \
@@ -108,6 +112,9 @@ BINDIR?=	${PREFIX}/bin
 MANDIR?=	${PREFIX}/share/man/man
 WRAPPER=	${DESTDIR}${BINDIR}/elebake
 MANPAGE=	${DESTDIR}${MANDIR}8/elebake.8
+# bash-completion loads <command> from here on the first Tab
+COMPLETIONDIR?=	${PREFIX}/share/bash-completion/completions
+COMPLETION=	${DESTDIR}${COMPLETIONDIR}/elebake
 
 .PHONY: install uninstall
 
@@ -131,9 +138,12 @@ install: docs/elebake.8
 .endif
 	@install -m 0755 ${WRAPPER}.tmp ${WRAPPER} && rm -f ${WRAPPER}.tmp
 	@install -m 0444 docs/elebake.8 ${MANPAGE}
+	@mkdir -p ${DESTDIR}${COMPLETIONDIR}
+	@install -m 0444 completion/elebake.bash ${COMPLETION}
 	@echo "install: ${WRAPPER} -> ${.CURDIR} (RUNNER=${RUNNER})"
 	@echo "install: ${MANPAGE}"
+	@echo "install: ${COMPLETION} (bash completion)"
 
 uninstall:
-	@rm -f ${WRAPPER} ${MANPAGE}
-	@echo "uninstall: ${WRAPPER} and ${MANPAGE} removed"
+	@rm -f ${WRAPPER} ${MANPAGE} ${COMPLETION}
+	@echo "uninstall: ${WRAPPER}, ${MANPAGE} and ${COMPLETION} removed"

@@ -329,14 +329,20 @@ q() {
 # the dispatch rule. The longest prefix of words that names a function
 # wins, the remaining words are its arguments; at a level the name with
 # the arity suffix (the count of remaining words) before the plain name,
-# ___ before __ before _. Every candidate is asked with command -v -- the
-# functions of the sourced modules -- a builtin, microseconds. When no
-# level has a loaded function the scan over <functions> decides
-# (to_function_call_scan, the rule as before): it names a wrong arity
-# (__wrong_arity1), the unknown command (_unknown_command1) and a function
-# whose module the lazy loader has not sourced yet.
+# ___ before __ before _. A level is asked once, in the stem table:
+# ANCHOR_STEM_<stem> lists the anchors of that stem (every prefix, every
+# arity; make metadata writes the table, elebake.sh binds it) -- one
+# variable lookup, no command -v walking PATH per candidate, no process
+# for a hyphen. A stem that exists without this arity is a wrong arity
+# at this level: the deeper path decides first (outside-in, as the scan:
+# 'stage build kernel' names stage build kernel <stage>, not stage build
+# with the stage 'kernel'). No level with a stem: the scan over
+# <functions> decides (to_function_call_scan, the rule as before) -- the
+# unknown command, a function whose module the lazy loader has not
+# sourced yet. Words that no function name can carry (a quote, a slash,
+# a dot) end a level before the table is asked.
 resolve_call() {
-  local functions="${1:-}" n k name arity cand pfx w i
+  local functions="${1:-}" n k name arity cand pfx w i fns
   shift
   n=$#
   if [ -z "$functions" ] || [ -z "${1:-}" ]; then
@@ -348,35 +354,31 @@ resolve_call() {
     name=""; i=0
     for w in "$@"; do
       i=$((i + 1)); [ "$i" -le "$k" ] || break
-      case "$w" in *-*) w=$(printf '%s' "$w" | tr '-' '_') ;; esac
+      while case "$w" in *-*) ;; *) false ;; esac; do w="${w%%-*}_${w#*-}"; done
       name="${name:+${name}_}$w"
     done
-    arity=$((n - k))
-    for cand in "${name}${arity}" "$name"; do
-      for pfx in ___ __ _; do
-        if command -v "${pfx}${cand}" > /dev/null 2>&1; then
-          CALL="${pfx}${cand}"
-          i=0
-          for w in "$@"; do
-            i=$((i + 1)); [ "$i" -gt "$k" ] || continue
-            q "$w"; CALL="$CALL $Q"
-          done
-          return 0
-        fi
+    case "$name" in
+      *[!A-Za-z0-9_]*) fns="" ;;
+      *) eval "fns=\${ANCHOR_STEM_${name}:-}" ;;
+    esac
+    if [ -n "$fns" ]; then
+      arity=$((n - k))
+      for cand in "${name}${arity}" "$name"; do
+        for pfx in ___ __ _; do
+          case " $fns " in *" ${pfx}${cand} "*)
+            CALL="${pfx}${cand}"
+            i=0
+            for w in "$@"; do
+              i=$((i + 1)); [ "$i" -gt "$k" ] || continue
+              q "$w"; CALL="$CALL $Q"
+            done
+            return 0 ;;
+          esac
+        done
       done
-    done
-    # the deeper path decides first (outside-in, as the scan): a stem that
-    # exists with another arity is a wrong arity here, not a match of a
-    # shallower name with more arguments ('stage build kernel' names
-    # stage build kernel <stage>, not stage build with the stage 'kernel')
-    for i in 0 1 2 3 4 5 6 7 8 9; do
-      for pfx in ___ __ _; do
-        if command -v "${pfx}${name}${i}" > /dev/null 2>&1; then
-          q "$name"; CALL="__wrong_arity1 $Q"
-          return 0
-        fi
-      done
-    done
+      q "$name"; CALL="__wrong_arity1 $Q"
+      return 0
+    fi
     k=$((k - 1))
   done
   CALL=$(to_function_call_scan "$functions" "$@")
@@ -842,11 +844,20 @@ exit_signal_number() {
 # nested pointer is the third field the runner recorded, so the recursion never guesses
 # context_call_is_batch -- 1 when the resolved top-level call returns a batch pointer
 # (the runner itself, or a batch combinator whose interpreter spawns the runner)
-context_call_is_batch() {
+# context_call_batch -- CONTEXT_IS_BATCH is 1 when the resolved call is the
+# batch runner or a batch combinator (its exit code is a batch pointer),
+# else 0. No process; context_call_is_batch prints it.
+context_call_batch() {
 	case "${ELEBAKE_CONTEXT_CALL:-}" in
-		_batch2*|___*) echo 1 ;;
-		*) echo 0 ;;
+		_batch2*|___*) CONTEXT_IS_BATCH=1 ;;
+		*) CONTEXT_IS_BATCH=0 ;;
 	esac
+}
+
+context_call_is_batch() {
+	local CONTEXT_IS_BATCH
+	context_call_batch
+	echo "$CONTEXT_IS_BATCH"
 }
 
 check_batch_success() {
@@ -986,16 +997,17 @@ consume_with_exit() {
 	return $exit_code
 }
 
-get_batch_id() {
+# batch_id_take -- BATCH_ID is the next slot of the batch ring (64 slots,
+# round-robin; the counter file holds the next). No process: the counter
+# is read with read, the id is a variable. get_batch_id prints it.
+batch_id_take() {
 	local counter_file="$ELEBAKE_BASE/.tmp/batch-counter"
 	local batch_dir="$ELEBAKE_BASE/.tmp/batch-exits"
 	local batch_id=0
 
-	# Read current position (or start at 0)
 	if [ -f "$counter_file" ]; then
-		batch_id=$(cat "$counter_file" 2>>"$LOG_FILE")
-		# Sanitize: ensure it's in valid range
-		batch_id=$(( batch_id % 64 ))
+		read -r batch_id < "$counter_file" 2>>"$LOG_FILE" || batch_id=0
+		batch_id=$(( ${batch_id:-0} % 64 ))
 	fi
 
 	# Calculate next position (circular)
@@ -1003,7 +1015,13 @@ get_batch_id() {
 	echo "$next_id" > "$counter_file" 2>>"$LOG_FILE"
 
 	# Return current position (caller will overwrite this batch file)
-	echo "$batch_id"
+	BATCH_ID=$batch_id
+}
+
+get_batch_id() {
+	local BATCH_ID
+	batch_id_take
+	echo "$BATCH_ID"
 }
 
 store_batch_exits() {
@@ -1328,23 +1346,29 @@ COMMAND_ALIASES="env:environment"
 #@help apply_command_alias
 # @internal expand a short command word to its full form (first word only)
 #@end
-apply_command_alias() {
+# alias_of <word> -- ALIAS is the command word behind an alias of
+# COMMAND_ALIASES ("alias:word"), else the word itself. No process:
+# process_arguments asks it once per call. apply_command_alias prints it.
+alias_of() {
   local pair
+  ALIAS=$1
   for pair in $COMMAND_ALIASES; do
     case "$pair" in
-      "$1":*)
-        printf '%s' "${pair#*:}"
-        return 0
-        ;;
+      "$1":*) ALIAS=${pair#*:}; return 0 ;;
     esac
   done
-  printf '%s' "$1"
+}
+
+apply_command_alias() {
+  local ALIAS
+  alias_of "$1"
+  printf '%s' "$ALIAS"
 }
 
 process_arguments() {
   if [ $# -gt 0 ]; then
     local first_word
-    first_word=$(apply_command_alias "$1")
+    alias_of "$1"; first_word=$ALIAS
     shift
     set -- "$first_word" "$@"
   fi
@@ -1591,7 +1615,7 @@ main() {
 
   # Trace: Initial command invocation
   trace_log "=" "main" "=========================================="
-  trace_log "|" "main" "Session started: $(date '+%Y-%m-%d %H:%M:%S')"
+  [ -z "${ELEBAKE_TRACE_FILE:-}" ] || trace_log "|" "main" "Session started: $(date '+%Y-%m-%d %H:%M:%S')"
   trace_log "|" "main" "Command: elebake.sh $*"
 
   #---------------------------------------------------------------------------
@@ -1698,6 +1722,12 @@ main() {
         if [ "$cmd" = "help" ]; then
           ELEBAKE_BASE="$ELEBAKE_ROOT"
         fi
+        # complete before any database: the same scratch as help (keyed on
+        # the first word -- the words being completed may be 'help' or
+        # 'bootstrap' themselves); it then offers the command words only.
+        if [ "${1:-}" = "complete" ]; then
+          ELEBAKE_BASE="$ELEBAKE_ROOT"
+        fi
 
         # No .env layer yet: the environment is the shipped baseline
         # (template/environment) -- the children of bootstrap's init land
@@ -1714,7 +1744,8 @@ main() {
         process_arguments "$@"
         exit_code=$?
         # Use check_batch_success to handle batch completion codes
-        if check_batch_success "$exit_code" "$(context_call_is_batch)"; then
+        context_call_batch
+        if check_batch_success "$exit_code" "$CONTEXT_IS_BATCH"; then
           return 0
         else
           return 1
@@ -1754,13 +1785,20 @@ main() {
   #
   # Tracing flows continuously through nested calls, including batch execution.
   #
+  # complete emits words for the shell, never commands: its cat pin holds on
+  # a database that predates template/environment/ELEBAKE_INTERPRETER_complete
+  # (no environment init yet) and when the terminal interpreter is sh.
+  if [ "${1:-}" = "complete" ] && [ -z "${ELEBAKE_INTERPRETER_complete:-}" ]; then
+    ELEBAKE_INTERPRETER_complete=cat; export ELEBAKE_INTERPRETER_complete
+  fi
   local exit_code
   process_arguments "$@"
   exit_code=$?
 
   # Convert batch completion codes to simple success/failure for user
   # Use check_batch_success() to recursively determine if execution succeeded
-  if check_batch_success "$exit_code" "$(context_call_is_batch)"; then
+  context_call_batch
+  if check_batch_success "$exit_code" "$CONTEXT_IS_BATCH"; then
     return 0
   else
     return 1
