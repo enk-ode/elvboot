@@ -886,106 +886,84 @@ _trigger_render_show1() {
         printf '# %s: FIRE(%s, %s)\n' "$1" "$(fnd_expr_render when c "$when")" "$(fnd_expr_render action c "$action")"
 }
 
-#@help __gate_add1
-# @command gate add <gate> [<secret-slot>] [<duress-slot>]
-# @summary Create a gate: <gate> is a C identifier (it lands in foundation.c); the slots are the -D macros carrying the unlock and duress hashes (LOADER_TRUST_BOOTLOCK_SECRET, ..._DURESS), '-' or absent for none. No arsenal record is referenced: the chain is write only -- an identical re-add is a no-op, different slots are refused (immutable; drop first)
+#@help ___gate_add1
+# @command gate add <gate>
+# @summary Create a gate: <gate> is a C identifier (it lands in foundation.c). A gate carries no secret -- the loader compares no password, the three factors open the encrypted providers or nothing does (Konzept loader-drei-faktoren, JB 16.09.). No arsenal record is referenced: the chain is write only, a re-add is a no-op and leaves the claim list untouched
 # @group   foundation
 # @example elebake gate add fish_0
 # @see     gate drop
 # @see     gate claim add
-# @see     stage baseline add
 #@end
-__gate_add1() {
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" gate add '$1' - -"
+___gate_add1() {
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" gate fields valid $(sq "$1")"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" gate write $(sq "$1")"
 }
 
-#@help __gate_add2
-# @internal 2-arg sibling of 'gate add': the secret slot given, no duress slot
-#@end
-__gate_add2() {
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" gate add '$1' '$2' -"
-}
-
-#@help __gate_fields_valid3
-# @command gate fields valid <a1> <a2> <a3>
-# @summary The fields of a 'gate add' carry no single quote (they land single-quoted in the batch lines and space-joined in the record): a comment line, else an error line
+#@help __gate_fields_valid1
+# @command gate fields valid <gate>
+# @summary The name of a 'gate add' carries no single quote (it lands single-quoted in the batch lines): a comment line, else an error line
 # @group   foundation
 # @internal
 # @see     gate add
 #@end
-__gate_fields_valid3() {
-        if fnd_fields_ok "$1" "$2" "$3"; then
-                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'gate fields without single quotes'"
+__gate_fields_valid1() {
+        if fnd_fields_ok "$1"; then
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'gate name without single quotes'"
         else
-                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'gate add: a field carries a single quote (fields without single quotes): $1'"
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'gate add: the name carries a single quote: $1'"
         fi
 }
 
-#@help ___gate_add3
-# @internal 3-arg sibling of 'gate add', the canonical form: rewrites to 'gate write'
-#@end
-___gate_add3() {
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" gate fields valid $(sq "$1") $(sq "$2") $(sq "$3")"
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" gate write $(sq "$1") $(sq "$2") $(sq "$3")"
-}
-
-#@help __gate_write3
-# @command gate write <gate> <secret-slot|-> <duress-slot|->
-# @summary The gate directory is there already: rewrite to 'gate rewrite' (unchanged or refused), else to 'gate store'
+#@help __gate_write1
+# @command gate write <gate>
+# @summary The gate directory is there already: rewrite to 'gate rewrite' (a note), else to 'gate store'
 # @group   foundation
 # @internal
 # @see     gate add
 #@end
-__gate_write3() {
+__gate_write1() {
         if test -d "$ELEBAKE_BASE/foundation/gates/$1"; then
-                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" gate rewrite '$1' '$2' '$3'"
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" gate rewrite '$1'"
         else
-                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" gate store '$1' '$2' '$3'"
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" gate store '$1'"
         fi
 }
 
-#@help __gate_rewrite3
-# @command gate rewrite <gate> <secret-slot|-> <duress-slot|->
-# @summary An existing gate with the same slots is a no-op (a comment line; its claim list is untouched); different slots are refused -- gates are immutable, drop first
+#@help __gate_rewrite1
+# @command gate rewrite <gate>
+# @summary An existing gate is a no-op: a note line (its claim list is untouched)
 # @group   foundation
 # @internal
 # @see     gate add
 #@end
-__gate_rewrite3() {
-        local d="$ELEBAKE_BASE/foundation/gates/$1"
-        if test "$(sed -n 1p "$d/secret" 2>/dev/null)" = "${2#-}" && test "$(sed -n 1p "$d/duress" 2>/dev/null)" = "${3#-}"; then
-                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" note 'gate $1 already created (unchanged; claims list untouched)'"
-        else
-                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'gate add: $1 exists with different slots (immutable; drop first)'"
-        fi
+__gate_rewrite1() {
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" note 'gate $1 already created (unchanged; claims list untouched)'"
 }
 
-#@help __gate_store3
-# @command gate store <gate> <secret-slot|-> <duress-slot|->
-# @summary The name is a C identifier and the slots carry no single quote: rewrite to 'gate record', else an error line
+#@help __gate_store1
+# @command gate store <gate>
+# @summary The name is a C identifier: rewrite to 'gate record', else an error line
 # @group   foundation
 # @internal
 # @see     gate add
 #@end
-__gate_store3() {
-        if fnd_c_ident_ok "$1" && fnd_fields_ok "$2" "$3"; then
-                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" gate record '$1' '$2' '$3'"
+__gate_store1() {
+        if fnd_c_ident_ok "$1"; then
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" gate record '$1'"
         else
-                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'gate add: invalid name or slot (a C identifier; slots without single quotes): $1 $2 $3'"
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'gate add: invalid name (a C identifier): $1'"
         fi
 }
 
-#@help ___gate_record3
-# @command gate record <gate> <secret-slot|-> <duress-slot|->
-# @summary The gate's records: its directory, its secret slot, its duress slot, its (empty) claim list
+#@help ___gate_record1
+# @command gate record <gate>
+# @summary The gate's records: its directory, its (empty) claim list
 # @group   foundation
 # @internal
 # @see     gate add
 #@end
-___gate_record3() {
+___gate_record1() {
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" gate dir record '$1'"
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" gate slot record '$1' secret '$2'"
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" gate slot record '$1' duress '$3'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" gate claims record '$1'"
 }
 
@@ -999,33 +977,6 @@ ___gate_record3() {
 _gate_dir_record1() {
         printf '%s\n' "$MODIFY_DIR_CREATE '$ELEBAKE_BASE/foundation/gates/$1'"
         printf '%s\n' "$MODIFY_FILE_PERMS 0700 '$ELEBAKE_BASE/foundation/gates/$1'"
-}
-
-#@help __gate_slot_record3
-# @command gate slot record <gate> <secret|duress> <slot|->
-# @summary A slot given is written ('gate slot write'), '-' lifts to a comment line
-# @group   foundation
-# @internal
-# @see     gate add
-#@end
-__gate_slot_record3() {
-        if test "$3" != -; then
-                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" gate slot write '$1' '$2' '$3'"
-        else
-                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'gate $1: no $2 slot'"
-        fi
-}
-
-#@help _gate_slot_write3
-# @command gate slot write <gate> <secret|duress> <slot>
-# @summary Act terminal: write foundation/gates/<gate>/<secret|duress> (the -D macro name), mode 0600
-# @group   foundation
-# @internal
-# @see     gate add
-#@end
-_gate_slot_write3() {
-        printf '%s\n' "printf '%s\\n' '$3' > '$ELEBAKE_BASE/foundation/gates/$1/$2'"
-        printf '%s\n' "$MODIFY_FILE_PERMS 0600 '$ELEBAKE_BASE/foundation/gates/$1/$2'"
 }
 
 #@help _gate_claims_record1
@@ -1240,7 +1191,7 @@ ___gate_show0() {
                 printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" gate show '${r##*/}'"
                 lines=$((lines + 1))
         done
-        test "$lines" -gt 0 || printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" log 'no gates -- gate add <gate> [<secret-slot>] [<duress-slot>]'"
+        test "$lines" -gt 0 || printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" log 'no gates -- gate add <gate>'"
 }
 
 #@help ___gate_show1
@@ -1659,16 +1610,14 @@ ___trigger_dump0() {
 }
 
 #@help ___gate_dump0
-# @internal dump block (cat-pinned): per gate the canonical 'gate add <gate> <secret|-> <duress|->' (a missing slot file is '-') and one 'gate claim add' per claim line -- flat, the dump prints what it is given
+# @internal dump block (cat-pinned): per gate the canonical 'gate add <gate>' and one 'gate claim add' per claim line -- flat, the dump prints what it is given
 #@end
 ___gate_dump0() {
-        local g="" secret="" duress=""
+        local g=""
         for g in "$ELEBAKE_BASE"/foundation/gates/*/; do
                 [ -d "$g" ] || continue
                 g=${g%/}; g=${g##*/}
-                secret=$(sed -n 1p "$ELEBAKE_BASE/foundation/gates/$g/secret" 2>/dev/null)
-                duress=$(sed -n 1p "$ELEBAKE_BASE/foundation/gates/$g/duress" 2>/dev/null)
-                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" gate add '$g' '${secret:--}' '${duress:--}'"
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" gate add '$g'"
                 sed "s|^|\"\$ELEBAKE_CONTEXT_SCRIPT\" gate claim add '$g' '|; s|\$|'|" "$ELEBAKE_BASE/foundation/gates/$g/claims" 2>/dev/null
         done
 }

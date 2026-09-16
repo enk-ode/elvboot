@@ -424,7 +424,7 @@ ___stage_phase_baselines_report2() {
 
 #@help ___stage_policy_baselines_report2
 # @command stage policy baselines report <stage> <policy>
-# @summary Every line '<kind> <name>' of the policy record: one 'stage <kind> baselines report <stage> <name>' -- the gate (its slots and claims) and each trigger (its action)
+# @summary Every line '<kind> <name>' of the policy record: one 'stage <kind> baselines report <stage> <name>' -- the gate (its claims) and each trigger (its action)
 # @group   foundation
 # @internal
 # @see     stage gate baselines report
@@ -441,35 +441,18 @@ ___stage_policy_baselines_report2() {
 
 #@help ___stage_gate_baselines_report2
 # @command stage gate baselines report <stage> <gate>
-# @summary The gate's two lock slots (secret, duress), then per claim 'stage claim baselines report'
+# @summary Per claim of the gate 'stage claim baselines report'; a gate without a claim is a comment line
 # @group   foundation
 # @internal
-# @see     stage gate slot demand
 # @see     stage claim baselines report
 #@end
 ___stage_gate_baselines_report2() {
-        local claim=""
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage gate slot demand '$1' '$2' secret"
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage gate slot demand '$1' '$2' duress"
+        local claim="" lines=0
         while read -r claim; do
+                lines=$((lines + 1))
                 printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage claim baselines report '$1' '$claim'"
         done 2>/dev/null < "$ELEBAKE_BASE/foundation/gates/$2/claims"
-}
-
-#@help __stage_gate_slot_demand3
-# @command stage gate slot demand <stage> <gate> <secret|duress>
-# @summary The gate carries the slot: rewrite to 'stage slot demand <stage> <gate> <MACRO>' with the -D macro the slot names, else a comment line
-# @group   foundation
-# @internal
-# @see     stage slot demand
-#@end
-__stage_gate_slot_demand3() {
-        local macro; macro=$(sed -n 1p "$ELEBAKE_BASE/foundation/gates/$2/$3" 2>/dev/null)
-        if test -n "$macro"; then
-                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage slot demand '$1' '$2' '$3' '$macro'"
-        else
-                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'gate $2 has no $3 slot'"
-        fi
+        test "$lines" -gt 0 || printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'gate $2 lists no claim'"
 }
 
 #@help ___stage_trigger_baselines_report2
@@ -609,21 +592,6 @@ __stage_key_demands2() {
 #@end
 __stage_string_demands2() {
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'string expectation $2: no baseline demanded'"
-}
-
-#@help __stage_slot_demand4
-# @command stage slot demand <stage> <gate> <secret|duress> <MACRO>
-# @summary The slot's -D macro has a baseline in the stage (a baseline record or a CFLAGS line of site.mk): provisioned, else no baseline -- the lock is empty, unlock_act reports and continues (both as report lines)
-# @group   foundation
-# @internal
-# @see     stage baseline add
-#@end
-__stage_slot_demand4() {
-        if test -f "$ELEBAKE_BASE/stage/$1/baselines/$4" || grep -qs "^CFLAGS+=[[:space:]]*-D$4[=[:space:]]" "$ELEBAKE_BASE/stage/$1/work/stand/efi/loader/local/site.mk"; then
-                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" log 'gate $2: $3 slot $4 provisioned'"
-        else
-                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" log 'gate $2: $3 slot $4 has no baseline -- the lock is empty, unlock_act reports and continues (stage baseline add $1 $4 string <sha256 hex>)'"
-        fi
 }
 
 #@help __stage_macro_demand3

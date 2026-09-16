@@ -1,3 +1,0 @@
-sh
-# Act terminal: a slot file of the gate is written. sh so it runs; the batch stops at a miss.
-# @see ELEBAKE_INTERPRETER_claim_record

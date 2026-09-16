@@ -243,7 +243,7 @@ _stage_inventory_stable2() {
 
 #@help ___stage_inventory_drop3
 # @command stage inventory drop <stage> <kind> <entry>
-# @summary Take one item out of the set of a kind: the stage exists, the kind is valid, the entry is in the set, then its line is removed from inventory/<kind>
+# @summary Take one item out of the set of a kind: the stage exists, the kind is valid, the entry is in the set, then its line is removed from inventory/<kind> -- the set's digest changes with it: after site mk, make and one boot, drop and learn LOADER_TRUST_<KIND>_DIGEST from loader.trust.inventory.<kind>.sha256 (stage baseline learn), or the kind's claim keeps failing against the old baseline
 # @group   provisioning
 # @example elebake stage inventory drop daily-v1 acpi PHAT/-
 # @see     stage inventory add

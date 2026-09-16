@@ -302,8 +302,6 @@ $ ./elebake.sh stage action illyria-boot
 #   message_act
 #   prompt_act
 #   confirm_act
-#   lock_act
-#   unlock_act
 #   halt_act
 #   panic_act
 #   reboot_act
@@ -368,8 +366,8 @@ $ ./elebake.sh claim show
 ```
 
 The GATE is AND over its claims; the append order is the evaluation order (`gate
-claim add ... [<position>]` inserts  deliberately). No secret slot — strictwatch
-only watches,  there is nothing  to unlock.  Gate  names must be  C identifiers:
+claim add ... [<position>]` inserts  deliberately). A gate  carries no  secret:
+the loader compares no password (section 9). Gate names must be C identifiers:
 they  land verbatim  in the  generate, and  `gate show`  now produces  the first
 GATE_DEFINE that fell out of your decisions instead of being typed:
 
@@ -413,13 +411,13 @@ action  `compose(a,b)`,  several   in  order;  the  C   form  shows  `AND(...)`,
 `NOT(...)`, `COMPOSE(...)`, the sh containers get `{ a && b; }` and `! a`:
 
 ```
-$ ./elebake.sh trigger add unlock-measured 'and(when_fail,not(when_skipped))' unlock_act
-# trigger 'unlock-measured' stored
-$ ./elebake.sh trigger show unlock-measured
-# unlock-measured: FIRE(AND(when_fail, NOT(when_skipped)), unlock_act)
+$ ./elebake.sh trigger add report-measured 'and(when_fail,not(when_skipped))' report_act
+# trigger 'report-measured' stored
+$ ./elebake.sh trigger show report-measured
+# report-measured: FIRE(AND(when_fail, NOT(when_skipped)), report_act)
 ```
 
-## 9. bootlock & loaderlock: diagnose, baseline macros, the backstop
+## 9. bootlock & loaderlock: diagnose, baseline macros, the report
 
 Board identity,  secure-boot keys and the  boot marker have no  values one could
 type today — they are measured at  PROVISIONING time and arrive at BUILD time as
@@ -457,10 +455,10 @@ secure-boot  keys deviate,  `diagnose_marker`  the marker  details. The  publish
 leafs `board.sha256` and `keys.sha256` publish the MEASURED hashes as evidence:
 
 ```
-$ ./elebake.sh gate add bootlock LOADER_TRUST_BOOTLOCK_SECRET
+$ ./elebake.sh gate add bootlock
 # gate 'bootlock' created
 $ ./elebake.sh gate show bootlock
-# GATE_DEFINE(bootlock, BOOTLOCK_SECRET,
+# GATE_DEFINE(bootlock,
 #     CLAIM(measure_secureboot, NULL, NULL, MEASUREMENT_BYTE("SecureBoot", 1)),
 #     CLAIM(measure_setupmode, NULL, NULL, MEASUREMENT_BYTE("SetupMode", 0)),
 #     CLAIM(measure_marker, diagnose_marker, NULL, MARKER_EXPECTED),
@@ -468,31 +466,34 @@ $ ./elebake.sh gate show bootlock
 #     CLAIM(measure_keys, diagnose_keys, "keys.sha256", KEYS_EXPECTED));
 ```
 
-The second `gate add` argument is the secret SLOT: it NAMES the -D macro — never
-a  value;  the   secret  lives  in  the  SIGNED  loader,   deliberately  not  in
-loader.conf. In the rendering it appears as the LOCAL macro (`BOOTLOCK_SECRET`),
-exactly as the emission writes it.
-
-> **Second find  of this pass.**  `gate show`  originally rendered the  raw slot
-> (`LOADER_TRUST_BOOTLOCK_SECRET`) where the emission writes the local macro — a
-> violation of  "show renders what  emission WOULD produce". Fixed:  the display
-> renderer now uses the same secret expression as the C renderer.
+The head  carries the name  and nothing else.  Earlier versions took  a second
+argument here, the -D macro of a passphrase hash compiled into the signed loader,
+and a third for a duress hash; on 16.09. they went. The reason is the threat
+model: the loader lives on the medium the owner carries, so whoever has the
+medium has both hashes and can check offline, with a passphrase in hand, which
+of the two it is — the one thing a duress passphrase must never allow. The
+loader now compares no password at all. Its one dialog asks the GELI passphrase
+and applies the three factors as they are — passphrase, the key file on the
+medium, the key file the TPM releases under its PCR policy — to the encrypted
+providers; a provider that opens is the only proof, and it exists only on this
+machine with unchanged firmware. Gates measure and publish; none of them halts,
+none of them asks (Konzepte/loader-drei-faktoren.md in the owner's notes).
 
 loaderlock guards the loader's own prerequisites; its expected values are HEADER
 CONSTANTS     —     an    expectation     value     is     verbatim    C,     so
 `LOADER_PREREQUISITES_EXIST_N` is a perfectly good expected value.  The backstop
-policy carries  TWO fires  — publish  always, and  on failure  `unlock_act`, the
-config-independent  way  out  when  the  Lua  chain  itself  is  unusable.  Note
-`publish-always` being  REUSED across  all three policies:  that is  the arsenal
-idea at work.
+policy carries TWO fires — publish always, and on failure `report_act`, the line
+on the console that says which claims fell; the boot goes on, loudly, and the
+record carries the failure. Note `publish-always` being REUSED across all three
+policies: that is the arsenal idea at work.
 
 ```
 $ ./elebake.sh policy add backstop-loaderlock loaderlock
 # policy 'backstop-loaderlock' created (gate loaderlock)
 $ ./elebake.sh policy trigger add backstop-loaderlock publish-always
 # policy 'backstop-loaderlock': trigger 'publish-always' appended
-$ ./elebake.sh policy trigger add backstop-loaderlock unlock-fail
-# policy 'backstop-loaderlock': trigger 'unlock-fail' appended
+$ ./elebake.sh policy trigger add backstop-loaderlock report-fail
+# policy 'backstop-loaderlock': trigger 'report-fail' appended
 ```
 
 ## 10. The binding: where the arsenal meets the catalog
@@ -528,7 +529,7 @@ $ ./elebake.sh stage phase show illyria-boot PHASE_LOADER
 #
 # POLICY_TABLE_DEFINE(backstop_loaderlock_bindings,
 #     FIRE(when_always, publish_act),
-#     FIRE(when_fail, unlock_act));
+#     FIRE(when_fail, report_act));
 #
 # POLICY_TABLE_DEFINE(watch_strict_bindings,
 #     FIRE(when_always, publish_act));
@@ -825,16 +826,17 @@ is saved orderly only  when the OS shuts the TPM down  -- FreeBSD's `tpm.ko` was
 not  loaded on  illyria, so  `kld_list+="tpm"` went  into rc.conf;  and a  wrong
 answer  breaks the  chain silently,  by design  (a record  then proves  the PAIR
 passphrase and  answer) -- which  is why the answer  is confirmed at  entry. The
-boot    budget:    the    lockout    counts    *wrong*    passphrases    against
-`loader.trust.kernellock.attempts`, not hidden lines;  before that fix a correct
-recovery could be the fifth line and the halt.
+boot budget is the GELI dialog's: `loader.trust.geli.tries` lines (three when
+unset), then the boot halts and the reboot is the retry -- the whole chain from
+the start, nothing cached, nothing sticky. The record's derivation is a fresh
+attempt per line, so a typo costs one derivation, not the boot's record (16.09.:
+a typo cached by the old Lua prompt had poisoned the one attempt per boot).
 
 The manual path, when the Lua chain  aborts (it did once, over a missing `table`
-library): the console lock still asks the recovery passphrase before the prompt,
-and at the prompt the modules  are loaded by hand -- `load mac_veriexec_sha256`,
+library): at the prompt the modules  are loaded by hand -- `load mac_veriexec_sha256`,
 `load mac_veriexec`, `load  mac_bootlock`, `load geom_eli`, `load  zfs`, the key
-files with `load -t <prov>:geli_keyfile0 /boot/keys/zroot.key`, then `boot`. The
-record stayed valid across that boot.
+files with `load -t <prov>:geli_keyfile0 /boot/keys/zroot.key`, then `boot`; the
+dialog runs in the KERNEL phase as always. The record stayed valid across that boot.
 
 ## 18. Learning the witnesses, and what moves
 

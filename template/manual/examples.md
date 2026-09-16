@@ -38,10 +38,10 @@ pin it back. `elebake` is the wrapper `make install` places in
 
 A trigger whose when is a composition, and one that runs two actions:
 
-    elebake trigger add unlock-measured 'and(when_fail,not(when_skipped))' unlock_act
-    elebake trigger add silence-duress when_duress 'compose(taint_act,silence_act)'
-    elebake trigger show unlock-measured
-    # unlock-measured: FIRE(AND(when_fail, NOT(when_skipped)), unlock_act)
+    elebake trigger add report-measured 'and(when_fail,not(when_skipped))' report_act
+    elebake trigger add silence-tainted when_tainted 'compose(taint_act,silence_act)'
+    elebake trigger show report-measured
+    # report-measured: FIRE(AND(when_fail, NOT(when_skipped)), report_act)
 
 A value the loader itself is part of -- the PCR bank, the loaded images --
 is expected from the conf, not the binary; learned after a trusted boot,

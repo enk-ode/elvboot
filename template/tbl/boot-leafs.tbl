@@ -1,0 +1,14 @@
+# boot-leafs.tbl -- the kenv leafs the boot itself reads, outside any gate.
+#
+#   <key>  <file of the checkout that reads it>  <required|optional>
+#
+# A gate's leafs are found in the checkout's action.c (action-leafs.awk,
+# loader.trust.<gate>.<leaf>); these are read by the boot before any gate
+# runs, so no gate names them (Konzept loader-drei-faktoren, JB 16.09.).
+# A row counts only when the checkout has the file: a checkout without
+# the TPM key file demands nothing of it. required: stage loaderconf mk
+# refuses without a record; optional: the code default applies.
+loader.trust.tpm.keyfile.handle	tpm_keyfile.c	required
+loader.trust.tpm.keyfile.pcrs	tpm_keyfile.c	required
+loader.trust.tpm.keyfile.providers	tpm_keyfile.c	required
+loader.trust.geli.tries	geli_open.c	optional

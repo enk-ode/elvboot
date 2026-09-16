@@ -51,9 +51,9 @@ location.
 
 Every loader phase has an after-phase, `PHASE_<x>_POST`, that runs
 once the actions of `PHASE_<x>` are done: its claims measure what those
-actions produced -- the prompt's attempts and dwell, the ledger, the
-duress tell -- which the phase itself cannot see, because it measures
-before it acts. `PHASE_KERNEL_POST` is the last thing before the boot
+actions produced -- the prompt's attempts and dwell, the ledger --
+which the phase itself cannot see, because it measures before it
+acts. `PHASE_KERNEL_POST` is the last thing before the boot
 record is committed. Bind the consequence claims there.
 
 The elvbootd phases map to the real threat windows: RESUME pairs with
@@ -114,25 +114,26 @@ headers in stand/efi/loader/local are the source of truth):
   `measure_pcr`, `measure_nvme`), time (`measure_time_boot`,
   `measure_time_prompt`, `measure_time_rtc_tsc`, `measure_attempts`),
   KERNEL (`measure_howto`, `measure_kenv_guard`, `measure_preload`,
-  `measure_softpcr`, `measure_ledger_failed|prompted|unlocked`);
+  `measure_softpcr`, `measure_ledger_failed|prompted`);
   `diagnose_*` where offered. Windows and counters are VERDICT BYTES
   (1 = within the provisioned window), the raw numbers ride in the
   diagnosis; the windows are baselines (`stage baseline add`).
 - actions: `proceed_act`, `publish_act`, `silence_act`, `report_act`,
   `message_act`, `prompt_act`, `sentinel_act`, `record_act`,
-  `confirm_act`, `lock_act`, `unlock_act`, `tarpit_act`, `lockout_act`,
+  `confirm_act`, `tarpit_act`,
   `reveal_act`, `taint_act`, `expire_act`, `single_act`, `divert_act`,
   `nextboot_act`, `handover_act`, `halt_act`, `panic_act`, `reboot_act`,
   `poweroff_act`
 - whens: `when_always`, `when_fail`, `when_pass`, `when_skipped`,
   `when_maybe` (xorshift seeded from the TSC; only ever ADDS spot
-  checks), `when_tainted`, `when_duress` (bind SILENT actions only),
-  `when_prompted`
+  checks), `when_tainted`, `when_prompted`. No when asks whether a
+  password matched: the loader compares none (16.09.)
 - requires (parsed from the `kenv(a, "...")` calls of each action, see
   `stage require`): `message_act` -> message, `prompt_act` -> question,
-  `sentinel_act` -> question, salt, display, `lock_act` -> secret,
-  duress, `lockout_act` -> attempts, `expire_act` -> deadline,
-  `divert_act`/`nextboot_act` -> rescue
+  `sentinel_act` -> question, salt, display, `expire_act` -> deadline,
+  `divert_act`/`nextboot_act` -> rescue; the boot's own leafs, read
+  before any gate, come from template/tbl/boot-leafs.tbl (the TPM key
+  file's handle, pcrs, providers; the GELI dialog's tries)
 
 Every provider and action states in its header comment what it
 ASSUMES of the threat model (hardware present, what the owner carries,
@@ -219,11 +220,8 @@ elebake claim add  <claim> <measurement> <diagnose|-> <publish|-> <exp>
 elebake claim drop <claim>
 elebake claim show [<claim>]          # CLAIM(<measurement>, <diagnose>, "<publish>", <exp>)
 
-elebake gate add        <gate> [<secret-slot>] [<duress-slot>]
-                                                    # slots NAME -D macros, never values;
-                                                    # the duress slot is a second passphrase
-                                                    # that unlocks identically and marks the
-                                                    # boot as coerced in the loader's ledger;
+elebake gate add        <gate>                      # a gate carries no secret: the loader
+                                                    # compares no password (16.09.);
                                                     # gate names land in the C output: C identifier
 elebake gate drop       <gate>
 elebake gate claim add  <gate> <claim> [<position>] # order = evaluation order; default
@@ -254,9 +252,9 @@ sh containers see `{ a && b; }`, `{ a || b; }`, `! a` and `a "$GATE"; b
 trigger, one intent:
 
 ```
-$ elebake trigger add unlock-measured 'and(when_fail,not(when_skipped))' unlock_act
-$ elebake trigger show unlock-measured
-# unlock-measured: FIRE(AND(when_fail, NOT(when_skipped)), unlock_act)
+$ elebake trigger add report-measured 'and(when_fail,not(when_skipped))' report_act
+$ elebake trigger show report-measured
+# report-measured: FIRE(AND(when_fail, NOT(when_skipped)), report_act)
 ```
 
 `show` always renders what emission WOULD produce; a dangling
@@ -299,8 +297,6 @@ Storage — every record CLI-replayable, dump/restore-complete:
 $ELEBAKE_BASE/foundation/macros/<NAME>          "<type> <label> <defined|-> <else...|->"
 $ELEBAKE_BASE/foundation/expectations/<name>    "<type> <label> <value>"
 $ELEBAKE_BASE/foundation/claims/<name>          "<measurement> <diagnose> <publish> <exp>"
-$ELEBAKE_BASE/foundation/gates/<name>/secret    optional -D slot name (unlock hash)
-$ELEBAKE_BASE/foundation/gates/<name>/duress    optional -D slot name (duress hash)
 $ELEBAKE_BASE/foundation/gates/<name>/claims    ordered claim names
 $ELEBAKE_BASE/foundation/triggers/<name>        "<when> <action>"
 $ELEBAKE_BASE/foundation/policies/<name>        "gate <gate>" + ordered "trigger <t>"
@@ -360,9 +356,7 @@ The emitter expands each referenced claim inline into the
 `GATE_DEFINE` — no C schema change. It emits ONLY what the stage's
 bindings transitively reference (a DB-wide arsenal may hold more), one
 `<phase>_policies[]` table per bound enum phase (name: the enum entry
-minus `PHASE_`, lowercased), and the `phase_policies()` switch. Gate
-secret SLOTS keep today's local-macro convention (`#ifdef <slot>` ->
-`#define <slot minus LOADER_TRUST_> <slot>` else NULL).
+minus `PHASE_`, lowercased), and the `phase_policies()` switch.
 
 foundation.c is GENERATED-ONLY: the prose comments of the hand-written
 file move into policy.h (patch series), the generated file carries
@@ -780,19 +774,17 @@ manifest watch after wake).
 
 ## 9. Worked example: loaderconf
 
-The user binds `unlock_act` on the loaderlock gate; the require
-catalog says `unlock_act` consumes the `secret` leaf, and `message_act`
-would consume `message`:
+The user binds `message_act` on the loaderlock gate; the require
+catalog says `message_act` consumes the `message` leaf:
 
 ```
 $ elebake stage require smoke1
-# unlock_act: loader.trust.<gate>.secret
 # message_act: loader.trust.<gate>.message
 ...
 $ elebake stage loaderconf mk smoke1
-elebake: error: loaderconf: no value for 'loader.trust.loaderlock.secret'
-                (bound via LOADER/backstop -> unlock_act; stage kenv add first)
-$ elebake stage kenv add smoke1 loader.trust.loaderlock.secret "<sha256-hex>"
+elebake: error: loaderconf: no value for 'loader.trust.loaderlock.message'
+                (bound via LOADER/backstop -> message_act; stage kenv add first)
+$ elebake stage kenv add smoke1 loader.trust.loaderlock.message "prerequisites moved"
 $ elebake stage loaderconf mk smoke1
 ```
 
@@ -800,14 +792,14 @@ generates `loader.trust.conf` on the target:
 
 ```
 # generated by elebake stage loaderconf mk -- do not edit
-loader.trust.loaderlock.secret="<sha256-hex>"
+loader.trust.loaderlock.message="prerequisites moved"
 ```
 
 Later, `elebake stage loaderconf check smoke1` regenerates and diffs
 against the medium:
 
 ```
-# loaderconf drift: loader.trust.loaderlock.secret
+# loaderconf drift: loader.trust.loaderlock.message
 #     medium:   "0ab3..."
 #     database: "9f21..."
 ```

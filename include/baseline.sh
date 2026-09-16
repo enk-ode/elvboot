@@ -628,7 +628,7 @@ __stage_kenv_rewrite3() {
 
 #@help __stage_kenv_store3
 # @command stage kenv store <stage> <key> <value>
-# @summary The key is loader.trust.<gate>.<leaf> (a-z, 0-9, ., _) or password_sha256 (stage password set) and the value fits one loader.conf line (no double quotes, backslashes or newlines): rewrite to 'stage kenv record', else an error line
+# @summary The key is loader.trust.<gate>.<leaf> (a-z, 0-9, ., _) and the value fits one loader.conf line (no double quotes, backslashes or newlines): rewrite to 'stage kenv record', else an error line
 # @group   provisioning
 # @internal
 # @see     stage kenv add
@@ -654,54 +654,6 @@ _stage_kenv_record3() {
         printf '%s\n' "printf '%s\\n' $(sq "$3") > '$ELEBAKE_BASE/stage/$1/kenv/$2'"
         printf '%s\n' "$MODIFY_FILE_PERMS 0600 '$ELEBAKE_BASE/stage/$1/kenv/$2'"
         emit_note "kenv $2 of $1 recorded (stage loaderconf mk writes it)"
-}
-
-#@help ___stage_password_set1
-# @command stage password set <stage>
-# @summary Set the loader prompt password of the stage: the word is read HIDDEN from the terminal when the batch runs -- twice, both must match -- and its sha256 becomes the kenv record password_sha256, which stage loaderconf mk writes into boot/loader.trust.conf (the loader reads that file like loader.conf). With it set, Lua boots at once and asks the word only after a key during the autoboot; the compiled-in loaderlock secret guards the prompt in C besides, so the word is the second lock, not the only one. The word reaches neither argv, history nor the batch text; the hash is what the card carries anyway. The record is immutable: stage kenv drop <stage> password_sha256 first to change it
-# @group   provisioning
-# @example elebake stage password set daily-v1
-# @see     stage kenv drop
-# @see     stage loaderconf mk
-#@end
-___stage_password_set1() {
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage check stage '$1'"
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage password prompt '$1'"
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage password hashed store '$1'"
-}
-
-#@help _stage_password_prompt1
-# @command stage password prompt <stage>
-# @summary Act terminal: the script that asks for the loader prompt password twice on /dev/tty with echo off, refuses empty or differing entries, hashes it with sha256 (no salt: that is what password.lua compares) and writes the hash to .tmp/password/<stage> of the database -- the word never leaves the script
-# @group   provisioning
-# @internal
-# @see     stage password set
-#@end
-_stage_password_prompt1() {
-        cat <<EOF
-{ : < /dev/tty; } 2>/dev/null || { printf '# Error: %s\\n' 'stage password set: needs a terminal to read the word hidden' >&2; exit 1; }
-printf 'Loader prompt password for $1 (hidden): ' > /dev/tty; stty -echo < /dev/tty; IFS= read -r a < /dev/tty; stty echo < /dev/tty; printf '\\n' > /dev/tty
-printf 'Again: ' > /dev/tty; stty -echo < /dev/tty; IFS= read -r b < /dev/tty; stty echo < /dev/tty; printf '\\n' > /dev/tty
-[ -n "\$a" ] && [ "\$a" = "\$b" ] || { unset a b; printf '# Error: %s\\n' 'stage password set: the two entries differ or are empty -- nothing done' >&2; exit 1; }
-mkdir -p '$ELEBAKE_BASE/.tmp/password' && chmod 0700 '$ELEBAKE_BASE/.tmp/password' && printf '%s' "\$a" | sha256 -q > '$ELEBAKE_BASE/.tmp/password/$1' && chmod 0600 '$ELEBAKE_BASE/.tmp/password/$1'; unset a b
-EOF
-}
-
-#@help __stage_password_hashed_store1
-# @command stage password hashed store <stage>
-# @summary The hash file .tmp/password/<stage> the prompt script left is there: rewrite to 'stage kenv write <stage> password_sha256 <hash>' and remove the file, else an error line
-# @group   provisioning
-# @internal
-# @see     stage password set
-#@end
-__stage_password_hashed_store1() {
-        local hash=""
-        hash=$(sed -n 1p "$ELEBAKE_BASE/.tmp/password/$1" 2>/dev/null); rm -f "$ELEBAKE_BASE/.tmp/password/$1"
-        if printf '%s\n' "$hash" | grep -qx '[0-9a-f]\{64\}'; then
-                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage kenv write '$1' password_sha256 '$hash'"
-        else
-                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'stage password set: no hash for $1 (the prompt script left none)'"
-        fi
 }
 
 #@help ___stage_kenv_drop2
@@ -912,7 +864,7 @@ ___stage_keys_claim3() {
 
 #@help ___stage_require1
 # @command stage require <stage>
-# @summary Report what the stage's BOUND loader policies demand: the loader.trust.<gate>.<leaf> keys the actions read at boot (parsed from the kenv(a, ...) calls in the checkout's action.c, attributed per gate), each with its kenv record or MISSING; then the LOADER_TRUST_* baselines the measurements and actions consume without a code default, each ok or MISSING. With a container argument: the demands of that container's bound measurements on the boot tree
+# @summary Report what the stage's BOUND loader policies demand: the loader.trust.<gate>.<leaf> keys the actions read at boot (parsed from the kenv(a, ...) calls in the checkout's action.c, attributed per gate), each with its kenv record or MISSING; the gate-free leafs the boot itself reads (template/tbl/boot-leafs.tbl: the TPM key file, the GELI dialog); then the LOADER_TRUST_* baselines the measurements and actions consume without a code default, each ok or MISSING. With a container argument: the demands of that container's bound measurements on the boot tree
 # @group   provisioning
 # @example elebake stage require daily-v1
 # @see     stage kenv add
@@ -924,6 +876,8 @@ ___stage_require1() {
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage checkout exists '$1'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" log 'require of $1 (bound actions -> kenv leafs)'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage leafs '$1' demand"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" log 'kenv leafs the boot reads before any gate (template/tbl/boot-leafs.tbl):'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage boot leafs '$1' demand"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" log 'kenv records the bound claims read at run time (key expectations; stage kenv learn):'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage keys '$1'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" log 'baselines the bound measurements and actions demand (no default in the code):'"
@@ -1029,6 +983,61 @@ __stage_kenv_demand4() {
         fi
 }
 
+#@help ___stage_boot_leafs2
+# @command stage boot leafs <stage> <require|demand>
+# @summary The kenv leafs the boot reads before any gate, from template/tbl/boot-leafs.tbl (key, the checkout file that reads it, required|optional): one 'stage kenv boot <verb> <stage> <key> <required|optional>' per row whose file the checkout has -- require ends in an error line at a missing required value, demand in a note; a checkout without any such file is a comment line
+# @env     ELEBAKE_TEMPLATE_DIR  the template directory (tables)
+# @group   provisioning
+# @internal
+# @see     stage require
+# @see     stage loaderconf mk
+# @see     stage kenv boot demand
+#@end
+___stage_boot_leafs2() {
+        local key="" file="" need="" lines=0 loc="$ELEBAKE_BASE/stage/$1/work/stand/efi/loader/local"
+        while read -r key file need; do
+                case "$key" in ''|'#'*) continue ;; esac
+                test -f "$loc/$file" || continue
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage kenv boot '$2' '$1' '$key' '$need'"
+                lines=$((lines + 1))
+        done < "$ELEBAKE_TEMPLATE_DIR/tbl/boot-leafs.tbl"
+        test "$lines" -gt 0 || printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'the checkout of $1 reads no boot leaf'"
+}
+
+#@help __stage_kenv_boot_demand3
+# @command stage kenv boot demand <stage> <key> <required|optional>
+# @summary The stage has a kenv record for the boot leaf: a note with the value; else MISSING with the remedy for a required one, 'absent, the code default applies' for an optional one
+# @group   provisioning
+# @internal
+# @see     stage boot leafs
+#@end
+__stage_kenv_boot_demand3() {
+        local value=""
+        value=$(sed -n 1p "$ELEBAKE_BASE/stage/$1/kenv/$2" 2>/dev/null)
+        if test -f "$ELEBAKE_BASE/stage/$1/kenv/$2"; then
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" log $(sq "  $2  (boot)  = $value")"
+        elif test "$3" = optional; then
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" log '  $2  (boot)  absent, the code default applies (stage kenv add $1 $2 <value> to set it)'"
+        else
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" log '  $2  (boot)  MISSING -- stage kenv add $1 $2 <value>'"
+        fi
+}
+
+#@help __stage_kenv_boot_require3
+# @command stage kenv boot require <stage> <key> <required|optional>
+# @summary The stage has a kenv record for the boot leaf, or the leaf is optional: a comment; else an error line
+# @group   provisioning
+# @internal
+# @see     stage boot leafs
+#@end
+__stage_kenv_boot_require3() {
+        if test -f "$ELEBAKE_BASE/stage/$1/kenv/$2" || test "$3" = optional; then
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment '$2 has its value or its default'"
+        else
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'stage loaderconf mk $1: no value for $2 (stage kenv add first; stage require lists it)'"
+        fi
+}
+
 #@help __stage_kenv_require4
 # @command stage kenv require <stage> <gate> <action> <leaf>
 # @summary The stage has a kenv record for loader.trust.<gate>.<leaf>: a comment, else an error line
@@ -1046,7 +1055,7 @@ __stage_kenv_require4() {
 
 #@help ___stage_loaderconf_mk1
 # @command stage loaderconf mk <stage>
-# @summary Write boot/loader.trust.conf of the stage from its kenv records: the stage and its checkout exist, boot/loader.conf names the file in loader_conf_files (stage edit adds it), every leaf a bound action reads has its value (stage require), then the file is written. It rides on the medium in clear, the manifest covers it (stage manifest after this)
+# @summary Write boot/loader.trust.conf of the stage from its kenv records: the stage and its checkout exist, boot/loader.conf names the file in loader_conf_files (stage edit adds it), every leaf a bound action reads and every required boot leaf (boot-leafs.tbl) has its value (stage require), then the file is written. It rides on the medium in clear, the manifest covers it (stage manifest after this)
 # @group   provisioning
 # @example elebake stage loaderconf mk daily-v1
 # @see     stage require
@@ -1057,6 +1066,7 @@ ___stage_loaderconf_mk1() {
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage checkout exists '$1'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage loaderconf named '$1'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage leafs '$1' require"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage boot leafs '$1' require"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage loaderconf write '$1'"
 }
 

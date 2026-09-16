@@ -80,11 +80,10 @@ disk_name_ok() {
         return 0
 }
 
-# kenv_key_ok <key> -- a loader.trust.* kenv name, or password_sha256 (the
-# loader prompt password, stage password set)
+# kenv_key_ok <key> -- a loader.trust.* kenv name
 kenv_key_ok() {
         case "$1" in
-                loader.trust.[a-z]*|password_sha256) ;;
+                loader.trust.[a-z]*) ;;
                 *) return 1 ;;
         esac
         case "$1" in *[!a-z0-9._]*) return 1 ;; esac

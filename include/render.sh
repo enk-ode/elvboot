@@ -1186,7 +1186,6 @@ ___stage_foundation_make1() {
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage foundation prepare '$1'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage foundation render header '$1' > '$target.new'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage foundation render macros '$1' >> '$target.new'"
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage foundation render secrets '$1' >> '$target.new'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage foundation render prerequisites '$1' >> '$target.new'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage foundation render gates '$1' >> '$target.new'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage foundation render phases '$1' >> '$target.new'"
@@ -1315,49 +1314,6 @@ _macro_render_c1() {
         printf '#else\n#define\t%s\t%s\n#endif\n' "$defined" "$elsev"
 }
 
-#@help ___stage_foundation_render_secrets1
-# @command stage foundation render secrets <stage>
-# @summary The passphrase slots of foundation.c: per bound gate (sorted, once) its secret and duress slot blocks
-# @group   foundation
-# @internal
-# @see     gate slot render c
-#@end
-___stage_foundation_render_secrets1() {
-        local g=""
-        for g in $(cat "$ELEBAKE_BASE/stage/$1"/phases/* 2>/dev/null | sort -u | while read -r p; do sed -n "s/^gate //p" "$ELEBAKE_BASE/foundation/policies/$p"; done | sort -u); do
-                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" gate slot render c '$g' secret"
-                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" gate slot render c '$g' duress"
-        done
-}
-
-#@help __gate_slot_render_c2
-# @command gate slot render c <gate> <secret|duress>
-# @summary The gate carries the slot: rewrite to 'gate slot render c block', else a comment line (nothing rendered)
-# @group   foundation
-# @internal
-# @see     stage foundation render secrets
-#@end
-__gate_slot_render_c2() {
-        if test -f "$ELEBAKE_BASE/foundation/gates/$1/$2"; then
-                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" gate slot render c block '$1' '$2'"
-        else
-                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'gate $1 has no $2 slot'"
-        fi
-}
-
-#@help _gate_slot_render_c_block2
-# @command gate slot render c block <gate> <secret|duress>
-# @summary Print the #ifdef block mapping one slot of the gate to its local macro (the slot minus LOADER_TRUST_), NULL when the build does not define it
-# @group   foundation
-# @internal
-# @see     gate slot render c
-#@end
-_gate_slot_render_c_block2() {
-        local slot=""
-        slot=$(sed -n 1p "$ELEBAKE_BASE/foundation/gates/$1/$2" 2>/dev/null)
-        printf '\n#ifdef %s\n#define\t%s\t%s\n#else\n#define\t%s\tNULL\n#endif\n' "$slot" "${slot#LOADER_TRUST_}" "$slot" "${slot#LOADER_TRUST_}"
-}
-
 #@help __stage_foundation_render_prerequisites1
 # @command stage foundation render prerequisites <stage>
 # @summary The checkout expects the prerequisites arrays (extern declarations in measurement.h): rewrite to 'stage prerequisites render c', else a comment line
@@ -1421,7 +1377,7 @@ ___stage_foundation_render_gates1() {
 
 #@help ___gate_render_c1
 # @command gate render c <gate>
-# @summary GATE_DEFINE as it lands in foundation.c: the head with the slot expressions, one CLAIM per claim the gate lists, the tail
+# @summary GATE_DEFINE as it lands in foundation.c: the head, one CLAIM per claim the gate lists, the tail
 # @group   foundation
 # @internal
 # @see     claim render c
@@ -1437,16 +1393,13 @@ ___gate_render_c1() {
 
 #@help _gate_render_c_head1
 # @command gate render c head <gate>
-# @summary Print 'GATE_DEFINE(<gate>, <secret expr>, <duress expr>' -- a slot expression is the local macro (slot minus LOADER_TRUST_) or NULL
+# @summary Print 'GATE_DEFINE(<gate>' -- the head; a gate carries no slot (the loader compares no password)
 # @group   foundation
 # @internal
 # @see     gate render c
 #@end
 _gate_render_c_head1() {
-        local s="" d=""
-        s=$(sed -n 1p "$ELEBAKE_BASE/foundation/gates/$1/secret" 2>/dev/null); s=${s#LOADER_TRUST_}
-        d=$(sed -n 1p "$ELEBAKE_BASE/foundation/gates/$1/duress" 2>/dev/null); d=${d#LOADER_TRUST_}
-        printf '\nGATE_DEFINE(%s, %s, %s' "$1" "${s:-NULL}" "${d:-NULL}"
+        printf '\nGATE_DEFINE(%s' "$1"
 }
 
 #@help _gate_render_c_tail0

@@ -1175,7 +1175,7 @@ combine_exit_codes() {
 # @summary Print '# <text>' to stderr -- a line for the caller (a report, a finding) that a running batch shows; cat shows it too
 # @group   setup
 # @internal
-# @example elebake note 'gate fish_0: slot LOADER_TRUST_BOOTLOCK_SECRET has no baseline'
+# @example elebake note 'macro LOADER_TRUST_ACPI_DIGEST has no value yet'
 #@end
 _note1() {
         local t

@@ -1616,39 +1616,39 @@ test_foundation_claim_trigger_crud() {
 test_foundation_trigger_composition() {
   test_header "trigger composition: and/or/not and compose render C and sh"
   test_setup
-  run_elebake trigger add react-quiet 'and(when_fail,not(when_skipped))' 'compose(taint_act,unlock_act)' > /dev/null
-  if run_elebake trigger show react-quiet | grep -q 'FIRE(AND(when_fail, NOT(when_skipped)), COMPOSE(taint_act, unlock_act))'; then
+  run_elebake trigger add react-quiet 'and(when_fail,not(when_skipped))' 'compose(taint_act,report_act)' > /dev/null
+  if run_elebake trigger show react-quiet | grep -q 'FIRE(AND(when_fail, NOT(when_skipped)), COMPOSE(taint_act, report_act))'; then
     pass "trigger show renders AND/NOT and COMPOSE"
   else
     fail "trigger show wrong: $(run_elebake trigger show react-quiet)"
   fi
-  if run_elebake stage trigger render react-quiet | grep -q '^if { when_fail && ! when_skipped; }; then taint_act "\$GATE"; unlock_act "\$GATE"; fi$'; then
+  if run_elebake stage trigger render react-quiet | grep -q '^if { when_fail && ! when_skipped; }; then taint_act "\$GATE"; report_act "\$GATE"; fi$'; then
     pass "stage trigger render composes the sh binding"
   else
     fail "sh binding wrong: $(run_elebake stage trigger render react-quiet)"
   fi
-  run_elebake trigger add spot-or 'or(when_maybe,or(when_duress,when_tainted))' spool_act > /dev/null
-  if run_elebake trigger show spot-or | grep -q 'FIRE(OR(when_maybe, OR(when_duress, when_tainted)), spool_act)'; then
+  run_elebake trigger add spot-or 'or(when_maybe,or(when_prompted,when_tainted))' spool_act > /dev/null
+  if run_elebake trigger show spot-or | grep -q 'FIRE(OR(when_maybe, OR(when_prompted, when_tainted)), spool_act)'; then
     pass "nested or renders pairwise, a single action as &name"
   else
     fail "nested or wrong: $(run_elebake trigger show spot-or)"
   fi
-  if run_elebake stage trigger render spot-or | grep -q '^if { when_maybe || { when_duress || when_tainted; }; }; then spool_act "\$GATE"; fi$'; then
+  if run_elebake stage trigger render spot-or | grep -q '^if { when_maybe || { when_prompted || when_tainted; }; }; then spool_act "\$GATE"; fi$'; then
     pass "nested or groups in sh"
   else
     fail "sh nested or wrong: $(run_elebake stage trigger render spot-or)"
   fi
-  if run_elebake trigger add broken 'and(when_fail' unlock_act 2>&1 | grep -q "does not parse"; then
+  if run_elebake trigger add broken 'and(when_fail' report_act 2>&1 | grep -q "does not parse"; then
     pass "an unbalanced expression is refused"
   else
     fail "unbalanced expression accepted"
   fi
-  if run_elebake trigger add lonely 'or(when_fail)' unlock_act 2>&1 | grep -q "does not parse"; then
+  if run_elebake trigger add lonely 'or(when_fail)' report_act 2>&1 | grep -q "does not parse"; then
     pass "or with one argument is refused"
   else
     fail "or(one) accepted"
   fi
-  if run_elebake trigger add spaced 'and(when_fail, when_pass)' unlock_act 2>&1 | grep -q "does not parse"; then
+  if run_elebake trigger add spaced 'and(when_fail, when_pass)' report_act 2>&1 | grep -q "does not parse"; then
     pass "whitespace inside an expression is refused"
   else
     fail "whitespace accepted"
@@ -1667,20 +1667,21 @@ test_foundation_gate_policy_crud() {
   run_elebake claim add c1 measure_a - - e1 > /dev/null
   run_elebake claim add c2 measure_b - - e1 > /dev/null
   run_elebake gate add strictwatch > /dev/null
-  run_elebake gate add bootlock LOADER_TRUST_BOOTLOCK_SECRET > /dev/null
+  run_elebake gate add bootlock > /dev/null
   run_elebake gate claim add strictwatch c1 > /dev/null
   run_elebake gate claim add strictwatch c2 > /dev/null
   local out; out=$(run_elebake gate show strictwatch)
-  if printf '%s\n' "$out" | grep -q 'GATE_DEFINE(strictwatch, NULL' \
+  if printf '%s\n' "$out" | grep -q 'GATE_DEFINE(strictwatch,' \
      && [ "$(printf '%s\n' "$out" | grep -c 'CLAIM(')" = "2" ]; then
     pass "gate show renders GATE_DEFINE with both claims"
   else
     fail "gate show wrong: $out"
   fi
-  if run_elebake gate show bootlock | grep -q 'GATE_DEFINE(bootlock, BOOTLOCK_SECRET'; then
-    pass "the secret renders as the LOCAL macro (same as the emission)"
+  if run_elebake gate show bootlock | grep -q 'GATE_DEFINE(bootlock);$' \
+     && ! run_elebake gate show bootlock | grep -q 'SECRET\|NULL'; then
+    pass "the gate head carries no slot: the loader compares no password"
   else
-    fail "secret slot missing"
+    fail "gate head: $(run_elebake gate show bootlock)"
   fi
   run_elebake gate claim drop strictwatch c1 > /dev/null
   if ! grep -qx c1 "$TEST_DIR/foundation/gates/strictwatch/claims" \
@@ -1690,7 +1691,7 @@ test_foundation_gate_policy_crud() {
     fail "unlink semantics wrong"
   fi
   run_elebake trigger add t1 when_always publish_act > /dev/null
-  run_elebake trigger add t2 when_fail unlock_act > /dev/null
+  run_elebake trigger add t2 when_fail report_act > /dev/null
   run_elebake policy add watch strictwatch > /dev/null
   run_elebake policy trigger add watch t1 > /dev/null
   run_elebake policy trigger add watch t2 > /dev/null
@@ -1729,19 +1730,19 @@ test_foundation_immutability_idempotence() {
   else
     fail "record was modified"
   fi
-  run_elebake gate add g1 SLOT_X > /dev/null
+  run_elebake gate add g1 > /dev/null
   run_elebake claim add c1 m - - e1 > /dev/null
   run_elebake gate claim add g1 c1 > /dev/null
-  run_elebake gate add g1 SLOT_X > /dev/null 2>&1
+  run_elebake gate add g1 > /dev/null 2>&1
   if grep -qx c1 "$TEST_DIR/foundation/gates/g1/claims"; then
     pass "gate re-add leaves the claims list untouched"
   else
     fail "gate re-add clobbered the claims list"
   fi
-  if run_elebake gate add g1 OTHER_SLOT 2>&1 | grep -q "different slots"; then
-    pass "gate re-add with another slot is refused"
+  if run_elebake gate add g1 2>&1 | grep -q "already created (unchanged"; then
+    pass "gate re-add is a note, nothing else"
   else
-    fail "slot change accepted"
+    fail "gate re-add: $(run_elebake gate add g1 2>&1)"
   fi
   run_elebake gate claim add g1 c1 > /dev/null
   if [ "$(grep -c '' "$TEST_DIR/foundation/gates/g1/claims")" = "1" ]; then
@@ -1874,7 +1875,7 @@ test_foundation_dump_replays() {
   run_elebake expectation add e1 byte A 1 > /dev/null
   run_elebake claim add c1 measure_alpha - - e1 > /dev/null
   run_elebake trigger add t1 when_always test_act > /dev/null
-  run_elebake gate add g1 SLOT_X > /dev/null
+  run_elebake gate add g1 > /dev/null
   run_elebake gate claim add g1 c1 > /dev/null
   run_elebake policy add p1 g1 > /dev/null
   run_elebake policy trigger add p1 t1 > /dev/null
@@ -1884,7 +1885,7 @@ test_foundation_dump_replays() {
 expectation add 'e1' 'byte' 'A' '1'
 claim add 'c1' 'measure_alpha' '-' '-' 'e1'
 trigger add 't1' 'when_always' 'test_act'
-gate add 'g1' 'SLOT_X' '-'
+gate add 'g1'
 gate claim add 'g1' 'c1'
 policy add 'p1' 'g1'
 policy trigger add 'p1' 't1'"
@@ -1962,7 +1963,7 @@ test_stage_foundation_emitter() {
   run_elebake expectation add alpha-byte byte AlphaFlag 1 > /dev/null
   run_elebake claim add cm measure_alpha - - alpha-macro > /dev/null
   run_elebake claim add cb measure_alpha diagnose_alpha alpha.pub alpha-byte > /dev/null
-  run_elebake gate add gsec LOADER_TRUST_GSEC_SECRET > /dev/null
+  run_elebake gate add gsec > /dev/null
   run_elebake gate claim add gsec cm > /dev/null
   run_elebake gate claim add gsec cb > /dev/null
   run_elebake trigger add ta when_always test_act > /dev/null
@@ -1975,19 +1976,18 @@ test_stage_foundation_emitter() {
     fail "check answer wrong: $(run_elebake stage foundation check unite 2>&1)"
   fi
   local chk; chk=$(run_elebake stage foundation check unite 2>&1)
-  if printf '%s\n' "$chk" | grep -q "gate gsec: secret slot LOADER_TRUST_GSEC_SECRET has no baseline" \
-     && printf '%s\n' "$chk" | grep -q "macro ALPHA_DIGEST: LOADER_TRUST_ALPHA_DIGEST has no value yet" \
+  if printf '%s\n' "$chk" | grep -q "macro ALPHA_DIGEST: LOADER_TRUST_ALPHA_DIGEST has no value yet" \
+     && ! printf '%s\n' "$chk" | grep -q "slot" \
      && printf '%s\n' "$chk" | grep -q "foundation check ok: 1 binding"; then
-    pass "the check names the empty lock slot and the macro without value"
+    pass "the check names the macro without value and knows no lock slot"
   else
     fail "unprovisioned notes: $chk"
   fi
-  run_elebake stage baseline add unite LOADER_TRUST_GSEC_SECRET string 00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff > /dev/null 2>&1
   printf 'CFLAGS+= -DLOADER_TRUST_ALPHA_DIGEST=0x00\n' > "$TEST_BASE_DIR/fix-work-$TESTS_RUN-unite/stand/efi/loader/local/site.mk"
-  if run_elebake stage foundation check unite 2>&1 | grep -q "LOADER_TRUST_GSEC_SECRET provisioned" && run_elebake stage foundation check unite 2>&1 | grep -q "LOADER_TRUST_ALPHA_DIGEST provisioned"; then
-    pass "a baseline record or a site.mk line counts as provided: the check reports everything provisioned"
+  if run_elebake stage foundation check unite 2>&1 | grep -q "LOADER_TRUST_ALPHA_DIGEST provisioned"; then
+    pass "a site.mk line counts as provided: the check reports the macro provisioned"
   else
-    fail "after baselines: $(run_elebake stage foundation check unite 2>&1)"
+    fail "after site.mk: $(run_elebake stage foundation check unite 2>&1)"
   fi
   run_elebake expectation add rec-valid byte RecordValid 1 > /dev/null
   run_elebake claim add rec measure_record - - rec-valid > /dev/null
@@ -2018,11 +2018,11 @@ test_stage_foundation_emitter() {
   run_elebake stage foundation make unite > /dev/null 2>&1
   local c="$TEST_BASE_DIR/fix-work-$TESTS_RUN-unite/stand/efi/loader/local/foundation/foundation.c"
   if [ -f "$c" ] && grep -q '#ifdef LOADER_TRUST_ALPHA_DIGEST' "$c" \
-     && grep -q 'GSEC_SECRET.LOADER_TRUST_GSEC_SECRET' "$c" \
-     && grep -q 'GATE_DEFINE(gsec, GSEC_SECRET,' "$c" \
+     && ! grep -q 'SECRET' "$c" \
+     && grep -q 'GATE_DEFINE(gsec,$' "$c" \
      && grep -q 'CLAIM(measure_alpha, NULL, NULL, ALPHA_EXPECTED)' "$c" \
      && grep -q 'CLAIM(measure_alpha, diagnose_alpha, "alpha.pub", MEASUREMENT_BYTE("AlphaFlag", 1))' "$c"; then
-    pass "make renders macros, secret mapping and the gate"
+    pass "make renders macros and the gate, no secret mapping"
   else
     fail "generated C wrong: $(cat "$c" 2>&1)"
   fi
@@ -2853,14 +2853,11 @@ test_stage_kenv_require_loaderconf() {
   else
     fail "require with blanks: $(run_elebake stage require unitcf 2>&1 | grep -i "question\|xargs" | head -3)"
   fi
-  mkdir -p "$TEST_DIR/.tmp/password" && printf '%s\n' 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef > "$TEST_DIR/.tmp/password/unitcf"
-  run_elebake stage password hashed store unitcf > /dev/null
-  if [ "$(cat "$TEST_DIR/stage/unitcf/kenv/password_sha256" 2>/dev/null)" = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" ] \
-     && [ ! -f "$TEST_DIR/.tmp/password/unitcf" ] \
-     && run_elebake stage kenv add unitcf password x 2>&1 | grep -q "loader.trust"; then
-    pass "the hashed password becomes the kenv record password_sha256, the hash file is consumed, other keys stay refused"
+  if run_elebake stage kenv add unitcf password_sha256 0123456789abcdef 2>&1 | grep -q "loader.trust" \
+     && [ ! -f "$TEST_DIR/stage/unitcf/kenv/password_sha256" ]; then
+    pass "password_sha256 is no kenv key any more: the loader compares no password"
   else
-    fail "password record: $(cat "$TEST_DIR/stage/unitcf/kenv/password_sha256" 2>&1)"
+    fail "password key: $(run_elebake stage kenv add unitcf password_sha256 0123456789abcdef 2>&1)"
   fi
   if run_elebake stage kenv add unitcf loader.trust.kernellock.question "anders" | grep -q "immutable" \
      && run_elebake stage kenv add unitcf bad.key x | grep -q "loader.trust" \
@@ -2913,32 +2910,63 @@ test_stage_kenv_require_loaderconf() {
   fi
 }
 
-test_gate_duress_slot() {
-  test_header "gate add: the duress slot renders, dumps, and is immutable"
+test_gate_add_plain() {
+  test_header "gate add: no slot -- the head renders bare, dumps bare, a re-add is a note"
   test_setup
-  run_elebake gate add kl LOADER_TRUST_KL_SECRET LOADER_TRUST_KL_DURESS > /dev/null
+  run_elebake gate add kl > /dev/null
   run_elebake gate add plain > /dev/null
-  run_elebake gate add sec LOADER_TRUST_SEC_SECRET > /dev/null
-  if run_elebake gate show kl | grep -q 'GATE_DEFINE(kl, KL_SECRET, KL_DURESS)' \
-     && run_elebake gate show plain | grep -q 'GATE_DEFINE(plain, NULL, NULL)' \
-     && run_elebake gate show sec | grep -q 'GATE_DEFINE(sec, SEC_SECRET, NULL)'; then
-    pass "GATE_DEFINE renders secret and duress slots (NULL when absent)"
+  if run_elebake gate show kl | grep -q 'GATE_DEFINE(kl);$' \
+     && run_elebake gate show plain | grep -q 'GATE_DEFINE(plain);$'; then
+    pass "GATE_DEFINE renders the name and nothing else in its head"
   else
-    fail "gate show: $(run_elebake gate show kl; run_elebake gate show plain; run_elebake gate show sec)"
+    fail "gate show: $(run_elebake gate show kl; run_elebake gate show plain)"
   fi
-  if run_elebake gate add kl LOADER_TRUST_KL_SECRET LOADER_TRUST_KL_DURESS | grep -q "unchanged" \
-     && run_elebake gate add kl LOADER_TRUST_KL_SECRET | grep -q "immutable"; then
-    pass "identical re-add is a no-op, a changed slot set is refused"
+  if run_elebake gate add kl | grep -q "unchanged"; then
+    pass "identical re-add is a no-op"
   else
-    fail "gate immutability gap"
+    fail "gate re-add: $(run_elebake gate add kl)"
   fi
   local d; d=$(run_elebake dump)
-  if printf '%s\n' "$d" | grep -q "gate add 'kl' 'LOADER_TRUST_KL_SECRET' 'LOADER_TRUST_KL_DURESS'" \
-     && printf '%s\n' "$d" | grep -q "gate add 'sec' 'LOADER_TRUST_SEC_SECRET' '-'$" \
-     && printf '%s\n' "$d" | grep -q "gate add 'plain' '-' '-'$"; then
-    pass "dump replays the slots exactly as recorded"
+  if printf '%s\n' "$d" | grep -q "gate add 'kl'$" \
+     && printf '%s\n' "$d" | grep -q "gate add 'plain'$"; then
+    pass "dump replays the bare gate add"
   else
     fail "dump: $(printf '%s\n' "$d" | grep 'gate add')"
+  fi
+}
+
+test_stage_require_boot_leafs() {
+  test_header "stage require: the gate-free leafs the boot reads (boot-leafs.tbl) -- demanded per checkout file, required ones block loaderconf mk"
+  test_setup
+  run_elebake stage add unitb > /dev/null 2>&1
+  fixture_worktree unitb
+  local fix="$TEST_BASE_DIR/fix-work-$TESTS_RUN-unitb/stand/efi/loader/local"
+  if ! run_elebake stage require unitb | grep -q "(boot)"; then
+    pass "a checkout without the TPM key file or the dialog demands no boot leaf"
+  else
+    fail "require without files: $(run_elebake stage require unitb)"
+  fi
+  : > "$fix/tpm_keyfile.c"; : > "$fix/geli_open.c"
+  local req; req=$(run_elebake stage require unitb)
+  if printf '%s\n' "$req" | grep -q "loader.trust.tpm.keyfile.handle  (boot)  MISSING -- stage kenv add unitb loader.trust.tpm.keyfile.handle" \
+     && printf '%s\n' "$req" | grep -q "loader.trust.tpm.keyfile.pcrs  (boot)  MISSING" \
+     && printf '%s\n' "$req" | grep -q "loader.trust.tpm.keyfile.providers  (boot)  MISSING" \
+     && printf '%s\n' "$req" | grep -q "loader.trust.geli.tries  (boot)  absent, the code default applies"; then
+    pass "with the files present require names the three required leafs and the optional one"
+  else
+    fail "require: $req"
+  fi
+  run_elebake stage kenv add unitb loader.trust.tpm.keyfile.handle 0x81010001 > /dev/null
+  if run_elebake stage require unitb | grep -q "loader.trust.tpm.keyfile.handle  (boot)  = 0x81010001"; then
+    pass "a recorded boot leaf shows its value"
+  else
+    fail "require after add: $(run_elebake stage require unitb | grep boot)"
+  fi
+  if run_elebake stage boot leafs unitb require 2>&1 | grep -q "no value for loader.trust.tpm.keyfile.pcrs" \
+     && ! run_elebake stage boot leafs unitb require 2>&1 | grep -q "no value for loader.trust.geli.tries"; then
+    pass "require errs on a missing required leaf and passes the optional one"
+  else
+    fail "boot leafs require: $(run_elebake stage boot leafs unitb require 2>&1)"
   fi
 }
 
@@ -3692,7 +3720,8 @@ main() {
   should_run_test test_stage_kenv_require_loaderconf
   should_run_test test_expectation_key
   should_run_test test_stage_inventory
-  should_run_test test_gate_duress_slot
+  should_run_test test_gate_add_plain
+  should_run_test test_stage_require_boot_leafs
   should_run_test test_container_catalogs_and_binding
   should_run_test test_container_emitters
   should_run_test test_container_test_run
