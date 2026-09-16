@@ -1049,8 +1049,8 @@ __stage_kenv_demand4() {
 
 #@help ___stage_boot_leafs2
 # @command stage boot leafs <stage> <require|demand>
-# @summary The kenv leafs the boot reads before any gate, from template/tbl/boot-leafs.tbl (key, the checkout file that reads it, required|optional): one 'stage kenv boot <verb> <stage> <key> <required|optional>' per row whose file the checkout has -- require ends in an error line at a missing required value, demand in a note; a checkout without any such file is a comment line
-# @env     ELEBAKE_TEMPLATE_DIR  the template directory (tables)
+# @summary The kenv leafs the boot reads before any gate, from template/tbl/boot-leafs.tbl (key, the checkout file that reads it, required|optional; template/awk/boot-leafs.awk reads the rows): one 'stage kenv boot <verb> <stage> <key> <required|optional>' per row whose file the checkout has -- require ends in an error line at a missing required value, demand in a note; a checkout without any such file is a comment line
+# @env     ELEBAKE_TEMPLATE_DIR  the template directory (tables, awk programs)
 # @group   provisioning
 # @internal
 # @see     stage require
@@ -1058,13 +1058,13 @@ __stage_kenv_demand4() {
 # @see     stage kenv boot demand
 #@end
 ___stage_boot_leafs2() {
-        local key="" file="" need="" lines=0 loc="$ELEBAKE_BASE/stage/$1/work/stand/efi/loader/local"
-        while read -r key file need; do
-                case "$key" in ''|'#'*) continue ;; esac
+        local row="" key="" file="" need="" lines=0 loc="$ELEBAKE_BASE/stage/$1/work/stand/efi/loader/local"
+        for row in $(awk -f "$ELEBAKE_TEMPLATE_DIR/awk/boot-leafs.awk" "$ELEBAKE_TEMPLATE_DIR/tbl/boot-leafs.tbl"); do
+                key=${row%%|*}; need=${row##*|}; file=${row#*|}; file=${file%|*}
                 test -f "$loc/$file" || continue
                 printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage kenv boot '$2' '$1' '$key' '$need'"
                 lines=$((lines + 1))
-        done < "$ELEBAKE_TEMPLATE_DIR/tbl/boot-leafs.tbl"
+        done
         test "$lines" -gt 0 || printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'the checkout of $1 reads no boot leaf'"
 }
 
