@@ -2972,19 +2972,19 @@ test_stage_require_boot_leafs() {
   fi
   : > "$fix/tpm_keyfile.c"; : > "$fix/geli_open.c"
   local req; req=$(run_elebake stage require unitb)
-  if printf '%s\n' "$req" | grep -q "loader.trust.tpm.keyfile.handle  (boot)  MISSING -- stage kenv add unitb loader.trust.tpm.keyfile.handle" \
+  if printf '%s\n' "$req" | grep -q "loader.trust.tpm.keyfile.handles  (boot)  MISSING -- stage kenv add unitb loader.trust.tpm.keyfile.handles" \
      && printf '%s\n' "$req" | grep -q "loader.trust.tpm.key.handle  (boot)  MISSING" \
      && printf '%s\n' "$req" | grep -q "loader.trust.tpm.keyfile.pcrs  (boot)  MISSING" \
      && printf '%s\n' "$req" | grep -q "loader.trust.tpm.keyfile.providers  (boot)  MISSING" \
-     && printf '%s\n' "$req" | grep -q "loader.trust.tpm.keyfile.duress  (boot)  absent, the code default applies" \
+     && printf '%s\n' "$req" | grep -q "loader.trust.tpm.counter.nv  (boot)  absent, the code default applies" \
      && printf '%s\n' "$req" | grep -q "loader.trust.geli.tries  (boot)  absent, the code default applies"; then
     pass "with the files present require names the required leafs and the optional ones"
   else
     fail "require: $req"
   fi
-  run_elebake stage kenv add unitb loader.trust.tpm.keyfile.handle 0x81010001 > /dev/null
+  run_elebake stage kenv add unitb loader.trust.tpm.keyfile.handles "0x81010001 0x81010002" > /dev/null
   run_elebake stage kenv add unitb loader.trust.tpm.key.handle 0x81000001 > /dev/null
-  if run_elebake stage require unitb | grep -q "loader.trust.tpm.keyfile.handle  (boot)  = 0x81010001"; then
+  if run_elebake stage require unitb | grep -q "loader.trust.tpm.keyfile.handles  (boot)  = 0x81010001 0x81010002"; then
     pass "a recorded boot leaf shows its value"
   else
     fail "require after add: $(run_elebake stage require unitb | grep boot)"

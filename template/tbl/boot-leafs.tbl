@@ -9,10 +9,9 @@
 # the TPM key file demands nothing of it. required: stage loaderconf mk
 # refuses without a record; optional: the code default applies.
 loader.trust.tpm.key.handle	tpm_keyfile.c	required
-loader.trust.tpm.keyfile.handle	tpm_keyfile.c	required
-loader.trust.tpm.keyfile.duress	tpm_keyfile.c	optional
+loader.trust.tpm.keyfile.handles	tpm_keyfile.c	required
 loader.trust.tpm.keyfile.pcrs	tpm_keyfile.c	required
 loader.trust.tpm.keyfile.providers	tpm_keyfile.c	required
-loader.trust.tpm.duress.nv	tpm_keyfile.c	optional
+loader.trust.tpm.counter.nv	tpm_keyfile.c	optional
 loader.trust.pcr.require	measure_record.c	optional
 loader.trust.geli.tries	geli_open.c	optional
