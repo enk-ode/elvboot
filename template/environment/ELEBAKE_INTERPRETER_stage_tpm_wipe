@@ -1,0 +1,2 @@
+sh
+# Act terminal of 'stage tpm clean': rm -P on the RAM disk, as the user.

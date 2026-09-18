@@ -1,0 +1,2 @@
+sudo sh
+# Act terminal of 'stage tree snapshot': zfs destroy of the old elebake-* snapshots needs root.

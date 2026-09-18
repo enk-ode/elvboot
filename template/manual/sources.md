@@ -10,8 +10,7 @@ foundation can be built.
 
 Get the tree that carries the series:
 
-    git clone -b platform-trust-gates-15.1 \
-        https://github.com/johannes-bruegmann/freebsd-src.git ~/git/freebsd-src
+    git clone -b platform-trust-gates-15.1 https://github.com/johannes-bruegmann/freebsd-src.git ~/git/freebsd-src
     elebake setenv ELEBAKE_FREEBSD_SRC ~/git/freebsd-src
     elebake freebsd prerequisites
 

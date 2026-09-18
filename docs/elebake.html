@@ -62,9 +62,7 @@
 <dl class="Bl-tag">
   <dt></dt>
   <dd>
-    <pre>git clone -b platform-trust-gates-15.1 \
-<br/>
-    https://github.com/johannes-bruegmann/freebsd-src.git ~/git/freebsd-src
+    <pre>git clone -b platform-trust-gates-15.1 https://github.com/johannes-bruegmann/freebsd-src.git ~/git/freebsd-src
 elebake setenv ELEBAKE_FREEBSD_SRC ~/git/freebsd-src
 elebake freebsd prerequisites
     </pre>
@@ -434,8 +432,11 @@ elebake freebsd prerequisites
       unlisted are not findings: the base is an extraction directory</dd>
   <dt id="provenance"><a class="permalink" href="#provenance"><b>provenance
     serial</b></a></dt>
-  <dd>Act terminal: advance the export serial by one (export does this before
-      writing the dump); the number lands in the dump header</dd>
+  <dd>Act terminal: advance the export serial by one &#x2013; export does this
+      LAST, once the pair is attested: the dump header already carries
+      current+1, so a failed export leaves the number to the next attempt
+      (illyria 17.09.: serials 9 to 11 were lost to a pinentry that could not
+      open)</dd>
   <dt id="provenance~2"><a class="permalink" href="#provenance~2"><b>provenance
     add &lt;dump&gt; &lt;bundle&gt;</b></a></dt>
   <dd>File the receipt of an admitted import: the dump readable, numbered,
@@ -1032,6 +1033,118 @@ elebake freebsd prerequisites
     report &lt;stage&gt; [&lt;file&gt;]</b></a></dt>
   <dd>Show the written site.mk of the stage (default: local/site.mk of its
       checkout) as comment lines</dd>
+  <dt id="stage~78"><a class="permalink" href="#stage~78"><b>stage tpm key
+    &lt;stage&gt;</b></a></dt>
+  <dd>Make the storage key the loader&#x2019;s sessions salt to persistent under
+      loader.trust.tpm.key.handle: the stage exists, the leaf is set, the work
+      directory is a mounted RAM disk; then `stage tpm key make' (createprimary
+      from the owner seed &#x2013; the same key every time on the same TPM
+      &#x2013; evictcontrol, readpublic: the name&#x2019;s digest is what stage
+      baseline learn takes from loader.trust.tpm.key.sha256 after the first
+      boot)</dd>
+  <dt id="stage~79"><a class="permalink" href="#stage~79"><b>stage tpm policy
+    &lt;stage&gt;</b></a></dt>
+  <dd>Write the policy the sealed objects are created under &#x2013; PolicyPCR
+      over loader.trust.tpm.keyfile.pcrs AND PolicyAuthValue &#x2013; as
+      &lt;workdir&gt;/pcrauth.policy: the stage exists, the leaf is set, the
+      work directory ready; then `stage tpm policy make'</dd>
+  <dt id="stage~80"><a class="permalink" href="#stage~80"><b>stage tpm seal
+    &lt;stage&gt; &lt;owner|duress&gt; &lt;secret-file&gt;</b></a></dt>
+  <dd>Seal the secret into the persistent object of the role &#x2013; the first
+      handle of loader.trust.tpm.keyfile.handles for owner, the second for
+      duress &#x2013; with the passphrase&#x2019;s sha256 as auth value: the
+      stage exists, the role is owner or duress, the leaf names a handle for it,
+      the secret file holds 32 bytes, the policy file is there (stage tpm
+      policy); then the passphrase is read hidden twice (stage tpm seal read)
+      and the object created, loaded, persisted (stage tpm seal object). The
+      owner&#x2019;s and the duress passphrase must differ; each opens the same
+      key file, only the second counts (loader tpm_keyfile.c)</dd>
+  <dt id="stage~81"><a class="permalink" href="#stage~81"><b>stage tpm counter
+    &lt;stage&gt;</b></a></dt>
+  <dd>Define the increment-only counter the loader raises when the duress object
+      opened, under loader.trust.tpm.counter.nv: the stage exists, the leaf is
+      set, the work directory ready; then `stage tpm counter make' (policy =
+      PolicyCommandCode NV_Increment, attributes
+      nt=counter|policywrite|authread|no_da: anyone reads the number, nobody
+      lowers it &#x2013; root&#x2019;s trace of a duress boot)</dd>
+  <dt id="stage~82"><a class="permalink" href="#stage~82"><b>stage tpm probe
+    &lt;stage&gt; &lt;owner|duress&gt; &lt;secret-file&gt;</b></a></dt>
+  <dd>Unseal the role&#x2019;s object the way the loader does &#x2013; a session
+      salted to loader.trust.tpm.key.handle, PolicyPCR over the stage&#x2019;s
+      list, PolicyAuthValue with the hash stage tpm seal left in
+      &lt;workdir&gt;/auth-&lt;role&gt;.hex &#x2013; and compare with the secret
+      file: the stage exists, the role valid, the leaf names its handle, the
+      secret readable; then `stage tpm probe unseal'</dd>
+  <dt id="stage~83"><a class="permalink" href="#stage~83"><b>stage tpm
+    clean</b></a></dt>
+  <dd>Wipe what the family left on the work directory: the auth hashes,
+      contexts, policies, key files (rm -P, the RAM disk is unmounted by the
+      owner); the work directory ready; then `stage tpm wipe'</dd>
+  <dt id="stage~84"><a class="permalink" href="#stage~84"><b>stage tpm status
+    &lt;stage&gt;</b></a></dt>
+  <dd>What the TPM holds against what the stage expects: the persistent handles
+      and the counter&#x2019;s public area; the stage exists; then `stage tpm
+      status show'</dd>
+</dl>
+</section>
+<section class="Ss">
+<h3 class="Ss" id="Workflows"><a class="permalink" href="#Workflows">Workflows</a></h3>
+<p class="Pp">The recurring sequences of commands, as text to read and to type
+    after: rebuild, pcr-learn, kenv-change, baseline-relearn, inventory-drop,
+    policy-change, tpm-seal, restore (template/workflow/*.md).</p>
+<dl class="Bl-tag">
+  <dt id="workflow"><a class="permalink" href="#workflow"><b>workflow</b></a></dt>
+  <dd>List the workflows: one line per file of template/workflow, name and title
+      (the file&#x2019;s first line); the same as `workflow list'</dd>
+  <dt id="workflow~2"><a class="permalink" href="#workflow~2"><b>workflow
+    list</b></a></dt>
+  <dd>List the workflows: per file of template/workflow one `workflow line
+      &lt;name&gt;'; none is a comment line</dd>
+  <dt id="workflow~3"><a class="permalink" href="#workflow~3"><b>workflow show
+    &lt;name&gt;</b></a></dt>
+  <dd>Print a workflow: the file exists (workflow exists), then its text as it
+      is (workflow render) &#x2013; commands and the comments between them, to
+      read and to type after</dd>
+</dl>
+</section>
+<section class="Ss">
+<h3 class="Ss" id="Workflows~2"><a class="permalink" href="#Workflows~2">Workflows</a></h3>
+<p class="Pp">The recurring sequences of commands, as text to read and to type
+    after: rebuild, pcr-learn, kenv-change, baseline-relearn, inventory-drop,
+    policy-change, tpm-seal, restore (template/workflow/*.md).</p>
+<dl class="Bl-tag">
+  <dt id="workflow~4"><a class="permalink" href="#workflow~4"><b>workflow</b></a></dt>
+  <dd>List the workflows: one line per file of template/workflow, name and title
+      (the file&#x2019;s first line); the same as `workflow list'</dd>
+  <dt id="workflow~5"><a class="permalink" href="#workflow~5"><b>workflow
+    list</b></a></dt>
+  <dd>List the workflows: per file of template/workflow one `workflow line
+      &lt;name&gt;'; none is a comment line</dd>
+  <dt id="workflow~6"><a class="permalink" href="#workflow~6"><b>workflow show
+    &lt;name&gt;</b></a></dt>
+  <dd>Print a workflow: the file exists (workflow exists), then its text as it
+      is (workflow render) &#x2013; commands and the comments between them, to
+      read and to type after</dd>
+</dl>
+</section>
+<section class="Ss">
+<h3 class="Ss" id="Workflows~3"><a class="permalink" href="#Workflows~3">Workflows</a></h3>
+<p class="Pp">The recurring sequences of commands, as text to read and to type
+    after: rebuild, pcr-learn, kenv-change, baseline-relearn, inventory-drop,
+    policy-change, tpm-seal, restore (template/workflow/*.md).</p>
+<dl class="Bl-tag">
+  <dt id="workflow~7"><a class="permalink" href="#workflow~7"><b>workflow</b></a></dt>
+  <dd>List the workflows: one line per file of template/workflow, name and title
+      (the file&#x2019;s first line); the same as `workflow list'</dd>
+  <dt id="workflow~8"><a class="permalink" href="#workflow~8"><b>workflow
+    list</b></a></dt>
+  <dd>List the workflows: per file of template/workflow one `workflow line
+      &lt;name&gt;'; none is a comment line</dd>
+  <dt id="workflow~9"><a class="permalink" href="#workflow~9"><b>workflow show
+    &lt;name&gt;</b></a></dt>
+  <dd>Print a workflow: the file exists (workflow exists), then its text as it
+      is (workflow render) &#x2013; commands and the comments between them, to
+      read and to type after</dd>
 </dl>
 </section>
 <section class="Ss">
@@ -1039,55 +1152,56 @@ elebake freebsd prerequisites
 <p class="Pp">The physical boot medium: bind it, back up its loader, swap, roll
     back.</p>
 <dl class="Bl-tag">
-  <dt id="stage~78"><a class="permalink" href="#stage~78"><b>stage tree sync
+  <dt id="stage~85"><a class="permalink" href="#stage~85"><b>stage tree sync
     &lt;stage&gt; &lt;medium&gt;</b></a></dt>
   <dd>Write the stage&#x2019;s boot/ tree onto the medium&#x2019;s dataset: pool
       import, then snapshot + copy + verify (fail-fast), then close (rollback if
       the tree is not the manifest) and pool export &#x2013; close and export
       ALWAYS run (keep-going wrapper), so a failed sync never leaves the pool
       imported or the medium half-written</dd>
-  <dt id="stage~79"><a class="permalink" href="#stage~79"><b>stage pool import
+  <dt id="stage~86"><a class="permalink" href="#stage~86"><b>stage pool import
     &lt;stage&gt; &lt;medium&gt; &lt;rw|ro&gt;</b></a></dt>
   <dd>Import the medium&#x2019;s pool from its GPT label (confined: no device
       scan), rooted under $ELEBAKE_ROOT/mnt/&lt;stage&gt;-&lt;medium&gt;, and
       mount the boot dataset: the medium ready, the mode rw or ro, the pool not
       imported yet; then `stage pool mount'</dd>
-  <dt id="stage~80"><a class="permalink" href="#stage~80"><b>stage pool export
+  <dt id="stage~87"><a class="permalink" href="#stage~87"><b>stage pool export
     &lt;stage&gt; &lt;medium&gt;</b></a></dt>
   <dd>Unmount and export the medium&#x2019;s pool and remove the altroot: the
       medium ready, then `stage pool release' (a pool that is not imported is a
       note, not an error, so the closing line of a batch is always safe). Its
       pin forces fail-fast inside, whatever the enclosing batch keeps going</dd>
-  <dt id="stage~81"><a class="permalink" href="#stage~81"><b>stage tree snapshot
+  <dt id="stage~88"><a class="permalink" href="#stage~88"><b>stage tree snapshot
     &lt;stage&gt; &lt;medium&gt;</b></a></dt>
   <dd>Snapshot the medium&#x2019;s boot dataset (elebake-&lt;stamp&gt;) before
       it is rewritten: the medium ready, the pool imported; then `stage tree
-      snap'</dd>
-  <dt id="stage~82"><a class="permalink" href="#stage~82"><b>stage tree copy
+      snap', then `stage tree prune' (the older elebake-* snapshots beyond
+      ELEBAKE_SNAPSHOT_KEEP go)</dd>
+  <dt id="stage~89"><a class="permalink" href="#stage~89"><b>stage tree copy
     &lt;stage&gt; &lt;medium&gt;</b></a></dt>
   <dd>Replace the boot/ tree on the MOUNTED dataset with the stage&#x2019;s
       boot/: the medium ready, the stage&#x2019;s manifest attested, the dataset
       mounted and a boot dataset; then `stage tree write'</dd>
-  <dt id="stage~83"><a class="permalink" href="#stage~83"><b>stage tree verify
+  <dt id="stage~90"><a class="permalink" href="#stage~90"><b>stage tree verify
     &lt;stage&gt; &lt;medium&gt;</b></a></dt>
   <dd>Inspect the boot tree ON the mounted medium against the stage&#x2019;s
       manifest at generation time, both directions: the medium ready, the
       manifest there, the dataset mounted; then `stage tree matches' &#x2013; a
       finding fails the command</dd>
-  <dt id="stage~84"><a class="permalink" href="#stage~84"><b>stage tree close
+  <dt id="stage~91"><a class="permalink" href="#stage~91"><b>stage tree close
     &lt;stage&gt; &lt;medium&gt;</b></a></dt>
   <dd>Leave the medium consistent, decided at generation time: the medium ready,
       then `stage tree settle' &#x2013; a tree that IS the manifest stays
       (snapshot kept as history), a tree that is not goes back to the newest
       elebake snapshot; not imported = nothing to do. Its pin forces fail-fast
       inside, whatever the enclosing batch keeps going</dd>
-  <dt id="stage~85"><a class="permalink" href="#stage~85"><b>stage device
+  <dt id="stage~92"><a class="permalink" href="#stage~92"><b>stage device
     &lt;stage&gt; &lt;medium&gt; &lt;/dev/node&gt;
     [&lt;mountpoint&gt;]</b></a></dt>
   <dd>Register a NAMED deploy medium (its backups sort under
       backup/&lt;medium&gt;): the stage exists, the medium name and the device
       node are well-formed; then `stage medium record'</dd>
-  <dt id="stage~86"><a class="permalink" href="#stage~86"><b>stage boot tree
+  <dt id="stage~93"><a class="permalink" href="#stage~93"><b>stage boot tree
     &lt;stage&gt; &lt;medium&gt; &lt;gpt-label&gt;
     &lt;pool/dataset&gt;</b></a></dt>
   <dd>Register where the medium&#x2019;s boot tree lives (used by stage
@@ -1096,7 +1210,7 @@ elebake freebsd prerequisites
       medium is inserted &#x2013; names a freebsd-zfs partition of the
       medium&#x2019;s disk, never its EFI system partition; then `stage boot
       tree record'</dd>
-  <dt id="stage~87"><a class="permalink" href="#stage~87"><b>stage backup
+  <dt id="stage~94"><a class="permalink" href="#stage~94"><b>stage backup
     &lt;stage&gt; &lt;medium&gt; [&lt;label&gt;
     [&lt;description&gt;]]</b></a></dt>
   <dd>Save the loader currently ON that medium as a backup RECORD
@@ -1105,18 +1219,18 @@ elebake freebsd prerequisites
       record name and new (a label is unique per medium and immutable), the
       description given, the device present; then `stage backup take'. Label
       defaults to the UTC stamp, description to medium/stage/user</dd>
-  <dt id="stage~88"><a class="permalink" href="#stage~88"><b>stage backup list
+  <dt id="stage~95"><a class="permalink" href="#stage~95"><b>stage backup list
     &lt;stage&gt; &lt;medium&gt;</b></a></dt>
   <dd>Show the backup records of that medium, oldest first (label, created,
       sha256, description &#x2013; the view for a rollback decision): the stage
       and the medium exist; then `stage backup table'</dd>
-  <dt id="stage~89"><a class="permalink" href="#stage~89"><b>stage rollback
+  <dt id="stage~96"><a class="permalink" href="#stage~96"><b>stage rollback
     &lt;stage&gt; &lt;medium&gt; [&lt;label&gt;]</b></a></dt>
   <dd>Put a backup back onto the medium &#x2013; but FIRST save what is on the
       medium now as record suspect-&lt;stamp&gt; (quietly: the loader about to
       be overwritten may be the evidence), then write the named (or newest)
       backup and verify its hash on the medium</dd>
-  <dt id="stage~90"><a class="permalink" href="#stage~90"><b>stage deploy
+  <dt id="stage~97"><a class="permalink" href="#stage~97"><b>stage deploy
     &lt;stage&gt; &lt;medium&gt;</b></a></dt>
   <dd>The loader swap onto the NAMED medium: the stage and the medium exist, the
       device is present, the signed loader is there and newer than the built
@@ -1129,19 +1243,19 @@ elebake freebsd prerequisites
   foundation (catalogs and, soon, claims/gates/policies)</a></h3>
 <p class="Pp">Toolchain readiness checks; each backend answers for itself.</p>
 <dl class="Bl-tag">
-  <dt id="stage~91"><a class="permalink" href="#stage~91"><b>stage measure
+  <dt id="stage~98"><a class="permalink" href="#stage~98"><b>stage measure
     &lt;stage&gt; [&lt;container&gt;]</b></a></dt>
   <dd>List the measurements the containers&#x2019; catalogs offer in the
       stage&#x2019;s checkout, with their descriptions: one `stage measure list
       &lt;container&gt; &lt;stage&gt;' per container of ELEBAKE_CONTAINERS, or
       the one container given</dd>
-  <dt id="stage~92"><a class="permalink" href="#stage~92"><b>stage action
+  <dt id="stage~99"><a class="permalink" href="#stage~99"><b>stage action
     &lt;stage&gt; [&lt;container&gt;]</b></a></dt>
   <dd>List the actions the containers&#x2019; catalogs offer in the
       stage&#x2019;s checkout, with their descriptions: one `stage action list
       &lt;container&gt; &lt;stage&gt;' per container of ELEBAKE_CONTAINERS, or
       the one container given</dd>
-  <dt id="stage~93"><a class="permalink" href="#stage~93"><b>stage when
+  <dt id="stage~100"><a class="permalink" href="#stage~100"><b>stage when
     &lt;stage&gt; [&lt;container&gt;]</b></a></dt>
   <dd>List the firing predicates the containers&#x2019; catalogs offer in the
       stage&#x2019;s checkout, with their descriptions: one `stage when list
@@ -1152,39 +1266,39 @@ elebake freebsd prerequisites
   <dd>Print the entry&#x2019;s name and the description its source carries
       (template/awk/catalog-doc.awk over the catalog file); an entry without one
       says so</dd>
-  <dt id="stage~94"><a class="permalink" href="#stage~94"><b>stage phase policy
-    add &lt;stage&gt; &lt;phase&gt; &lt;policy&gt;
+  <dt id="stage~101"><a class="permalink" href="#stage~101"><b>stage phase
+    policy add &lt;stage&gt; &lt;phase&gt; &lt;policy&gt;
     [&lt;position&gt;]</b></a></dt>
   <dd>Bind a policy into a phase of the stage: ensure its prerequisites in the
       container that hosts the phase, then append it to the phase&#x2019;s
       policy list (a position inserts instead)</dd>
-  <dt id="stage~95"><a class="permalink" href="#stage~95"><b>stage phase policy
-    ensure &lt;stage&gt; &lt;phase&gt; &lt;policy&gt;</b></a></dt>
+  <dt id="stage~102"><a class="permalink" href="#stage~102"><b>stage phase
+    policy ensure &lt;stage&gt; &lt;phase&gt; &lt;policy&gt;</b></a></dt>
   <dd>Unroll the containers: one `stage phase policy ensure &lt;container&gt;
       &lt;stage&gt; &lt;phase&gt; &lt;policy&gt;' per container of
       ELEBAKE_CONTAINERS; the container that hosts the phase ensures the policy,
       the others say so in a comment line</dd>
-  <dt id="stage~96"><a class="permalink" href="#stage~96"><b>stage policy ensure
-    &lt;stage&gt; &lt;container&gt; &lt;policy&gt;</b></a></dt>
+  <dt id="stage~103"><a class="permalink" href="#stage~103"><b>stage policy
+    ensure &lt;stage&gt; &lt;container&gt; &lt;policy&gt;</b></a></dt>
   <dd>The policy&#x2019;s prerequisites in the container: every line
       `&lt;kind&gt; &lt;name&gt;' of the record (`gate &lt;gate&gt;', `trigger
       &lt;trigger&gt;') is one `stage &lt;kind&gt; ensure &lt;stage&gt;
       &lt;container&gt; &lt;name&gt;'</dd>
-  <dt id="stage~97"><a class="permalink" href="#stage~97"><b>stage foundation
+  <dt id="stage~104"><a class="permalink" href="#stage~104"><b>stage foundation
     check &lt;stage&gt;</b></a></dt>
   <dd>The stage exists; every bound policy has its prerequisites (stage phase
       policy ensure, per phase and policy); every baseline the bound policies
       demand is reported when missing (gate slots, macro expectations, and what
       the catalog names demand per template/tbl/baseline-demands.tbl); then the
       summary</dd>
-  <dt id="stage~98"><a class="permalink" href="#stage~98"><b>stage phase show
+  <dt id="stage~105"><a class="permalink" href="#stage~105"><b>stage phase show
     &lt;stage&gt; [&lt;phase&gt;]</b></a></dt>
   <dd>List the phases the stage&#x2019;s checkout offers per container
       (ELEBAKE_CONTAINERS, in that order), each with its bound policies: one
       `stage phase show &lt;container&gt; &lt;stage&gt;' per container; one
       phase in detail with the 2-arg form</dd>
-  <dt id="stage~99"><a class="permalink" href="#stage~99"><b>stage phase policy
-    drop &lt;stage&gt; &lt;phase&gt; &lt;policy&gt;</b></a></dt>
+  <dt id="stage~106"><a class="permalink" href="#stage~106"><b>stage phase
+    policy drop &lt;stage&gt; &lt;phase&gt; &lt;policy&gt;</b></a></dt>
   <dd>Unbind a policy from a stage&#x2019;s phase (the policy itself survives):
       the stage exists and the phase binds the policy, then the line is
     removed</dd>
@@ -1383,7 +1497,7 @@ elebake freebsd prerequisites
       measure_answer_matched (the catch-all) &#x2013; name, the phase of
       &lt;stage&gt; that binds it or `unbound', its triggers. The words are not
       here and never were: the inventory has them</dd>
-  <dt id="stage~100"><a class="permalink" href="#stage~100"><b>stage earlboot mk
+  <dt id="stage~107"><a class="permalink" href="#stage~107"><b>stage earlboot mk
     &lt;stage&gt;</b></a></dt>
   <dd>Generate the earlboot rc.d script of the stage into its hooks/earlboot:
       the stage and its checkout exist, the bound measurements&#x2019; demands
@@ -1394,7 +1508,7 @@ elebake freebsd prerequisites
       or handover is bound; mac_bootlock keeps loader.trust.* immutable; the
       script is installed with `stage earlboot install' and covered by
       mac_veriexec</dd>
-  <dt id="stage~101"><a class="permalink" href="#stage~101"><b>stage earlboot
+  <dt id="stage~108"><a class="permalink" href="#stage~108"><b>stage earlboot
     test &lt;stage&gt; &lt;dump&gt;</b></a></dt>
   <dd>Replay a captured boot through the CURRENT earlboot of the stage, without
       root and without side effects: the same rendering as `stage earlboot mk'
@@ -1406,13 +1520,13 @@ elebake freebsd prerequisites
       after a boot with: { kenv; sysctl kern.osrelease kern.ident
       kern.securelevel | sed `s/^/sysctl./'; kldstat -q -m mac_bootlock
       &amp;&amp; echo `kldstat.mac_bootlock=1'; } &gt; /tmp/ram/boot.kenv</dd>
-  <dt id="stage~102"><a class="permalink" href="#stage~102"><b>stage earlboot
+  <dt id="stage~109"><a class="permalink" href="#stage~109"><b>stage earlboot
     install &lt;stage&gt;</b></a></dt>
   <dd>Install the generated earlboot script as /etc/rc.d/earlboot (root:wheel
       0500; the root dataset, so the earliest userland does not depend on a
       mounted /usr/local) and enable it in /etc/rc.conf.d/earlboot; refused
       while none was generated. Run as root</dd>
-  <dt id="stage~103"><a class="permalink" href="#stage~103"><b>stage elvbootd mk
+  <dt id="stage~110"><a class="permalink" href="#stage~110"><b>stage elvbootd mk
     &lt;stage&gt;</b></a></dt>
   <dd>Generate the elvbootd hooks of the stage into its hooks/: the stage and
       its checkout exist, the bound measurements&#x2019; demands on the boot
@@ -1424,7 +1538,7 @@ elebake freebsd prerequisites
       its phase; plus the glue that plugs a hook into its mechanism:
       hooks/elvbootd (rc.d) when STARTUP or SHUTDOWN is bound,
       hooks/elvboot.devd.conf (devd) when MEDIA is bound</dd>
-  <dt id="stage~104"><a class="permalink" href="#stage~104"><b>stage elvbootd
+  <dt id="stage~111"><a class="permalink" href="#stage~111"><b>stage elvbootd
     install &lt;stage&gt;</b></a></dt>
   <dd>Install the generated hooks under /usr/local/etc/elvboot/ (0500) and wire
       each into its mechanism with the generated glue: STARTUP as
@@ -1432,22 +1546,22 @@ elebake freebsd prerequisites
       /usr/local/etc/periodic/security/900.elvboot, RESUME as a line in
       /etc/rc.resume, MEDIA via /usr/local/etc/devd/elvboot.conf (devd
       restarted). Refused while nothing was generated. Run as root</dd>
-  <dt id="stage~105"><a class="permalink" href="#stage~105"><b>stage foundation
+  <dt id="stage~112"><a class="permalink" href="#stage~112"><b>stage foundation
     make &lt;stage&gt;</b></a></dt>
   <dd>Generate foundation.c from the bound policies into the worktree: the stage
       and its checkout exist, the foundation/ directory is there, then the
       sections rendered in file order into foundation.c.new (header, macros,
       secrets, prerequisites, gates, phases, dispatch) and installed as one
       complete file</dd>
-  <dt id="stage~106"><a class="permalink" href="#stage~106"><b>stage foundation
+  <dt id="stage~113"><a class="permalink" href="#stage~113"><b>stage foundation
     &lt;stage&gt;</b></a></dt>
   <dd>The foundation batch: check, make, report</dd>
-  <dt id="stage~107"><a class="permalink" href="#stage~107"><b>stage foundation
+  <dt id="stage~114"><a class="permalink" href="#stage~114"><b>stage foundation
     report &lt;stage&gt;</b></a></dt>
   <dd>Summarize the foundation of a stage: the checkout, per enum phase its
       bound policies, the referenced gates and the emission target &#x2013;
       notes for the caller</dd>
-  <dt id="stage~108"><a class="permalink" href="#stage~108"><b>stage report
+  <dt id="stage~115"><a class="permalink" href="#stage~115"><b>stage report
     &lt;stage&gt; [&lt;container&gt;]</b></a></dt>
   <dd>The one reading view of a stage: every container, every phase, the bound
       policies, each policy&#x2019;s gate with its claims (measurement,
@@ -1803,6 +1917,6 @@ elebake stage site mk daily-v1
 </main>
 <div class="foot" role="doc-pagefooter" aria-label="Manual footer
   line"><span class="foot-left">elebake</span> <span class="foot-date">September
-  17, 2026</span> <span class="foot-right">ELEBAKE(8)</span></div>
+  18, 2026</span> <span class="foot-right">ELEBAKE(8)</span></div>
 </body>
 </html>

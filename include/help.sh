@@ -57,6 +57,30 @@
 #@end
 
 #@help
+# @defgroup workflow  Workflows
+# @order   65
+#   The recurring sequences of commands, as text to read and to type after:
+#   rebuild, pcr-learn, kenv-change, baseline-relearn, inventory-drop,
+#   policy-change, tpm-seal, restore (template/workflow/*.md).
+#@end
+
+#@help
+# @defgroup workflow  Workflows
+# @order   65
+#   The recurring sequences of commands, as text to read and to type after:
+#   rebuild, pcr-learn, kenv-change, baseline-relearn, inventory-drop,
+#   policy-change, tpm-seal, restore (template/workflow/*.md).
+#@end
+
+#@help
+# @defgroup workflow  Workflows
+# @order   65
+#   The recurring sequences of commands, as text to read and to type after:
+#   rebuild, pcr-learn, kenv-change, baseline-relearn, inventory-drop,
+#   policy-change, tpm-seal, restore (template/workflow/*.md).
+#@end
+
+#@help
 # @defgroup deploy  Medium
 # @order   70
 #   The physical boot medium: bind it, back up its loader, swap, roll back.
@@ -124,6 +148,7 @@
 # @defcompletion relpath       files
 # @defcompletion rel           files
 # @defcompletion loader.efi    files
+# @defcompletion secret-file   files
 # @defcompletion /dev/node     files
 # @defcompletion base          dirs
 # @defcompletion srcdir        dirs

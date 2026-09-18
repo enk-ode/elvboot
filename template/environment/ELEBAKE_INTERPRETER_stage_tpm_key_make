@@ -1,0 +1,2 @@
+sudo sh
+# Act terminal of 'stage tpm key': tpm2_createprimary/evictcontrol need /dev/tpm0 (root).

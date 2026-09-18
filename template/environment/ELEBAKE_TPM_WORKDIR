@@ -1,0 +1,4 @@
+/tmp/ram
+# The RAM disk the stage tpm family works on: the secret, the auth hashes
+# and the session contexts never touch a disk. Must be a mount point
+# (stage tpm workdir ready): sudo mount -t tmpfs -o size=64m tmpfs /tmp/ram

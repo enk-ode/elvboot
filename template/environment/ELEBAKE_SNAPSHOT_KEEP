@@ -1,0 +1,4 @@
+3
+# How many elebake-* snapshots stage tree snapshot leaves on a medium's
+# boot dataset (the older ones are destroyed by stage tree prune). A 4 GB
+# card filled up with forty snapshots of 86 MB (illyria 17.09.2026).

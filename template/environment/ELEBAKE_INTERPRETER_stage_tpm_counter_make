@@ -1,0 +1,2 @@
+sudo sh
+# Act terminal of 'stage tpm counter': tpm2_nvdefine needs /dev/tpm0 (root).

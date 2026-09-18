@@ -1060,3 +1060,15 @@ media: a boot from the reserve card leaves the daily card behind, and that
 deviation is not healed silently -- it asks for an informed decision, the
 unlock with the one passphrase left in the loader, `loader-prompt-v1`, with
 no second role a hash could give away.
+
+The provisioning moved into the tool the same night: `stage tpm key`,
+`stage tpm policy`, `stage tpm seal <stage> owner|duress <secret-file>`,
+`stage tpm counter`, `stage tpm probe` and `stage tpm clean` render the
+tpm2-tools commands from the stage's leafs (`loader.trust.tpm.key.handle`,
+`keyfile.handles`, `keyfile.pcrs`, `counter.nv`), run as root on the RAM
+disk, the passphrases read hidden, twice -- the playbook shrank to six
+lines. And the sequences that were typed from memory during the walk --
+rebuild, pcr-learn, kenv-change, baseline-relearn, inventory-drop,
+policy-change, tpm-seal, restore -- are files now: `elebake workflow`
+lists them, `elebake workflow show rebuild` prints one, commands and the
+comments between them, to read and to type after.

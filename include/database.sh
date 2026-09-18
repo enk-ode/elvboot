@@ -975,7 +975,7 @@ _dump_header1() {
         local commit=""
         commit=$(git -C "$ELEBAKE_LIBDIR" rev-parse --short HEAD 2>/dev/null)
         printf '# elebake database dump\n# Generator: elebake %s %s\n# Version: %s\n' "$ELEBAKE_FORMAT" "${commit:-unknown}" "$ELEBAKE_FORMAT"
-        printf '# Generated: %s\n# Serial: %s\n# Strategy: %s\n# Base: %s\n\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$(serial_current)" "$1" "$ELEBAKE_BASE"
+        printf '# Generated: %s\n# Serial: %s\n# Strategy: %s\n# Base: %s\n\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$(($(serial_current) + 1))" "$1" "$ELEBAKE_BASE"
 }
 
 #@help ___dump_epilogue0
@@ -1976,7 +1976,7 @@ __export_minimized3() {
 
 #@help ___export_pair5
 # @command export pair <dump-strategy> <filter-strategy> <dump> <bundle> <stage>|all
-# @summary The one export: advance the serial (so the dump carries it), write the dump, collect the files, filter the collection, attest its MANIFEST, bundle it, seal the pair (the seal hashes the bundle) and attest the dump LAST -- one signature covers the description, the seal and, through MANIFEST.asc, every file. The signer is the pinned archive key
+# @summary The one export: write the dump (its header carries the next serial), collect the files, filter the collection, attest its MANIFEST, bundle it, seal the pair (the seal hashes the bundle), attest the dump, and advance the serial LAST -- a failed export (a pinentry that could not open, 17.09.) leaves the number to the next attempt; one signature covers the pair
 # @group   database
 # @internal
 # @env     ELEBAKE_ARCHIVE_ATTEST_KEY  the openpgp record that signs
@@ -1988,7 +1988,6 @@ __export_minimized3() {
 ___export_pair5() {
         local work="$ELEBAKE_BASE/export" key="${ELEBAKE_ARCHIVE_ATTEST_KEY:-}"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" archive key pinned"
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" provenance serial"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" dump '$1' '$5' > '$3'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" collect '$5' > '$work/collection.raw'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" filter '$2' '$work/collection.raw' '$work/collection'"
@@ -1996,6 +1995,7 @@ ___export_pair5() {
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" bundle '$work/collection' '$4'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" seal '$3' '$4'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" attest '$3' '$key'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" provenance serial"
 }
 
 #@help ___import2

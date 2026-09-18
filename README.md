@@ -48,6 +48,16 @@ The family, by name:
   counters, NVMe power cycles, the boot origin, and the fingerprint of
   the GELI key the loader derived — each a claim with a verdict, each
   verdict in the record.
+- **Three factors for the encrypted root, judged by the TPM.** The
+  loader compares no password. Its one dialog hands the passphrase to
+  the TPM, whose sealed objects carry it as their auth value under a
+  PCR policy; the released bytes are the second GELI key file next to
+  the one on the card, and the disk opens or it does not. A second
+  object with the same bytes and the duress passphrase raises an
+  increment-only counter in the TPM and marks the boot for earlboot --
+  nothing on the console differs, nothing on the medium holds a hash
+  to tell the two apart. `stage tpm` provisions all of it from the
+  stage's leafs; every session is salted and encrypted.
 - **A record chain the loader must write.** An EFI variable, keyed HMAC,
   counter and anchors: a boot that did not run your loader leaves no
   valid record, and you see the gap.

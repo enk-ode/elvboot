@@ -1,0 +1,2 @@
+sudo sh
+# Act terminal of 'stage tpm seal': tpm2_create/load/evictcontrol need /dev/tpm0 (root).

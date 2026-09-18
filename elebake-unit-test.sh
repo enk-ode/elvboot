@@ -426,8 +426,8 @@ test_dump_version_header() {
   else
     fail "version line missing"
   fi
-  if printf '%s\n' "$out" | grep -q "^# Serial: 0\$" && printf '%s\n' "$out" | grep -q "^# Strategy: complete\$"; then
-    pass "a never-exported database dumps serial 0, strategy complete"
+  if printf '%s\n' "$out" | grep -q "^# Serial: 1\$" && printf '%s\n' "$out" | grep -q "^# Strategy: complete\$"; then
+    pass "a never-exported database dumps serial 1 -- the number the next export carries; strategy complete"
   else
     fail "serial/strategy header missing"
   fi
@@ -2959,6 +2959,169 @@ test_stage_baseline_prompt() {
   fi
 }
 
+test_stage_tpm_family() {
+  test_header "stage tpm: the TPM provisioned from the stage's leafs -- every act a script to read (pins cat), the checks name what is missing"
+  test_setup
+  run_elebake stage add unitm > /dev/null 2>&1
+  if run_elebake stage tpm key unitm 2>&1 | grep -q "has no loader.trust.tpm.key.handle"; then
+    pass "without the leaf the key act is refused, the remedy named"
+  else
+    fail "leaf check: $(run_elebake stage tpm key unitm 2>&1)"
+  fi
+  run_elebake stage kenv add unitm loader.trust.tpm.key.handle 0x81000001 > /dev/null
+  run_elebake stage kenv add unitm loader.trust.tpm.keyfile.handles "0x81010001 0x81010002" > /dev/null
+  run_elebake stage kenv add unitm loader.trust.tpm.keyfile.pcrs 0,2,7 > /dev/null
+  run_elebake stage kenv add unitm loader.trust.tpm.counter.nv 0x01c10e20 > /dev/null
+  run_elebake setenv ELEBAKE_TPM_WORKDIR "$TEST_DIR/not-a-mount" > /dev/null
+  if run_elebake stage tpm key unitm 2>&1 | grep -q "is not a mount point"; then
+    pass "a work directory that is not a mount point is refused (the RAM disk rule)"
+  else
+    fail "workdir check: $(run_elebake stage tpm key unitm 2>&1)"
+  fi
+  local k; k=$(run_elebake stage tpm key make unitm)
+  if printf '%s\n' "$k" | grep -q "tpm2_createprimary --hierarchy=o" && printf '%s\n' "$k" | grep -q "evictcontrol --hierarchy=o --object-context=primary.ctx '0x81000001'"; then
+    pass "key make renders createprimary and the persist under the stage's handle"
+  else
+    fail "key make: $k"
+  fi
+  local p; p=$(run_elebake stage tpm policy make unitm)
+  if printf '%s\n' "$p" | grep -q "tpm2_policypcr --session=session.ctx --pcr-list='sha256:0,2,7'" && printf '%s\n' "$p" | grep -q "tpm2_policyauthvalue"; then
+    pass "policy make renders PolicyPCR over the stage's list and PolicyAuthValue"
+  else
+    fail "policy make: $p"
+  fi
+  if run_elebake stage tpm role valid nobody 2>&1 | grep -q "owner or duress"; then
+    pass "a role other than owner or duress is refused"
+  else
+    fail "role check: $(run_elebake stage tpm role valid nobody 2>&1)"
+  fi
+  run_elebake stage add unitn > /dev/null 2>&1
+  if run_elebake stage tpm role handle unitn duress 2>&1 | grep -q "names no handle for duress" \
+     && ! run_elebake stage tpm role handle unitm duress 2>&1 | grep -q "names no handle"; then
+    pass "the role's handle is its position in keyfile.handles: missing is refused, present passes (a comment, silent)"
+  else
+    fail "role handle: $(run_elebake stage tpm role handle unitn duress 2>&1) / $(run_elebake stage tpm role handle unitm duress 2>&1)"
+  fi
+  printf 'x' > "$TEST_DIR/short.bin"
+  if run_elebake stage tpm secret readable "$TEST_DIR/short.bin" 2>&1 | grep -q "not 32 bytes"; then
+    pass "a secret file that is not 32 bytes is refused"
+  else
+    fail "secret check: $(run_elebake stage tpm secret readable "$TEST_DIR/short.bin" 2>&1)"
+  fi
+  head -c 32 /dev/zero > "$TEST_DIR/secret.bin"
+  local o; o=$(run_elebake stage tpm seal object unitm duress "$TEST_DIR/secret.bin")
+  if printf '%s\n' "$o" | grep -q "tpm2_create --parent-context='0x81000001' --policy=pcrauth.policy --key-auth='file:auth-duress.bin'" \
+     && printf '%s\n' "$o" | grep -q "evictcontrol --hierarchy=o --object-context='duress.ctx' '0x81010002'" \
+     && printf '%s\n' "$o" | grep -q "attributes='fixedtpm|fixedparent|adminwithpolicy|noda'"; then
+    pass "seal object renders create under the storage key, the auth from the file, the persist under the role's handle"
+  else
+    fail "seal object: $o"
+  fi
+  run_elebake setenv ELEBAKE_INTERPRETER_stage_tpm_seal_read cat > /dev/null
+  run_elebake setenv ELEBAKE_INTERPRETER_stage_tpm_wipe cat > /dev/null
+  local r; r=$(run_elebake stage tpm seal read unitm owner)
+  if printf '%s\n' "$r" | grep -q "stty -echo" && printf '%s\n' "$r" | grep -q "auth-owner.hex" && printf '%s\n' "$r" | grep -q "openssl dgst -sha256 -binary"; then
+    pass "seal read reads hidden and leaves hex and raw hash"
+  else
+    fail "seal read: $r"
+  fi
+  local c; c=$(run_elebake stage tpm counter make unitm)
+  if printf '%s\n' "$c" | grep -q "tpm2_policycommandcode --session=nv.ctx --policy=nvinc.policy TPM2_CC_NV_Increment" \
+     && printf '%s\n' "$c" | grep -q "tpm2_nvdefine '0x01c10e20' --hierarchy=o --size=8 --policy=nvinc.policy --attributes='nt=counter|policywrite|authread|no_da'"; then
+    pass "counter make renders the increment-only index under the command-code policy"
+  else
+    fail "counter make: $c"
+  fi
+  local u; u=$(run_elebake stage tpm probe unseal unitm owner "$TEST_DIR/secret.bin")
+  if printf '%s\n' "$u" | grep -q "startauthsession --policy-session --session=u.ctx --tpmkey-context='0x81000001'" \
+     && printf '%s\n' "$u" | grep -q "tpm2_unseal --object-context='0x81010001'" && printf '%s\n' "$u" | grep -q "unseal-%s-ok"; then
+    pass "probe unseal renders the salted session, the owner's object and the comparison"
+  else
+    fail "probe unseal: $u"
+  fi
+  if run_elebake stage tpm wipe | grep -q "rm -P" && run_elebake stage tpm status show unitm | grep -q "tpm2_getcap handles-persistent"; then
+    pass "wipe and status render their acts"
+  else
+    fail "wipe/status: $(run_elebake stage tpm wipe; run_elebake stage tpm status show unitm)"
+  fi
+}
+
+test_workflow_family() {
+  test_header "workflow: the recurring sequences as text -- list names the files, show prints one, an unknown name is refused"
+  test_setup
+  local l; l=$(run_elebake workflow)
+  if printf '%s\n' "$l" | grep -q "^rebuild " && printf '%s\n' "$l" | grep -q "^pcr-learn " && printf '%s\n' "$l" | grep -q "^tpm-seal "; then
+    pass "workflow lists the workflows with their titles"
+  else
+    fail "workflow list: $l"
+  fi
+  if run_elebake workflow show pcr-learn | grep -q "stage kenv learn daily-v1 loader.trust.kernellock.pcr.expected"; then
+    pass "workflow show prints the commands of the file"
+  else
+    fail "workflow show: $(run_elebake workflow show pcr-learn | head -3)"
+  fi
+  if run_elebake workflow show nothing-here 2>&1 | grep -q "no such workflow"; then
+    pass "an unknown workflow is refused"
+  else
+    fail "unknown workflow: $(run_elebake workflow show nothing-here 2>&1)"
+  fi
+  local f bad=""
+  for f in "$(dirname "$TEST_SCRIPT")"/template/workflow/*.md; do
+    head -1 "$f" | grep -q "^# " || bad="$bad ${f##*/}"
+    grep -v "^#" "$f" | grep -v "^$" | grep -v "^elebake \|^sudo \|^gpg \|^kenv \|^rm -P\|^export \|^cd " > /dev/null && bad="$bad ${f##*/}(line)"
+  done
+  if [ -z "$bad" ]; then
+    pass "every workflow starts with a title and holds only commands and comments"
+  else
+    fail "workflow files:$bad"
+  fi
+}
+
+test_stage_tree_prune() {
+  test_header "stage tree snapshot prunes: the elebake-* snapshots beyond ELEBAKE_SNAPSHOT_KEEP are destroyed, others untouched"
+  test_setup
+  run_elebake stage add unitz > /dev/null 2>&1
+  run_elebake stage device unitz a /dev/da9p1 > /dev/null 2>&1
+  run_elebake stage boot tree unitz a sdcard-zkey zkey/boot-unit > /dev/null 2>&1
+  local p; p=$(run_elebake stage tree prune unitz a)
+  if printf '%s\n' "$p" | grep -q "zfs list -H -t snapshot -o name -s creation 'zkey/boot-unit'" \
+     && printf '%s\n' "$p" | grep -q "grep '@elebake-'" && printf '%s\n' "$p" | grep -q "keep='3'" && printf '%s\n' "$p" | grep -q "zfs destroy"; then
+    pass "prune lists the dataset's elebake-* snapshots, keeps 3, destroys the rest"
+  else
+    fail "prune: $p"
+  fi
+  run_elebake setenv ELEBAKE_SNAPSHOT_KEEP 5 > /dev/null
+  if run_elebake stage tree prune unitz a | grep -q "keep='5'"; then
+    pass "ELEBAKE_SNAPSHOT_KEEP sets how many stay"
+  else
+    fail "keep: $(run_elebake stage tree prune unitz a)"
+  fi
+  run_elebake setenv ELEBAKE_INTERPRETER_stage_tree_snapshot cat > /dev/null
+  if run_elebake stage tree snapshot unitz a 2>&1 | grep -q "stage tree prune 'unitz' 'a'"; then
+    pass "stage tree snapshot ends in the prune"
+  else
+    fail "snapshot batch: $(run_elebake stage tree snapshot unitz a 2>&1 | tail -3)"
+  fi
+}
+
+test_export_serial_last() {
+  test_header "export advances the serial LAST: the dump header carries current+1, a failed export leaves the number"
+  test_setup
+  unit_attest_key unitx || return 0
+  run_elebake setenv ELEBAKE_INTERPRETER_export_pair cat > /dev/null
+  local b; b=$(run_elebake export pair complete full "$TEST_DIR/d.sh" "$TEST_DIR/b.tgz" all 2>&1 | grep CONTEXT_SCRIPT | sed 's/^"[^"]*" //')
+  if [ "$(printf '%s\n' "$b" | tail -1)" = "provenance serial" ] && ! printf '%s\n' "$b" | head -2 | grep -q "provenance serial"; then
+    pass "the serial advance is the last line of the export batch"
+  else
+    fail "export batch order: $b"
+  fi
+  if run_elebake dump | grep -q "^# Serial: 1\$" && [ "$(cat "$TEST_DIR/export/serial" 2>/dev/null || echo 0)" = 0 ]; then
+    pass "the dump header carries current+1 while export/serial still holds the last export's number"
+  else
+    fail "header/serial: $(run_elebake dump | grep Serial) / $(cat "$TEST_DIR/export/serial" 2>/dev/null)"
+  fi
+}
+
 test_stage_require_boot_leafs() {
   test_header "stage require: the gate-free leafs the boot reads (boot-leafs.tbl) -- demanded per checkout file, required ones block loaderconf mk"
   test_setup
@@ -3749,6 +3912,10 @@ main() {
   should_run_test test_stage_inventory
   should_run_test test_gate_add_plain
   should_run_test test_stage_require_boot_leafs
+  should_run_test test_stage_tpm_family
+  should_run_test test_workflow_family
+  should_run_test test_stage_tree_prune
+  should_run_test test_export_serial_last
   should_run_test test_stage_baseline_prompt
   should_run_test test_container_catalogs_and_binding
   should_run_test test_container_emitters

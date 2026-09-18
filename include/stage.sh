@@ -2430,7 +2430,7 @@ _stage_pool_unmount2() {
 
 #@help ___stage_tree_snapshot2
 # @command stage tree snapshot <stage> <medium>
-# @summary Snapshot the medium's boot dataset (elebake-<stamp>) before it is rewritten: the medium ready, the pool imported; then 'stage tree snap'
+# @summary Snapshot the medium's boot dataset (elebake-<stamp>) before it is rewritten: the medium ready, the pool imported; then 'stage tree snap', then 'stage tree prune' (the older elebake-* snapshots beyond ELEBAKE_SNAPSHOT_KEEP go)
 # @group   deploy
 # @see     stage tree sync
 #@end
@@ -2438,6 +2438,22 @@ ___stage_tree_snapshot2() {
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage medium ready '$1' '$2'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage pool imported '$1' '$2'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage tree snap '$1' '$2'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage tree prune '$1' '$2'"
+}
+
+#@help _stage_tree_prune2
+# @command stage tree prune <stage> <medium>
+# @summary Act terminal (root): destroy the medium's elebake-* snapshots but the newest ELEBAKE_SNAPSHOT_KEEP (default 3) -- a 4 GB card filled with forty snapshots of 86 MB (illyria 17.09.); other snapshots (@copy, the owner's) are not touched
+# @group   deploy
+# @internal
+# @env     ELEBAKE_SNAPSHOT_KEEP  how many elebake-* snapshots stay on the medium
+# @see     stage tree snapshot
+#@end
+_stage_tree_prune2() {
+        local ds="" keep="${ELEBAKE_SNAPSHOT_KEEP:-3}"
+        ds=$(head -n1 "$ELEBAKE_BASE/stage/$1/media/$2/dataset" 2>/dev/null)
+        emit_note "elebake stage tree prune '$1' medium '$2' (keep $keep elebake-* snapshots of $ds)"
+        printf '%s\n' "zfs list -H -t snapshot -o name -s creation '$ds' 2>/dev/null | grep '@elebake-' | awk -v keep='$keep' '{ a[NR] = \$0 } END { for (i = 1; i <= NR - keep; i++) print a[i] }' | while read -r s; do zfs destroy \"\$s\" || printf '# Warning: cannot destroy %s\\n' \"\$s\" >&2; done; :"
 }
 
 #@help __stage_pool_imported2

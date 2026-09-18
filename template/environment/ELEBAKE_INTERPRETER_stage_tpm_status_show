@@ -1,0 +1,2 @@
+sudo sh
+# Act terminal of 'stage tpm status': tpm2_getcap needs /dev/tpm0 (root).

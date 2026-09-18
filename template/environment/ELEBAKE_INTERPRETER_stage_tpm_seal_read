@@ -1,0 +1,2 @@
+sh
+# Act terminal of 'stage tpm seal': the hidden read of the passphrase on /dev/tty, as the user.

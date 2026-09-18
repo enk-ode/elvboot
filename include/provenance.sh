@@ -20,7 +20,8 @@
 #      came from instead of being taken at its word.
 #
 #   2. The SERIAL. export/serial holds the number the last export carried;
-#      `provenance serial` advances it, `dump` writes it into the header,
+#      `dump` writes the next one (current+1) into the header, `provenance
+#      serial` advances it once the export succeeded,
 #      and `restore` refuses a serial below the highest receipt of the SAME
 #      signer -- a validly signed old dump cannot reinstate a retired key
 #      or a weakened expectation. A fresh database has no floor: the serial
@@ -38,7 +39,7 @@
 
 #@help _provenance_serial0
 # @command provenance serial
-# @summary Act terminal: advance the export serial by one (export does this before writing the dump); the number lands in the dump header
+# @summary Act terminal: advance the export serial by one -- export does this LAST, once the pair is attested: the dump header already carries current+1, so a failed export leaves the number to the next attempt (illyria 17.09.: serials 9 to 11 were lost to a pinentry that could not open)
 # @group   database
 # @example elebake provenance serial
 # @see     provenance list
