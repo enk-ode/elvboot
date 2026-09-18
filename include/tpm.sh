@@ -304,7 +304,7 @@ _stage_tpm_counter_make1() {
         local d="${ELEBAKE_TPM_WORKDIR:-/tmp/ram}" nv="" halt=""
         nv=$(sed -n 1p "$ELEBAKE_BASE/stage/$1/kenv/loader.trust.tpm.counter.nv" 2>/dev/null)
         halt=$(sed -n 1p "$ELEBAKE_BASE/stage/$1/kenv/loader.trust.halt.nv" 2>/dev/null)
-        emit_note "stage tpm counter '$1': NV index $nv (duress)${halt:+, $halt (halt)}, increment-only; an index already defined is kept"
+        emit_note "stage tpm counter '$1': NV index $nv (duress)${halt:+, $halt (halt)}, increment-only; an index already defined is kept, one without a value is initialized (a counter reads TPM_RC_NV_UNINITIALIZED until its first increment)"
         cat <<EOF
 export TPM2TOOLS_TCTI=device:/dev/tpm0
 cd '$d' || exit 1
@@ -313,8 +313,13 @@ tpm2_startauthsession --session=nv.ctx || exit 1
 tpm2_policycommandcode --session=nv.ctx --policy=nvinc.policy TPM2_CC_NV_Increment || exit 1
 tpm2_flushcontext nv.ctx
 for i in '$nv' ${halt:+'$halt'}; do
-        tpm2_nvreadpublic "\$i" >/dev/null 2>&1 && { printf '# index %s already defined\\n' "\$i"; continue; }
-        tpm2_nvdefine "\$i" --hierarchy=o --size=8 --policy=nvinc.policy --attributes='nt=counter|policywrite|authread|no_da' || exit 1
+        tpm2_nvreadpublic "\$i" >/dev/null 2>&1 || tpm2_nvdefine "\$i" --hierarchy=o --size=8 --policy=nvinc.policy --attributes='nt=counter|policywrite|authread|no_da' || exit 1
+        tpm2_nvread "\$i" >/dev/null 2>&1 && { printf '# index %s defined and initialized\\n' "\$i"; continue; }
+        tpm2_startauthsession --policy-session --session=inc.ctx || exit 1
+        tpm2_policycommandcode --session=inc.ctx TPM2_CC_NV_Increment || exit 1
+        tpm2_nvincrement "\$i" --auth=session:inc.ctx || exit 1
+        tpm2_flushcontext inc.ctx
+        rm -P inc.ctx
         tpm2_nvreadpublic "\$i"
 done
 rm -P nv.ctx nvinc.policy

@@ -3028,8 +3028,9 @@ test_stage_tpm_family() {
   local c; c=$(run_elebake stage tpm counter make unitm)
   if printf '%s\n' "$c" | grep -q "tpm2_policycommandcode --session=nv.ctx --policy=nvinc.policy TPM2_CC_NV_Increment" \
      && printf '%s\n' "$c" | grep -q "for i in '0x01c10e20' ; do" \
-     && printf '%s\n' "$c" | grep -q "tpm2_nvdefine \"\$i\" --hierarchy=o --size=8 --policy=nvinc.policy --attributes='nt=counter|policywrite|authread|no_da'"; then
-    pass "counter make renders the increment-only index under the command-code policy"
+     && printf '%s\n' "$c" | grep -q "tpm2_nvdefine \"\$i\" --hierarchy=o --size=8 --policy=nvinc.policy --attributes='nt=counter|policywrite|authread|no_da'" \
+     && printf '%s\n' "$c" | grep -q "tpm2_nvincrement \"\$i\" --auth=session:inc.ctx"; then
+    pass "counter make renders the increment-only index under the command-code policy, initialized by a first increment"
   else
     fail "counter make: $c"
   fi
