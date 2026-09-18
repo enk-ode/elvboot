@@ -483,8 +483,11 @@ loaderlock guards the loader's own prerequisites; its expected values are HEADER
 CONSTANTS     —     an    expectation     value     is     verbatim    C,     so
 `LOADER_PREREQUISITES_EXIST_N` is a perfectly good expected value.  The backstop
 policy carries TWO fires — publish always, and on failure `report_act`, the line
-on the console that says which claims fell; the boot goes on, loudly, and the
-record carries the failure. Note `publish-always` being REUSED across all three
+on the console that says which claims fell, then "Press any key to continue, x
+to power off": any key goes on, loudly, and the record carries the failure; x
+raises the halt counter (`loader.trust.halt.nv`, the HaltQuiet claim) and powers
+off, so the halt the owner chose at the report leaves the same trace as any
+other. Note `publish-always` being REUSED across all three
 policies: that is the arsenal idea at work.
 
 ```
