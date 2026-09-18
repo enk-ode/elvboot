@@ -3452,7 +3452,7 @@ test_container_emitters() {
   fi
   local sid; sid=$(basename "$(readlink "$TEST_DIR/stage/unitem")")
   local f="$TEST_DIR/.staging/$sid/hooks/earlboot"
-  if [ -f "$f" ] && sh -n "$f" && grep -q '^# PROVIDE: earlboot' "$f" && grep -q '^PATH=.*readonly PATH' "$f" \
+  if [ -f "$f" ] && sh -n "$f" && grep -q '^# PROVIDE: earlboot' "$f" && grep -q '^# REQUIRE: mountcritlocal kld$' "$f" && grep -q '^PATH=.*readonly PATH' "$f" \
      && grep -q "^readonly ELV_WORD_SECRET='00112233445566778899aabbccddeeff'" "$f" \
      && grep -q "^readonly ELV_GATE_LOADER='kl'" "$f" \
      && grep -q '^# ===== phase SYSINIT' "$f" && grep -q "^_m=\$(measure_kenv 'loader.trust.bootlock.failed'" "$f" \
@@ -3521,7 +3521,7 @@ test_container_emitters() {
   else
     fail "devd glue: $(cat "$h/elvboot.devd.conf" 2>&1)"
   fi
-  if [ -f "$h/elvbootd" ] && sh -n "$h/elvbootd" && grep -q "^# PROVIDE: elvbootd$" "$h/elvbootd" \
+  if [ -f "$h/elvbootd" ] && sh -n "$h/elvbootd" && grep -q "^# PROVIDE: elvbootd$" "$h/elvbootd" && grep -q "^# REQUIRE: NETWORKING syslogd motd$" "$h/elvbootd" \
      && grep -q "^start_cmd=\"/usr/local/etc/elvboot/hook.startup.sh\"$" "$h/elvbootd"; then
     pass "the rc.d glue for STARTUP is written"
   else
