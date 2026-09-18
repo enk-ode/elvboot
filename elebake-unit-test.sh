@@ -3027,10 +3027,17 @@ test_stage_tpm_family() {
   fi
   local c; c=$(run_elebake stage tpm counter make unitm)
   if printf '%s\n' "$c" | grep -q "tpm2_policycommandcode --session=nv.ctx --policy=nvinc.policy TPM2_CC_NV_Increment" \
-     && printf '%s\n' "$c" | grep -q "tpm2_nvdefine '0x01c10e20' --hierarchy=o --size=8 --policy=nvinc.policy --attributes='nt=counter|policywrite|authread|no_da'"; then
+     && printf '%s\n' "$c" | grep -q "for i in '0x01c10e20' ; do" \
+     && printf '%s\n' "$c" | grep -q "tpm2_nvdefine \"\$i\" --hierarchy=o --size=8 --policy=nvinc.policy --attributes='nt=counter|policywrite|authread|no_da'"; then
     pass "counter make renders the increment-only index under the command-code policy"
   else
     fail "counter make: $c"
+  fi
+  run_elebake stage kenv add unitm loader.trust.halt.nv 0x01c10e21 > /dev/null
+  if run_elebake stage tpm counter make unitm | grep -q "for i in '0x01c10e20' '0x01c10e21'; do"; then
+    pass "with loader.trust.halt.nv set the halt counter is defined too"
+  else
+    fail "counter make with halt: $(run_elebake stage tpm counter make unitm | grep 'for i')"
   fi
   local u; u=$(run_elebake stage tpm probe unseal unitm owner "$TEST_DIR/secret.bin")
   if printf '%s\n' "$u" | grep -q "startauthsession --policy-session --session=u.ctx --tpmkey-context='0x81000001'" \
@@ -3050,7 +3057,7 @@ test_workflow_family() {
   test_header "workflow: the recurring sequences as text -- list names the files, show prints one, an unknown name is refused"
   test_setup
   local l; l=$(run_elebake workflow)
-  if printf '%s\n' "$l" | grep -q "^rebuild " && printf '%s\n' "$l" | grep -q "^pcr-learn " && printf '%s\n' "$l" | grep -q "^tpm-seal "; then
+  if printf '%s\n' "$l" | grep -q "^rebuild " && printf '%s\n' "$l" | grep -q "^pcr-learn " && printf '%s\n' "$l" | grep -q "^tpm-seal " && printf '%s\n' "$l" | grep -q "^halt-relearn "; then
     pass "workflow lists the workflows with their titles"
   else
     fail "workflow list: $l"

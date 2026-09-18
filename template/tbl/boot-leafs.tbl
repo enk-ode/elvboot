@@ -14,4 +14,7 @@ loader.trust.tpm.keyfile.pcrs	tpm_keyfile.c	required
 loader.trust.tpm.keyfile.providers	tpm_keyfile.c	required
 loader.trust.tpm.counter.nv	tpm_keyfile.c	optional
 loader.trust.pcr.require	measure_record.c	optional
+loader.trust.halt.nv	measure_record.c	optional
+loader.trust.halt.nv	measure_record.c	optional
+loader.trust.halt.nv	measure_record.c	optional
 loader.trust.geli.tries	geli_open.c	optional

@@ -15,7 +15,7 @@ elebake stage tpm key daily-v1                    # the storage key, persistent;
 elebake stage tpm policy daily-v1                 # PolicyPCR over keyfile.pcrs + PolicyAuthValue -> /tmp/ram/pcrauth.policy
 elebake stage tpm seal daily-v1 owner /tmp/ram/secret.bin     # the owner's passphrase (hidden, twice), object 1
 elebake stage tpm seal daily-v1 duress /tmp/ram/secret.bin    # the duress passphrase, object 2 -- the same bytes
-elebake stage tpm counter daily-v1                # the increment-only index the loader raises when object 2 opened
+elebake stage tpm counter daily-v1                # the increment-only indices: counter.nv (object 2 opened), halt.nv (a shutdown earlboot fired)
 elebake stage tpm probe daily-v1 owner /tmp/ram/secret.bin    # unseal-owner-ok
 elebake stage tpm probe daily-v1 duress /tmp/ram/secret.bin   # unseal-duress-ok
 elebake stage tpm clean                           # the auth hashes and contexts wiped

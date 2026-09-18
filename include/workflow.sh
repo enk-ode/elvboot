@@ -14,7 +14,7 @@
 # himself, stage by stage, and reads the checks between them. Knowledge in
 # tables (JB): the sequences that were typed from memory in the walkthroughs
 # of September 2026 -- rebuild, pcr-learn, kenv-change, baseline-relearn,
-# inventory-drop, policy-change, tpm-seal, restore -- live here, once.
+# inventory-drop, policy-change, tpm-seal, halt-relearn, restore -- live here, once.
 #
 
 #@help ___workflow0

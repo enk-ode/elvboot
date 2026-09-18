@@ -61,7 +61,7 @@
 # @order   65
 #   The recurring sequences of commands, as text to read and to type after:
 #   rebuild, pcr-learn, kenv-change, baseline-relearn, inventory-drop,
-#   policy-change, tpm-seal, restore (template/workflow/*.md).
+#   policy-change, tpm-seal, halt-relearn, restore (template/workflow/*.md).
 #@end
 
 #@help
@@ -69,7 +69,7 @@
 # @order   65
 #   The recurring sequences of commands, as text to read and to type after:
 #   rebuild, pcr-learn, kenv-change, baseline-relearn, inventory-drop,
-#   policy-change, tpm-seal, restore (template/workflow/*.md).
+#   policy-change, tpm-seal, halt-relearn, restore (template/workflow/*.md).
 #@end
 
 #@help
@@ -77,7 +77,7 @@
 # @order   65
 #   The recurring sequences of commands, as text to read and to type after:
 #   rebuild, pcr-learn, kenv-change, baseline-relearn, inventory-drop,
-#   policy-change, tpm-seal, restore (template/workflow/*.md).
+#   policy-change, tpm-seal, halt-relearn, restore (template/workflow/*.md).
 #@end
 
 #@help

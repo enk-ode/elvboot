@@ -279,7 +279,7 @@ EOF
 
 #@help ___stage_tpm_counter1
 # @command stage tpm counter <stage>
-# @summary Define the increment-only counter the loader raises when the duress object opened, under loader.trust.tpm.counter.nv: the stage exists, the leaf is set, the work directory ready; then 'stage tpm counter make' (policy = PolicyCommandCode NV_Increment, attributes nt=counter|policywrite|authread|no_da: anyone reads the number, nobody lowers it -- root's trace of a duress boot)
+# @summary Define the increment-only counters: loader.trust.tpm.counter.nv (the loader raises it when the duress object opened) and, when the stage names it, loader.trust.halt.nv (earlboot raises it before a shutdown it was bound to; the loader's HaltQuiet claim reads it against the learned halt.expected): the stage exists, the counter leaf is set, the work directory ready; then 'stage tpm counter make' (policy = PolicyCommandCode NV_Increment, attributes nt=counter|policywrite|authread|no_da: anyone reads the number, nobody lowers it -- the trace of a duress boot, of a halt)
 # @group   provisioning
 # @env     ELEBAKE_TPM_WORKDIR  the RAM disk the contexts live on (default /tmp/ram)
 # @example elebake stage tpm counter daily-v1
@@ -301,9 +301,10 @@ ___stage_tpm_counter1() {
 # @see     stage tpm counter
 #@end
 _stage_tpm_counter_make1() {
-        local d="${ELEBAKE_TPM_WORKDIR:-/tmp/ram}" nv=""
+        local d="${ELEBAKE_TPM_WORKDIR:-/tmp/ram}" nv="" halt=""
         nv=$(sed -n 1p "$ELEBAKE_BASE/stage/$1/kenv/loader.trust.tpm.counter.nv" 2>/dev/null)
-        emit_note "stage tpm counter '$1': NV index $nv, increment-only"
+        halt=$(sed -n 1p "$ELEBAKE_BASE/stage/$1/kenv/loader.trust.halt.nv" 2>/dev/null)
+        emit_note "stage tpm counter '$1': NV index $nv (duress)${halt:+, $halt (halt)}, increment-only; an index already defined is kept"
         cat <<EOF
 export TPM2TOOLS_TCTI=device:/dev/tpm0
 cd '$d' || exit 1
@@ -311,8 +312,11 @@ tpm2_flushcontext --loaded-session
 tpm2_startauthsession --session=nv.ctx || exit 1
 tpm2_policycommandcode --session=nv.ctx --policy=nvinc.policy TPM2_CC_NV_Increment || exit 1
 tpm2_flushcontext nv.ctx
-tpm2_nvdefine '$nv' --hierarchy=o --size=8 --policy=nvinc.policy --attributes='nt=counter|policywrite|authread|no_da' || exit 1
-tpm2_nvreadpublic '$nv'
+for i in '$nv' ${halt:+'$halt'}; do
+        tpm2_nvreadpublic "\$i" >/dev/null 2>&1 && { printf '# index %s already defined\\n' "\$i"; continue; }
+        tpm2_nvdefine "\$i" --hierarchy=o --size=8 --policy=nvinc.policy --attributes='nt=counter|policywrite|authread|no_da' || exit 1
+        tpm2_nvreadpublic "\$i"
+done
 rm -P nv.ctx nvinc.policy
 EOF
 }
@@ -411,11 +415,13 @@ ___stage_tpm_status1() {
 # @see     stage tpm status
 #@end
 _stage_tpm_status_show1() {
-        local nv=""
+        local nv="" halt=""
         nv=$(sed -n 1p "$ELEBAKE_BASE/stage/$1/kenv/loader.trust.tpm.counter.nv" 2>/dev/null)
-        emit_note "stage $1 expects: key $(sed -n 1p "$ELEBAKE_BASE/stage/$1/kenv/loader.trust.tpm.key.handle" 2>/dev/null), objects $(sed -n 1p "$ELEBAKE_BASE/stage/$1/kenv/loader.trust.tpm.keyfile.handles" 2>/dev/null), pcrs $(sed -n 1p "$ELEBAKE_BASE/stage/$1/kenv/loader.trust.tpm.keyfile.pcrs" 2>/dev/null), counter ${nv:--}"
+        halt=$(sed -n 1p "$ELEBAKE_BASE/stage/$1/kenv/loader.trust.halt.nv" 2>/dev/null)
+        emit_note "stage $1 expects: key $(sed -n 1p "$ELEBAKE_BASE/stage/$1/kenv/loader.trust.tpm.key.handle" 2>/dev/null), objects $(sed -n 1p "$ELEBAKE_BASE/stage/$1/kenv/loader.trust.tpm.keyfile.handles" 2>/dev/null), pcrs $(sed -n 1p "$ELEBAKE_BASE/stage/$1/kenv/loader.trust.tpm.keyfile.pcrs" 2>/dev/null), counter ${nv:--}, halt ${halt:--}"
         printf '%s\n' "export TPM2TOOLS_TCTI=device:/dev/tpm0"
         printf '%s\n' "tpm2_getcap handles-persistent"
         test -n "$nv" && printf '%s\n' "tpm2_nvreadpublic '$nv' 2>/dev/null || echo '# counter $nv not defined'"
+        test -n "$halt" && printf '%s\n' "tpm2_nvread '$halt' 2>/dev/null | hexdump -ve '1/1 \"%02x\"' | sed 's/^/# halt count 0x/; s/\$/\\n/' | tr -d '\\n'; echo; tpm2_nvreadpublic '$halt' >/dev/null 2>&1 || echo '# halt counter $halt not defined'"
         return 0
 }

@@ -1061,12 +1061,15 @@ elebake freebsd prerequisites
       key file, only the second counts (loader tpm_keyfile.c)</dd>
   <dt id="stage~81"><a class="permalink" href="#stage~81"><b>stage tpm counter
     &lt;stage&gt;</b></a></dt>
-  <dd>Define the increment-only counter the loader raises when the duress object
-      opened, under loader.trust.tpm.counter.nv: the stage exists, the leaf is
-      set, the work directory ready; then `stage tpm counter make' (policy =
-      PolicyCommandCode NV_Increment, attributes
-      nt=counter|policywrite|authread|no_da: anyone reads the number, nobody
-      lowers it &#x2013; root&#x2019;s trace of a duress boot)</dd>
+  <dd>Define the increment-only counters: loader.trust.tpm.counter.nv (the
+      loader raises it when the duress object opened) and, when the stage names
+      it, loader.trust.halt.nv (earlboot raises it before a shutdown it was
+      bound to; the loader&#x2019;s HaltQuiet claim reads it against the learned
+      halt.expected): the stage exists, the counter leaf is set, the work
+      directory ready; then `stage tpm counter make' (policy = PolicyCommandCode
+      NV_Increment, attributes nt=counter|policywrite|authread|no_da: anyone
+      reads the number, nobody lowers it &#x2013; the trace of a duress boot, of
+      a halt)</dd>
   <dt id="stage~82"><a class="permalink" href="#stage~82"><b>stage tpm probe
     &lt;stage&gt; &lt;owner|duress&gt; &lt;secret-file&gt;</b></a></dt>
   <dd>Unseal the role&#x2019;s object the way the loader does &#x2013; a session
@@ -1091,7 +1094,7 @@ elebake freebsd prerequisites
 <h3 class="Ss" id="Workflows"><a class="permalink" href="#Workflows">Workflows</a></h3>
 <p class="Pp">The recurring sequences of commands, as text to read and to type
     after: rebuild, pcr-learn, kenv-change, baseline-relearn, inventory-drop,
-    policy-change, tpm-seal, restore (template/workflow/*.md).</p>
+    policy-change, tpm-seal, halt-relearn, restore (template/workflow/*.md).</p>
 <dl class="Bl-tag">
   <dt id="workflow"><a class="permalink" href="#workflow"><b>workflow</b></a></dt>
   <dd>List the workflows: one line per file of template/workflow, name and title
@@ -1111,7 +1114,7 @@ elebake freebsd prerequisites
 <h3 class="Ss" id="Workflows~2"><a class="permalink" href="#Workflows~2">Workflows</a></h3>
 <p class="Pp">The recurring sequences of commands, as text to read and to type
     after: rebuild, pcr-learn, kenv-change, baseline-relearn, inventory-drop,
-    policy-change, tpm-seal, restore (template/workflow/*.md).</p>
+    policy-change, tpm-seal, halt-relearn, restore (template/workflow/*.md).</p>
 <dl class="Bl-tag">
   <dt id="workflow~4"><a class="permalink" href="#workflow~4"><b>workflow</b></a></dt>
   <dd>List the workflows: one line per file of template/workflow, name and title
@@ -1131,7 +1134,7 @@ elebake freebsd prerequisites
 <h3 class="Ss" id="Workflows~3"><a class="permalink" href="#Workflows~3">Workflows</a></h3>
 <p class="Pp">The recurring sequences of commands, as text to read and to type
     after: rebuild, pcr-learn, kenv-change, baseline-relearn, inventory-drop,
-    policy-change, tpm-seal, restore (template/workflow/*.md).</p>
+    policy-change, tpm-seal, halt-relearn, restore (template/workflow/*.md).</p>
 <dl class="Bl-tag">
   <dt id="workflow~7"><a class="permalink" href="#workflow~7"><b>workflow</b></a></dt>
   <dd>List the workflows: one line per file of template/workflow, name and title
