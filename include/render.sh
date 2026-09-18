@@ -599,7 +599,7 @@ _stage_container_render_state0() {
 # @see     stage container render mocks
 #@end
 _stage_container_render_tools1() {
-        sed -n "s/^\([A-Z][A-Z0-9]*\)=\([^ #]*\).*/readonly \1='\2'/p" "$ELEBAKE_BASE/stage/$1/work/stand/efi/loader/local/earlboot/tools.sh"
+        sed -n "s/^\([A-Z][A-Z0-9_]*\)=\([^ #]*\).*/readonly \1='\2'/p" "$ELEBAKE_BASE/stage/$1/work/stand/efi/loader/local/earlboot/tools.sh"
 }
 
 #@help ___stage_container_render_mocks3
@@ -663,8 +663,8 @@ _stage_mock_functions0() {
 # @see     stage container render mocks
 #@end
 _stage_mock_tools1() {
-        sed -n "s/^\([A-Z][A-Z0-9]*\)=\([^ #]*\).*# test:\([a-z]*\).*/readonly \1='elv_mock_\3'/p" "$ELEBAKE_BASE/stage/$1/work/stand/efi/loader/local/earlboot/tools.sh"
-        sed -n "/# test:/!s/^\([A-Z][A-Z0-9]*\)=\([^ #]*\).*/readonly \1='\2'/p" "$ELEBAKE_BASE/stage/$1/work/stand/efi/loader/local/earlboot/tools.sh"
+        sed -n "s/^\([A-Z][A-Z0-9_]*\)=\([^ #]*\).*# test:\([a-z]*\).*/readonly \1='elv_mock_\3'/p" "$ELEBAKE_BASE/stage/$1/work/stand/efi/loader/local/earlboot/tools.sh"
+        sed -n "/# test:/!s/^\([A-Z][A-Z0-9_]*\)=\([^ #]*\).*/readonly \1='\2'/p" "$ELEBAKE_BASE/stage/$1/work/stand/efi/loader/local/earlboot/tools.sh"
 }
 
 #@help _stage_container_render_functions_earlboot1

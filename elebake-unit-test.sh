@@ -3176,7 +3176,7 @@ fixture_containers() {
   printf 'extern const struct action\ttest_act;\nextern const struct action\thandover_act;\n' > "$fix/action.h"
   mkdir -p "$fix/earlboot" "$fix/elvbootd"
   printf 'earlboot.measure earlboot/measure.sh ^%%s() not in the earlboot catalog of this checkout\nearlboot.diagnose earlboot/measure.sh ^%%s() not in the earlboot catalog of this checkout\nearlboot.when earlboot/policy.sh ^%%s() not in the earlboot catalog of this checkout\nearlboot.action earlboot/action.sh ^%%s() not in the earlboot catalog of this checkout\nelvbootd.measure elvbootd/measure.sh ^%%s() not in the elvbootd catalog of this checkout\nelvbootd.measure earlboot/measure.sh ^%%s() not in the elvbootd catalog of this checkout\nelvbootd.diagnose elvbootd/measure.sh ^%%s() not in the elvbootd catalog of this checkout\nelvbootd.diagnose earlboot/measure.sh ^%%s() not in the elvbootd catalog of this checkout\nelvbootd.when elvbootd/policy.sh ^%%s() not in the elvbootd catalog of this checkout\nelvbootd.action elvbootd/action.sh ^%%s() not in the elvbootd catalog of this checkout\nelvbootd.action earlboot/action.sh ^%%s() not in the elvbootd catalog of this checkout\n' >> "$fix/catalog.tbl"
-  printf '#!/bin/sh\nKENV=/bin/kenv # test:kenv\nMKDIR=/bin/mkdir\nSHUTDOWN=/sbin/shutdown # test:note\n' > "$fix/earlboot/tools.sh"
+  printf '#!/bin/sh\nKENV=/bin/kenv # test:kenv\nMKDIR=/bin/mkdir\nSHUTDOWN=/sbin/shutdown # test:note\nTPM2_NVINCREMENT=/usr/local/bin/tpm2_nvincrement # test:note\n' > "$fix/earlboot/tools.sh"
   printf '#!/bin/sh\nPHASES="SYSINIT MOUNTED"\nelv_word_check() { ELV_WORD_OK=1; ELV_TAINT=0; ELV_DURESS=0; ELV_PROMPTED=0; }\nelv_prologue() { elv_word_check; }\nwhen_always() { return 0; }\nwhen_fail() { [ "$GATE_VERDICT" = fail ]; }\n' > "$fix/earlboot/policy.sh"
   printf '#!/bin/sh\nmeasure_kenv() { $KENV -q "$1" 2>/dev/null; }\ndiagnose_kenv() { :; }\n# measure_word <gate> -- 1 iff the handover word verifies\nmeasure_word() { printf "%%s\\n" "$ELV_WORD_OK"; }\nmeasure_bootlock() { :; }\n' > "$fix/earlboot/measure.sh"
   printf '#!/bin/sh\nlog_act() { :; }\npersist_act() { $MKDIR -p "$ELV_STATE"; printf "gate=%%s verdict=%%s\\npassed=%%s\\nfailed=%%s\\n" "$1" "$GATE_VERDICT" "$PASSED" "$FAILED" > "$ELV_STATE/appraisal-$1"; }\n' > "$fix/earlboot/action.sh"
@@ -3455,6 +3455,7 @@ test_container_emitters() {
   if [ -f "$f" ] && sh -n "$f" && grep -q '^# PROVIDE: earlboot' "$f" && grep -q '^# REQUIRE: mountcritlocal kld$' "$f" && grep -q '^PATH=.*readonly PATH' "$f" \
      && grep -q "^readonly ELV_WORD_SECRET='00112233445566778899aabbccddeeff'" "$f" \
      && grep -q "^readonly ELV_GATE_LOADER='kl'" "$f" \
+     && grep -q "^readonly TPM2_NVINCREMENT='/usr/local/bin/tpm2_nvincrement'" "$f" \
      && grep -q '^# ===== phase SYSINIT' "$f" && grep -q "^_m=\$(measure_kenv 'loader.trust.bootlock.failed'" "$f" \
      && grep -q '^if when_fail; then persist_act "\$GATE"; fi' "$f" && grep -q '^exit 0' "$f"; then
     pass "earlboot mk writes a parsing, hardened rc.d script with constants, gate appraisal and bindings"
