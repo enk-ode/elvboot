@@ -14,6 +14,11 @@ elebake stage loaderconf mk daily-v1              # the new expectation into loa
 elebake stage include daily-v1                    # the conf into the boot tree
 elebake stage push daily-v1 b                     # no rebuild: the loader is unchanged, PCR 4 stays
 
+# Then the owner's off-machine baseline (D.3): a full dump of the EFI
+# variables next to the PCR bank, into the infrastructure repository --
+# the state you just confirmed, kept where root of this machine cannot
+# rewrite it (Infrastruktur/tools/efivars-snapshot.sh, then commit).
+
 # Boot: PcrBank passes. loader.trust.pcr.require (kenv) selects the
 # registers -- 0,1,2,3,4,6,7 on a machine with two boot cards of unequal
 # size, since PCR 5 measures the boot disk's GPT.
