@@ -22,5 +22,7 @@ Contributions arrive as pull requests against `main`.
   fixture (`make_source_db`) — it is the dump/restore coverage
   contract.
 
-Design discussions live in `docs/DESIGN_*.md`; read the relevant one
-before changing the model it describes.
+The model is described in `docs/ARCHITECTURE.md` and in the help of the
+command family concerned (`elebake help <command>`); read it before
+changing the model it describes. Design discussions, review packets and
+working notes do not belong in this repository.

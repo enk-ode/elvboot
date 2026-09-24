@@ -132,7 +132,7 @@ baselines, backups — and says so in both artifacts. `full` is for your
 own recovery and migration. `minimized` is the rescue pair: loaders,
 kernel and modules, loader.conf, media and every backup record, nothing
 to build with — small enough for the rescue system, and its import back
-merges (see `docs/DESIGN_DUMP_ARCHIVE.md`). The packer is yours to
+merges (`elebake help restore`). The packer is yours to
 choose: `ELEBAKE_ARCHIVER` is a template with `$a` (archive) and `$b`
 (base).
 

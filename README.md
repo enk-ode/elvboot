@@ -169,8 +169,6 @@ settled boots.
   hardware, including the findings that walk fixed.
 - `docs/ARCHITECTURE.md` — the combinator model (`_` terminals emit
   shell, `__` combinators re-invoke once, `___` batches sequence).
-- `docs/DESIGN_*.md` — the design of stages and the foundation, of
-  dump, archive and the exchange pair, of help and the manual.
 - `elebake help` — fully generated, cannot erode; `docs/elebake.8` is
   rendered from the same corpus (`make man`).
 

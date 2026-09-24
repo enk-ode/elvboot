@@ -3828,6 +3828,28 @@ test_foundation_prereqs_arrays() {
   fi
 }
 
+# The repository carries code, generated help and the guides -- never the
+# working notes behind them: no design discussions, review packets or
+# import notes as files, no dated or attributed remarks in tracked texts.
+# Those live outside the tree; the public branch is a squash of this one.
+test_repo_no_working_notes() {
+  test_header "repository carries no working notes (files or dated remarks)"
+  local files remarks
+  files=$(git ls-files | grep -E '(^|/)(DESIGN[_-]|REVIEW|Import)[^/]*\.md$')
+  if [ -z "$files" ]; then
+    pass "no design, review or import documents tracked"
+  else
+    fail "working notes tracked: $(printf '%s' "$files" | tr '\n' ' ')"
+  fi
+  remarks=$(git grep -nE '\(JB |JB [0-9]{1,2}\.[0-9]{2}\.|[^0-9][0-9]{2}\.[0-9]{2}\.(2026)?[:)]|illyria [0-9]{2}\.[0-9]{2}\.' -- \
+    '*.md' '*.sh' '*.tbl' '*.c' '*.h' ':!elebake-unit-test.sh' 2>/dev/null)
+  if [ -z "$remarks" ]; then
+    pass "no dated or attributed remarks in tracked texts"
+  else
+    fail "dated remarks in tracked texts: $(printf '%s' "$remarks" | head -3 | tr '\n' ' ')"
+  fi
+}
+
 # parallel_main - as in the architecture suite
 parallel_main() {
   local outdir rc=0 t
@@ -3961,6 +3983,7 @@ main() {
   should_run_test test_answer_family
   should_run_test test_dispatch_wrong_arity
   should_run_test test_filter_prune_orphans_only
+  should_run_test test_repo_no_working_notes
 
   test_summary
 }

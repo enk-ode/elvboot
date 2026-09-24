@@ -832,8 +832,8 @@ passphrase and  answer) -- which  is why the answer  is confirmed at  entry. The
 boot budget is the GELI dialog's: `loader.trust.geli.tries` lines (three when
 unset), then the boot halts and the reboot is the retry -- the whole chain from
 the start, nothing cached, nothing sticky. The record's derivation is a fresh
-attempt per line, so a typo costs one derivation, not the boot's record (16.09.:
-a typo cached by the old Lua prompt had poisoned the one attempt per boot).
+attempt per line, so a typo costs one derivation, not the boot's record (a
+typo cached by the old Lua prompt once poisoned the one attempt per boot).
 
 The manual path, when the Lua chain  aborts (it did once, over a missing `table`
 library): at the prompt the modules  are loaded by hand -- `load mac_veriexec_sha256`,

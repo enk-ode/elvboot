@@ -6,7 +6,7 @@
 # elebake render - the userland phase containers earlboot and elvbootd,
 # rendered from the bindings into ONE hardened script per artifact.
 #
-# A container HOSTS phases (docs/DESIGN_STAGE_FOUNDATION.md §1): the loader is
+# A container HOSTS phases: the loader is
 # the C container (foundation.c, stage foundation), earlboot and elvbootd are
 # sh containers whose catalogs live in the checkout under
 # stand/efi/loader/local/<container>/ (policy.sh: PHASES + when_*; measure.sh:

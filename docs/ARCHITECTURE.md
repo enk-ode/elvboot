@@ -136,7 +136,7 @@ a serial below the signer's floor — and otherwise is `batch` under
 skipped, everything else replays. Replays are fully idempotent (stable
 stage ids, no `.staging` orphans, `rm -f` before every file copy). The
 whole transfer — seal, signatures, receipts, the rescue pair — is
-`docs/DESIGN_DUMP_ARCHIVE.md`.
+described under `elebake help dump` and `elebake help restore`.
 
 Known property: batch children inherit the bootstrapped environment of
 the outermost call, so a `setenv` inside a replay is effective from the

@@ -6,7 +6,7 @@
 # elebake container - the phase containers: which hosts which phase, and the
 # catalog listings. The emitters live in render.sh.
 #
-# A container HOSTS phases (docs/DESIGN_STAGE_FOUNDATION.md §1). The loader
+# A container HOSTS phases. The loader
 # is the C container (foundation.c); earlboot and elvbootd are sh containers
 # whose catalogs live in the checkout under stand/efi/loader/local/<container>/
 # (policy.sh: PHASES + when_*; measure.sh: measure_*/diagnose_*; action.sh:
