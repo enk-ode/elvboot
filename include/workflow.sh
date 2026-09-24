@@ -50,14 +50,14 @@ ___workflow_list0() {
 
 #@help _workflow_line1
 # @command workflow line <name>
-# @summary Text terminal: '<name>  <title>' -- the title is the first line of the file without its '# '
+# @summary Text terminal: '<name>  <title>' -- the title is the first line of the file without its '# ' and without the repeated '<name> -- ' the file starts with (the name stands in the left column already)
 # @group   workflow
 # @internal
 # @env     ELEBAKE_TEMPLATE_DIR  the template directory (workflow/)
 # @see     workflow list
 #@end
 _workflow_line1() {
-        printf '%-18s %s\n' "$1" "$(sed -n '1s/^# *//p' "$ELEBAKE_TEMPLATE_DIR/workflow/$1.md" 2>/dev/null)"
+        printf '%-18s %s\n' "$1" "$(sed -n "1{s/^# *//;s/^$1 -- //;p;}" "$ELEBAKE_TEMPLATE_DIR/workflow/$1.md" 2>/dev/null)"
 }
 
 #@help ___workflow_show1
