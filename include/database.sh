@@ -1976,7 +1976,7 @@ __export_minimized3() {
 
 #@help ___export_pair5
 # @command export pair <dump-strategy> <filter-strategy> <dump> <bundle> <stage>|all
-# @summary The one export: write the dump (its header carries the next serial), collect the files, filter the collection, attest its MANIFEST, bundle it, seal the pair (the seal hashes the bundle), attest the dump, and advance the serial LAST -- a failed export (a pinentry that could not open, 17.09.) leaves the number to the next attempt; one signature covers the pair
+# @summary The one export: write the dump (its header carries the next serial), collect the files, filter the collection, attest its MANIFEST, bundle it, seal the pair (the seal hashes the bundle), attest the dump, and advance the serial LAST -- a failed export (a pinentry that could not open) leaves the number to the next attempt; one signature covers the pair
 # @group   database
 # @internal
 # @env     ELEBAKE_ARCHIVE_ATTEST_KEY  the openpgp record that signs
@@ -2000,7 +2000,7 @@ ___export_pair5() {
 
 #@help ___import2
 # @command import <dump> <bundle>
-# @summary Replay an exported pair into the current database, checked end to end BEFORE anything lands, cheapest first: the pinned signer, the dump's signature, the seal (this bundle is the one the dump names), then -- unpacked into import's own scratch under incoming/ -- the bundle's MANIFEST (pinned signer, every hash). The receipt is filed BEFORE the replay (restore applies its own admissibility: signer, serial floor; the replay runs keep-going, so a redacted pair's withheld elements cost no receipt). restore re-checks the dump as every restore does -- ONLY into an EMPTY database (a fresh bootstrap with the attest key pinned): on a database that already holds records the replay collides with them -- an identical add is a no-op, a differing one is refused, an imported file replaces the one it names, the work link of the source displaces a worktree of your own (JB 14.09.)
+# @summary Replay an exported pair into the current database, checked end to end BEFORE anything lands, cheapest first: the pinned signer, the dump's signature, the seal (this bundle is the one the dump names), then -- unpacked into import's own scratch under incoming/ -- the bundle's MANIFEST (pinned signer, every hash). The receipt is filed BEFORE the replay (restore applies its own admissibility: signer, serial floor; the replay runs keep-going, so a redacted pair's withheld elements cost no receipt). restore re-checks the dump as every restore does -- ONLY into an EMPTY database (a fresh bootstrap with the attest key pinned): on a database that already holds records the replay collides with them -- an identical add is a no-op, a differing one is refused, an imported file replaces the one it names, the work link of the source displaces a worktree of your own
 # @group   database
 # @env     ELEBAKE_ARCHIVE_ATTEST_KEY  the openpgp record naming the signer both artifacts must carry -- the receiver's pin
 # @example elebake import dump.sh ~/.elebake/bundle/a1b2c3d.tar.gz

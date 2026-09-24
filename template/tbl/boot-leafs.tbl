@@ -4,7 +4,7 @@
 #
 # A gate's leafs are found in the checkout's action.c (action-leafs.awk,
 # loader.trust.<gate>.<leaf>); these are read by the boot before any gate
-# runs, so no gate names them (Konzept loader-drei-faktoren, JB 16.09.).
+# runs, so no gate names them (the three-factor design: the loader compares no password).
 # A row counts only when the checkout has the file: a checkout without
 # the TPM key file demands nothing of it. required: stage loaderconf mk
 # refuses without a record; optional: the code default applies.
@@ -18,3 +18,11 @@ loader.trust.halt.nv	measure_record.c	optional
 loader.trust.halt.nv	measure_record.c	optional
 loader.trust.halt.nv	measure_record.c	optional
 loader.trust.geli.tries	geli_open.c	optional
+loader.trust.tpm.anchor.nv	record.c	optional
+loader.trust.tpm.shutdown.nv	record.c	optional
+loader.trust.tpm.cap.pcr	record.c	optional
+loader.trust.storage.gap.max.days	measure_record.c	optional
+loader.trust.clock.skew.s	measure_record.c	optional
+loader.trust.smart.step.units.max	measure_record.c	optional
+loader.trust.firmware.counter.var	record.c	optional
+loader.trust.firmware.moving.var	record.c	optional

@@ -1355,7 +1355,7 @@ ___stage_install_kernel1() {
 
 #@help _stage_install_kernel_run1
 # @command stage install kernel run <stage>
-# @summary Act terminal: make installkernel with the SAME make arguments as the build (installkernel evaluates src.opts.mk again: a WITH_/WITHOUT_ option that shaped the module list at build time must shape it at install time too -- WITH_VERIEXEC=yes built five modules an install without it silently left out, 07.09.), INSTALL='install -U', DESTDIR = the stage's destdir
+# @summary Act terminal: make installkernel with the SAME make arguments as the build (installkernel evaluates src.opts.mk again: a WITH_/WITHOUT_ option that shaped the module list at build time must shape it at install time too -- WITH_VERIEXEC=yes built five modules an install without it silently left out), INSTALL='install -U', DESTDIR = the stage's destdir
 # @group   stage
 # @internal
 # @env     ELEBAKE_KERNCONF  the kernel configuration
@@ -2010,7 +2010,7 @@ ___stage_import3() {
 
 #@help ___stage_import_tree3
 # @command stage import tree <stage> <reldir> <absdir>
-# @summary Import a whole subtree of the record from another database: the stage exists, the target is record-relative (never the record root), the source is an absolute directory; then 'stage import tree copy' -- the boot tree of a stage is one line, not one per file (rescue probe 13.09.: ~1100 lines, ~3000 processes)
+# @summary Import a whole subtree of the record from another database: the stage exists, the target is record-relative (never the record root), the source is an absolute directory; then 'stage import tree copy' -- the boot tree of a stage is one line, not one per file (the rescue probe: ~1100 lines, ~3000 processes)
 # @group   stage
 # @param   reldir   record-relative target directory (e.g. boot); replaced whole
 # @param   absdir   absolute source directory in the OTHER database or the extracted bundle
@@ -2443,7 +2443,7 @@ ___stage_tree_snapshot2() {
 
 #@help _stage_tree_prune2
 # @command stage tree prune <stage> <medium>
-# @summary Act terminal (root): destroy the medium's elebake-* snapshots but the newest ELEBAKE_SNAPSHOT_KEEP (default 3) -- a 4 GB card filled with forty snapshots of 86 MB (illyria 17.09.); other snapshots (@copy, the owner's) are not touched
+# @summary Act terminal (root): destroy the medium's elebake-* snapshots but the newest ELEBAKE_SNAPSHOT_KEEP (default 3) -- a 4 GB card filled with forty snapshots of 86 MB; other snapshots (@copy, the owner's) are not touched
 # @group   deploy
 # @internal
 # @env     ELEBAKE_SNAPSHOT_KEEP  how many elebake-* snapshots stay on the medium
@@ -3179,7 +3179,7 @@ _stage_deploy_write2() {
 
 #@help ___stage_push2
 # @command stage push <stage> <medium>
-# @summary Publish the stage: manifest, attest, verify, tree onto the medium, loader onto the ESP
+# @summary Publish the stage: manifest, attest, verify, tree onto the medium, loader onto the ESP, the medium's letter stamped
 # @group   stage
 # @example elebake stage push daily-v1 a
 # @see     stage tree sync
@@ -3191,6 +3191,42 @@ ___stage_push2() {
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage verify '$1'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage tree sync '$1' '$2'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage deploy '$1' '$2'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage medium stamp '$1' '$2'"
+}
+
+#@help ___stage_medium_stamp2
+# @command stage medium stamp <stage> <medium>
+# @summary Stamp the medium's letter onto its ESP (\EFI\elvboot\medium, one byte): the loader reads it as the identity of the card it was loaded from, the anchor records it as "last booted", MediumSwitch tells when it changes -- two cloned cards differ in nothing else. The stage and the medium exist, the device is present; then 'stage medium stamp write'. Threat model assumed: the letter is an identity, not a secret; a thief who copies a card copies the letter, and the anchor in the TPM still says which letter booted last
+# @group   deploy
+# @param   medium  which registered medium is inserted -- the operator's claim; its name is the letter
+# @example elebake stage medium stamp daily-v1 b
+# @see     stage push
+#@end
+___stage_medium_stamp2() {
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage check stage '$1'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage medium exists '$1' '$2'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage medium present '$1' '$2'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage medium stamp write '$1' '$2'"
+}
+
+#@help _stage_medium_stamp_write2
+# @command stage medium stamp write <stage> <medium>
+# @summary Act terminal (root): mount the ESP, create EFI/elvboot, write the medium's name as one byte into EFI/elvboot/medium, umount, sync
+# @group   deploy
+# @internal
+# @see     stage medium stamp
+#@end
+_stage_medium_stamp_write2() {
+        local node="" mnt=""
+        node=$(head -n1 "$ELEBAKE_BASE/stage/$1/media/$2/node" 2>/dev/null); mnt=$(head -n1 "$ELEBAKE_BASE/stage/$1/media/$2/mountpoint" 2>/dev/null)
+        emit_note "elebake stage medium stamp '$1' medium '$2' ($node: EFI/elvboot/medium = '$2')"
+        printf '%s\n' "mount -t msdosfs '$node' '$mnt' || { printf '# Error: mount failed -- already mounted or device busy? (mount | grep %s)\\n' '$node' >&2; exit 1; }"
+        printf '%s\n' "mkdir -p '$mnt/EFI/elvboot'"
+        printf '%s\n' "printf '%s' '$2' > '$mnt/EFI/elvboot/medium'"
+        printf '%s\n' "[ \"\$(cat '$mnt/EFI/elvboot/medium')\" = '$2' ] || { printf '# Error: stamp not readable back (medium left mounted at %s)\\n' '$mnt' >&2; exit 1; }"
+        printf '%s\n' "umount '$mnt'"
+        printf '%s\n' "sync"
+        printf '%s\n' "printf '# stamped medium %s (%s: EFI/elvboot/medium)\\n' '$2' '$node' >&2"
 }
 
 # pool_mountpoint <dataset> -- prints the mountpoint when the dataset is mounted right now
@@ -3314,7 +3350,7 @@ __stage_marker_write2() {
 
 #@help __stage_marker_value_restore1
 # @command stage marker value restore <stage>
-# @summary Rewrite to 'stage marker nvram <stage> keep': the value is read from the recorded file when the privileged act runs -- the file is root's, a check at generation time as the operator cannot see it and once mistook it for empty and minted a new value (11.09.); an empty or unreadable file is an error at run time, never a new value
+# @summary Rewrite to 'stage marker nvram <stage> keep': the value is read from the recorded file when the privileged act runs -- the file is root's, a check at generation time as the operator cannot see it and once mistook it for empty and minted a new value; an empty or unreadable file is an error at run time, never a new value
 # @group   provisioning
 # @internal
 # @see     stage marker write
@@ -3800,7 +3836,7 @@ ___stage_dump_add1() {
 
 #@help ___stage_dump_boot_complete1
 # @command stage dump boot complete <stage>
-# @summary Dump block: the stage's boot/ as ONE 'stage import tree <stage> boot <archive boot>' line (the bundle's MANIFEST already vouches for every file; a line per file cost ~1100 batches in the rescue probe of 13.09.); no boot tree is a comment line
+# @summary Dump block: the stage's boot/ as ONE 'stage import tree <stage> boot <archive boot>' line (the bundle's MANIFEST already vouches for every file; a line per file cost ~1100 batches in the rescue probe); no boot tree is a comment line
 # @group   stage
 # @internal
 # @env     ELEBAKE_ARCHIVE_BASE  the prefix the emitted paths are written against

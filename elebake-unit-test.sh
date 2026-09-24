@@ -20,7 +20,7 @@ TEST_BASE_DIR="${TMPDIR:-/tmp}/elebake-unit-test.$$"
 TEST_SCRIPT="./elebake.sh"
 
 # Options: --maxprocs N runs the test functions in parallel (xargs -P N).
-# Default: every CPU (JB 13.09.: all suites run parallel); --maxprocs 1 is
+# Default: every CPU (all suites run parallel); --maxprocs 1 is
 # the classic sequential run.
 MAXPROCS=$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 1)
 while [ $# -gt 0 ]; do
@@ -86,7 +86,7 @@ test_header() {
 # test_setup - fresh sandbox DB per test. Terminal interpreter pinned to sh
 # (experienced-user model: emissions ACT); the cat-pinned display blocks keep
 # their profile pins. The bootstrap ends with the environment cache on
-# (init, JB 13.09.); every setenv/unsetenv below refreshes it.
+# (init); every setenv/unsetenv below refreshes it.
 test_setup() {
   TEST_DIR="$TEST_BASE_DIR/test-$TESTS_RUN"
   mkdir -p "$TEST_DIR"
@@ -99,7 +99,7 @@ test_setup() {
   ELEBAKE_BASE="$TEST_DIR" "$TEST_SCRIPT" setenv ELEBAKE_TERMINAL_INTERPRETER sh > /dev/null 2>&1
   ELEBAKE_BASE="$TEST_DIR" "$TEST_SCRIPT" setenv ELEBAKE_PATH "/bin:/usr/bin:/usr/local/bin" > /dev/null 2>&1
   # A test never changes the system: every act terminal the profile pins to
-  # sudo is pinned to cat here -- its output is analysed, never run (JB 09.09.).
+  # sudo is pinned to cat here -- its output is analysed, never run.
   local pin
   for pin in "$(dirname "$TEST_SCRIPT")"/template/environment/ELEBAKE_INTERPRETER_*; do
     case "$(sed -n 1p "$pin")" in sudo*)
@@ -110,7 +110,7 @@ test_setup() {
 
 # The output is captured before it is printed: a consumer that closes early
 # (grep -q) must never reach the running batch -- its exit channel would see
-# the broken pipe, not the failing line (engine finding 09.09.).
+# the broken pipe, not the failing line.
 run_elebake() { local out rc; out=$(ELEBAKE_BASE="$TEST_DIR" "$TEST_SCRIPT" "$@" 2>&1); rc=$?; printf '%s\n' "$out"; return $rc; }
 # unit_attest_key <record> -- generate a throwaway OpenPGP key in a home
 # short enough for gpg-agent's socket, register it in the test database and
@@ -1065,7 +1065,7 @@ fixture_worktree() {
   printf 'fixture-ref\n' > "$TEST_DIR/stage/$1/checkout"
 }
 
-# --- reference implementations: the engine's helpers before 14.09.2026, renamed
+# --- reference implementations: the engine's helpers before the batch engine, renamed
 ref_sq() {
   printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"
 }
@@ -3051,6 +3051,35 @@ test_stage_tpm_family() {
     pass "wipe and status render their acts"
   else
     fail "wipe/status: $(run_elebake stage tpm wipe; run_elebake stage tpm status show unitm)"
+  fi
+  # the time anchor -- two indices under the two states of the cap PCR
+  if run_elebake stage tpm anchor unitm 2>&1 | grep -q "has no loader.trust.tpm.anchor.nv"; then
+    pass "without the anchor leaf the anchor act is refused, the remedy named"
+  else
+    fail "anchor leaf check: $(run_elebake stage tpm anchor unitm 2>&1)"
+  fi
+  run_elebake stage kenv add unitm loader.trust.tpm.anchor.nv 0x01c10e22 > /dev/null
+  run_elebake stage kenv add unitm loader.trust.tpm.shutdown.nv 0x01c10e23 > /dev/null
+  run_elebake stage kenv add unitm loader.trust.tpm.cap.pcr 14 > /dev/null
+  local a; a=$(run_elebake stage tpm anchor make unitm)
+  if printf '%s\n' "$a" | grep -q "printf 'elvboot cap' | openssl dgst -sha256 -binary > cap.bin" \
+     && printf '%s\n' "$a" | grep -q "tpm2_policypcr --session=t.ctx --pcr-list='sha256:14' --pcr=pcr-boot.bin --policy=anchor.policy" \
+     && printf '%s\n' "$a" | grep -q "tpm2_policypcr --session=t.ctx --pcr-list='sha256:14' --pcr=pcr-capped.bin --policy=shutdown.policy" \
+     && printf '%s\n' "$a" | grep -q "tpm2_nvdefine '0x01c10e22' --hierarchy=o --size=64 --policy=anchor.policy --attributes='policywrite|authread|no_da'" \
+     && printf '%s\n' "$a" | grep -q "tpm2_nvdefine '0x01c10e23' --hierarchy=o --size=64 --policy=shutdown.policy --attributes='policywrite|authread|no_da'"; then
+    pass "anchor make renders the boot-state and the capped-state policies over the cap PCR and the two 64-byte indices under them"
+  else
+    fail "anchor make: $a"
+  fi
+  if run_elebake stage tpm status show unitm | grep -q "anchor 0x01c10e22" && run_elebake stage tpm status show unitm | grep -q "shutdown index 0x01c10e23"; then
+    pass "status show names the anchor and the shutdown index"
+  else
+    fail "status show anchors: $(run_elebake stage tpm status show unitm)"
+  fi
+  if run_elebake stage tpm wipe | grep -q "anchor.policy shutdown.policy t.ctx cap.bin pcr-boot.bin pcr-capped.bin"; then
+    pass "wipe covers what the anchor act leaves on the RAM disk"
+  else
+    fail "wipe anchor files: $(run_elebake stage tpm wipe)"
   fi
 }
 

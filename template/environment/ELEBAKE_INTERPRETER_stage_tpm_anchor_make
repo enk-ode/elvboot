@@ -1,0 +1,2 @@
+sudo sh
+# Act terminal of 'stage tpm anchor': tpm2_nvdefine of the two anchor indices needs /dev/tpm0 (root).

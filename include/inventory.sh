@@ -6,7 +6,7 @@
 # elebake inventory - the SETS the loader's platform claims measure.
 #
 # AcpiTables, EfiVariables and LoadedImages claim a set the stage names -- add semantics,
-# never an exclusion (JB 12.09.): what is not added is listed, not claimed.
+# never an exclusion: what is not added is listed, not claimed.
 # The loader publishes every item it saw, one entry with an 8-hex digest,
 # as loader.trust.list.<kind>.<n>; elvbootd's inventory_record_act files
 # them per boot under /var/db/elvboot/inventory/<boot time>. From there:
@@ -312,7 +312,7 @@ _stage_inventory_entries2() {
 
 #@help ___stage_inventory_make1
 # @command stage inventory make <stage>
-# @summary Render the sets of the stage as site.mk lines, one 'stage inventory make set <stage> <kind>' per kind: LOADER_TRUST_ACPI_SET, LOADER_TRUST_EFIVARS_SET and LOADER_TRUST_IMAGES_SET, the entries sorted and comma-joined -- the order the loader hashes the members in. A part of stage site mk; an empty set renders nothing, the claim is then skipped
+# @summary Render the sets of the stage as site.mk lines, one 'stage inventory make set <stage> <kind>' per kind: LOADER_TRUST_ACPI_SET, LOADER_TRUST_EFIVARS_SET and LOADER_TRUST_IMAGES_SET, the entries sorted and comma-joined -- the order the loader hashes the members in -- and LOADER_TRUST_EFIVARS_KNOWN, every variable any record ever listed (the foreign count of EfiVarsForeign skips them). A part of stage site mk; an empty set renders nothing, the claim is then skipped
 # @group   provisioning
 # @example elebake stage inventory make daily-v1
 # @see     stage site mk
@@ -323,6 +323,33 @@ ___stage_inventory_make1() {
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage inventory make set '$1' acpi"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage inventory make set '$1' efivars"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage inventory make set '$1' images"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage inventory make known '$1' efivars"
+}
+
+#@help __stage_inventory_make_known2
+# @command stage inventory make known <stage> <kind>
+# @summary Records of the kind are imported: rewrite to 'stage inventory known line <stage> <kind>', else a comment line (nothing rendered: every variable outside the set then counts as foreign)
+# @group   provisioning
+# @internal
+# @see     stage inventory make
+#@end
+__stage_inventory_make_known2() {
+        if ls "$ELEBAKE_BASE/stage/$1/inventory/records" 2>/dev/null | grep -q .; then
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage inventory known line '$1' '$2'"
+        else
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'no inventory records in $1: LOADER_TRUST_$(printf '%s' "$2" | tr '[:lower:]' '[:upper:]')_KNOWN not rendered (stage inventory import first)'"
+        fi
+}
+
+#@help _stage_inventory_known_line2
+# @command stage inventory known line <stage> <kind>
+# @summary Text terminal: the site.mk line CFLAGS+= -DLOADER_TRUST_<KIND>_KNOWN=\"a,b,c\" -- every identity any imported record of the kind ever listed, sorted. The known-but-not-in-set identities are the ones the owner left out on purpose (a value that moves every boot, such as a health counter); the loader's foreign count skips them, so only an identity NO boot has shown before is foreign
+# @group   provisioning
+# @internal
+# @see     stage inventory make
+#@end
+_stage_inventory_known_line2() {
+        printf 'CFLAGS+= -DLOADER_TRUST_%s_KNOWN=\\"%s\\"\n' "$(printf '%s' "$2" | tr '[:lower:]' '[:upper:]')" "$(cat "$ELEBAKE_BASE/stage/$1/inventory/records"/* 2>/dev/null | sed -n "s/^loader\.trust\.list\.$2\.[0-9]*=\"\(.*\)\"\$/\1/p" | tr ',' '\n' | cut -d: -f1 | grep . | sort -u | tr '\n' ',' | sed 's/,$//')"
 }
 
 #@help __stage_inventory_make_set2
@@ -416,7 +443,7 @@ ___stage_dump_inventory_dir1() {
 
 #@help ___stage_dump_inventory_set2
 # @command stage dump inventory set <stage> <kind>
-# @summary Dump block: the set is a record file (inventory/<kind>, one identity per line) and travels in the bundle -- one 'stage import <stage> inventory <file>' brings it back whole (240 'stage inventory add' replays cost 240 batches, the probe of 13.09.); an empty set is a comment line
+# @summary Dump block: the set is a record file (inventory/<kind>, one identity per line) and travels in the bundle -- one 'stage import <stage> inventory <file>' brings it back whole (240 'stage inventory add' replays cost 240 batches in the rescue probe); an empty set is a comment line
 # @group   provisioning
 # @internal
 # @env     ELEBAKE_ARCHIVE_BASE  the prefix the emitted paths are written against

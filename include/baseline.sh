@@ -658,7 +658,7 @@ _stage_kenv_record3() {
 
 #@help ___stage_baseline_prompt2
 # @command stage baseline prompt <stage> <MACRO>
-# @summary Set a string baseline from a HIDDEN line: the word is read twice on the terminal when the batch runs, both must match, its sha256 (hex, no salt -- what the loader compares) becomes the string baseline <MACRO> of the stage. The one use today: LOADER_TRUST_UNLOCK_SECRET, the passphrase unlock_act asks for the informed decision on a deviation; the hash opens nothing and tells no second role apart, so it may live in the signed loader (Konzept loader-drei-faktoren, JB 16.09.). The word reaches neither argv, history nor the batch text. Baselines are immutable: stage baseline drop <stage> <MACRO> first to change it
+# @summary Set a string baseline from a HIDDEN line: the word is read twice on the terminal when the batch runs, both must match, its sha256 (hex, no salt -- what the loader compares) becomes the string baseline <MACRO> of the stage. The one use today: LOADER_TRUST_UNLOCK_SECRET, the passphrase unlock_act asks for the informed decision on a deviation; the hash opens nothing and tells no second role apart, so it may live in the signed loader (the three-factor design). The word reaches neither argv, history nor the batch text. Baselines are immutable: stage baseline drop <stage> <MACRO> first to change it
 # @group   provisioning
 # @example elebake stage baseline prompt daily-v1 LOADER_TRUST_UNLOCK_SECRET
 # @see     stage baseline add

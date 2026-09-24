@@ -39,7 +39,7 @@
 
 #@help _provenance_serial0
 # @command provenance serial
-# @summary Act terminal: advance the export serial by one -- export does this LAST, once the pair is attested: the dump header already carries current+1, so a failed export leaves the number to the next attempt (illyria 17.09.: serials 9 to 11 were lost to a pinentry that could not open)
+# @summary Act terminal: advance the export serial by one -- export does this LAST, once the pair is attested: the dump header already carries current+1, so a failed export leaves the number to the next attempt (serials were once lost to a pinentry that could not open)
 # @group   database
 # @example elebake provenance serial
 # @see     provenance list

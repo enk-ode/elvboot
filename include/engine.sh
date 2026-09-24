@@ -1670,7 +1670,7 @@ main() {
     # first argument, checked here before a directory is born (the batch
     # line 'bootstrap name valid' records the same rule), the directory
     # made 0700 (what 'bootstrap scaffold' ensures again). Neither TMPDIR
-    # nor /tmp: an implicit default, and a foreign directory (JB 13.09.).
+    # nor /tmp: an implicit default, and a foreign directory.
     database_name_ok "${2:-}" || error "bootstrap: <name> is a plain database name -- no slash, not db: ${2:-(missing)} (e.g. production)"
     ELEBAKE_BASE="$ELEBAKE_ROOT/$2"
     if [ ! -d "$ELEBAKE_BASE" ]; then
@@ -1716,7 +1716,7 @@ main() {
       if [ "$arg" = "$cmd" ]; then
         # help before any database: process_arguments() needs .tmp for
         # exit propagation, so the scratch is under the elebake root --
-        # derived from ELEBAKE_BASE, never TMPDIR or /tmp (JB 13.09.);
+        # derived from ELEBAKE_BASE, never TMPDIR or /tmp;
         # make man binds a root of its own. Other commands (bootstrap,
         # init) bind their own ELEBAKE_BASE.
         if [ "$cmd" = "help" ]; then

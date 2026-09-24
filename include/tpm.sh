@@ -17,6 +17,15 @@
 #   loader.trust.tpm.keyfile.handles   "<owner> <duress>" (0x81010001 0x81010002)
 #   loader.trust.tpm.keyfile.pcrs      the policy (0,2,7)
 #   loader.trust.tpm.counter.nv        the counter index (0x01c10e20)
+#   loader.trust.tpm.anchor.nv         the time anchor (0x01c10e22): written
+#                                      by the loader under PolicyPCR over the cap
+#                                      PCR in its BOOT state, then capped
+#   loader.trust.tpm.shutdown.nv       the shutdown index (0x01c10e23): written
+#                                      by elvbootd under PolicyPCR over the cap PCR
+#                                      in its CAPPED state (runtime only)
+#   loader.trust.tpm.cap.pcr           the cap PCR (14): extended with
+#                                      sha256("elvboot cap") by the loader after the
+#                                      anchor write and by elvbootd after the shutdown write
 #
 # This family renders the tpm2-tools commands that set the TPM up to
 # match, in the order the playbook walks them: key, policy, seal (owner,
@@ -326,6 +335,59 @@ rm -P nv.ctx nvinc.policy
 EOF
 }
 
+#@help ___stage_tpm_anchor1
+# @command stage tpm anchor <stage>
+# @summary Define the two time-anchor indices: loader.trust.tpm.anchor.nv, which the loader writes at record commit under PolicyPCR over the cap PCR in its BOOT state and then caps (one PCR extend: root at runtime cannot rewrite it), and loader.trust.tpm.shutdown.nv, which elvbootd writes at shutdown under PolicyPCR over the CAPPED state (so only the runtime after the loader's cap can write it; a shutdown without the hook leaves an old index and SmartStep falls): the stage exists, the three leafs are set, the work directory ready; then 'stage tpm anchor make'. Threat model assumed: wall time is the RTC, which anyone with the setup can set; the anchor makes a forged RTC agree with the TPM clock and the NVMe counters, which only grow. No secret is involved: the anchor carries an HMAC under the record material, the shutdown index a plain digest
+# @group   provisioning
+# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the contexts live on (default /tmp/ram)
+# @example elebake stage tpm anchor daily-v1
+# @see     stage tpm counter
+# @see     stage tpm status
+#@end
+___stage_tpm_anchor1() {
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage check stage '$1'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage tpm leaf set '$1' loader.trust.tpm.anchor.nv"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage tpm leaf set '$1' loader.trust.tpm.shutdown.nv"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage tpm leaf set '$1' loader.trust.tpm.cap.pcr"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage tpm workdir ready"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage tpm anchor make '$1'"
+}
+
+#@help _stage_tpm_anchor_make1
+# @command stage tpm anchor make <stage>
+# @summary Act terminal (root): the two PCR states as files (32 zero bytes = the boot state; sha256(zeros || sha256("elvboot cap")) = the capped state), two trial sessions with tpm2_policypcr against those files (anchor.policy, shutdown.policy), tpm2_nvdefine of two 64-byte indices under them (policywrite|authread|no_da), tpm2_nvreadpublic as the receipt; indices already defined are kept
+# @group   provisioning
+# @internal
+# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the contexts live on (default /tmp/ram)
+# @see     stage tpm anchor
+#@end
+_stage_tpm_anchor_make1() {
+        local d="${ELEBAKE_TPM_WORKDIR:-/tmp/ram}" anchor="" shut="" cap=""
+        anchor=$(sed -n 1p "$ELEBAKE_BASE/stage/$1/kenv/loader.trust.tpm.anchor.nv" 2>/dev/null)
+        shut=$(sed -n 1p "$ELEBAKE_BASE/stage/$1/kenv/loader.trust.tpm.shutdown.nv" 2>/dev/null)
+        cap=$(sed -n 1p "$ELEBAKE_BASE/stage/$1/kenv/loader.trust.tpm.cap.pcr" 2>/dev/null)
+        emit_note "stage tpm anchor '$1': anchor $anchor (boot state of PCR $cap), shutdown $shut (capped state of PCR $cap); an index already defined is kept"
+        cat <<EOF
+export TPM2TOOLS_TCTI=device:/dev/tpm0
+cd '$d' || exit 1
+printf 'elvboot cap' | openssl dgst -sha256 -binary > cap.bin
+dd if=/dev/zero bs=32 count=1 2>/dev/null > pcr-boot.bin
+cat pcr-boot.bin cap.bin | openssl dgst -sha256 -binary > pcr-capped.bin
+tpm2_flushcontext --loaded-session
+tpm2_startauthsession --session=t.ctx || exit 1
+tpm2_policypcr --session=t.ctx --pcr-list='sha256:$cap' --pcr=pcr-boot.bin --policy=anchor.policy || exit 1
+tpm2_flushcontext t.ctx
+tpm2_startauthsession --session=t.ctx || exit 1
+tpm2_policypcr --session=t.ctx --pcr-list='sha256:$cap' --pcr=pcr-capped.bin --policy=shutdown.policy || exit 1
+tpm2_flushcontext t.ctx
+tpm2_nvreadpublic '$anchor' >/dev/null 2>&1 || tpm2_nvdefine '$anchor' --hierarchy=o --size=64 --policy=anchor.policy --attributes='policywrite|authread|no_da' || exit 1
+tpm2_nvreadpublic '$shut' >/dev/null 2>&1 || tpm2_nvdefine '$shut' --hierarchy=o --size=64 --policy=shutdown.policy --attributes='policywrite|authread|no_da' || exit 1
+tpm2_nvreadpublic '$anchor'
+tpm2_nvreadpublic '$shut'
+rm -P t.ctx cap.bin pcr-boot.bin pcr-capped.bin anchor.policy shutdown.policy
+EOF
+}
+
 #@help ___stage_tpm_probe3
 # @command stage tpm probe <stage> <owner|duress> <secret-file>
 # @summary Unseal the role's object the way the loader does -- a session salted to loader.trust.tpm.key.handle, PolicyPCR over the stage's list, PolicyAuthValue with the hash stage tpm seal left in <workdir>/auth-<role>.hex -- and compare with the secret file: the stage exists, the role valid, the leaf names its handle, the secret readable; then 'stage tpm probe unseal'
@@ -388,7 +450,7 @@ ___stage_tpm_clean0() {
 
 #@help _stage_tpm_wipe0
 # @command stage tpm wipe
-# @summary Act terminal: rm -P of auth-*.hex, auth-*.bin, *.ctx, *.pub, *.priv, *.policy, srk.* on the work directory (whichever are there); the secret file is the owner's to wipe
+# @summary Act terminal: rm -P of auth-*.hex, auth-*.bin, *.ctx, *.pub, *.priv, *.policy, the anchor's PCR files, srk.* on the work directory (whichever are there); the secret file is the owner's to wipe
 # @group   provisioning
 # @internal
 # @env     ELEBAKE_TPM_WORKDIR  the RAM disk the contexts live on (default /tmp/ram)
@@ -397,12 +459,12 @@ ___stage_tpm_clean0() {
 _stage_tpm_wipe0() {
         local d="${ELEBAKE_TPM_WORKDIR:-/tmp/ram}"
         emit_note "stage tpm clean: wiping the contexts on $d"
-        printf '%s\n' "cd '$d' || exit 1; for f in auth-owner.hex auth-duress.hex auth-owner.bin auth-duress.bin primary.ctx session.ctx nv.ctx u.ctx owner.ctx duress.ctx owner.pub owner.priv duress.pub duress.priv pcrauth.policy nvinc.policy srk.name srk.pem; do [ -e \"\$f\" ] && rm -P \"\$f\"; done; :"
+        printf '%s\n' "cd '$d' || exit 1; for f in auth-owner.hex auth-duress.hex auth-owner.bin auth-duress.bin primary.ctx session.ctx nv.ctx u.ctx owner.ctx duress.ctx owner.pub owner.priv duress.pub duress.priv pcrauth.policy nvinc.policy anchor.policy shutdown.policy t.ctx cap.bin pcr-boot.bin pcr-capped.bin srk.name srk.pem; do [ -e \"\$f\" ] && rm -P \"\$f\"; done; :"
 }
 
 #@help ___stage_tpm_status1
 # @command stage tpm status <stage>
-# @summary What the TPM holds against what the stage expects: the persistent handles and the counter's public area; the stage exists; then 'stage tpm status show'
+# @summary What the TPM holds against what the stage expects: the persistent handles, the counter's public area, the two anchor indices; the stage exists; then 'stage tpm status show'
 # @group   provisioning
 # @example elebake stage tpm status daily-v1
 # @see     stage tpm key
@@ -414,19 +476,23 @@ ___stage_tpm_status1() {
 
 #@help _stage_tpm_status_show1
 # @command stage tpm status show <stage>
-# @summary Act terminal (root): tpm2_getcap handles-persistent, and tpm2_nvreadpublic of the counter when the stage names one; the stage's leafs printed beside them
+# @summary Act terminal (root): tpm2_getcap handles-persistent, tpm2_nvreadpublic of the counter, the anchor and the shutdown index when the stage names them; the stage's leafs printed beside them
 # @group   provisioning
 # @internal
 # @see     stage tpm status
 #@end
 _stage_tpm_status_show1() {
-        local nv="" halt=""
+        local nv="" halt="" anchor="" shut=""
         nv=$(sed -n 1p "$ELEBAKE_BASE/stage/$1/kenv/loader.trust.tpm.counter.nv" 2>/dev/null)
         halt=$(sed -n 1p "$ELEBAKE_BASE/stage/$1/kenv/loader.trust.halt.nv" 2>/dev/null)
+        anchor=$(sed -n 1p "$ELEBAKE_BASE/stage/$1/kenv/loader.trust.tpm.anchor.nv" 2>/dev/null)
+        shut=$(sed -n 1p "$ELEBAKE_BASE/stage/$1/kenv/loader.trust.tpm.shutdown.nv" 2>/dev/null)
         emit_note "stage $1 expects: key $(sed -n 1p "$ELEBAKE_BASE/stage/$1/kenv/loader.trust.tpm.key.handle" 2>/dev/null), objects $(sed -n 1p "$ELEBAKE_BASE/stage/$1/kenv/loader.trust.tpm.keyfile.handles" 2>/dev/null), pcrs $(sed -n 1p "$ELEBAKE_BASE/stage/$1/kenv/loader.trust.tpm.keyfile.pcrs" 2>/dev/null), counter ${nv:--}, halt ${halt:--}"
         printf '%s\n' "export TPM2TOOLS_TCTI=device:/dev/tpm0"
         printf '%s\n' "tpm2_getcap handles-persistent"
         test -n "$nv" && printf '%s\n' "tpm2_nvreadpublic '$nv' 2>/dev/null || echo '# counter $nv not defined'"
         test -n "$halt" && printf '%s\n' "tpm2_nvread '$halt' 2>/dev/null | hexdump -ve '1/1 \"%02x\"' | sed 's/^/# halt count 0x/; s/\$/\\n/' | tr -d '\\n'; echo; tpm2_nvreadpublic '$halt' >/dev/null 2>&1 || echo '# halt counter $halt not defined'"
+        test -n "$anchor" && printf '%s\n' "tpm2_nvreadpublic '$anchor' >/dev/null 2>&1 && echo '# anchor $anchor defined' || echo '# anchor $anchor not defined'"
+        test -n "$shut" && printf '%s\n' "tpm2_nvreadpublic '$shut' >/dev/null 2>&1 && echo '# shutdown index $shut defined' || echo '# shutdown index $shut not defined'"
         return 0
 }

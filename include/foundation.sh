@@ -247,7 +247,7 @@ __expectation_fields_valid4() {
 
 #@help ___expectation_add4
 # @command expectation add <expectation> <type> <label> <value>
-# @summary Store a named, reusable expectation: <type> byte | sha256 | string | macro | key; a macro expectation names a macro an arsenal macro record defines (the reference never dangles; the type word dispatches the check); a key expectation names the leaf of a kenv record the loader reads at run time, loader.trust.<gate>.<key> -- for a value that includes the loader itself (PcrBank, LoadedImages) and so cannot be compiled into it; stage kenv learn records it, no build follows. Only for gates of PHASE_KERNEL and later: the loader reads loader.trust.conf after PHASE_LOADER, a key bound earlier finds no value and the claim stays skipped (illyria 13.09.). Then the record is written -- an identical re-add is a no-op, a different one is refused (immutable; drop first)
+# @summary Store a named, reusable expectation: <type> byte | sha256 | string | macro | key; a macro expectation names a macro an arsenal macro record defines (the reference never dangles; the type word dispatches the check); a key expectation names the leaf of a kenv record the loader reads at run time, loader.trust.<gate>.<key> -- for a value that includes the loader itself (PcrBank, LoadedImages) and so cannot be compiled into it; stage kenv learn records it, no build follows. Only for gates of PHASE_KERNEL and later: the loader reads loader.trust.conf after PHASE_LOADER, a key bound earlier finds no value and the claim stays skipped. Then the record is written -- an identical re-add is a no-op, a different one is refused (immutable; drop first)
 # @group   foundation
 # @example elebake expectation add fish-0-byte byte AnswerClass 1
 # @see     expectation drop
@@ -888,7 +888,7 @@ _trigger_render_show1() {
 
 #@help ___gate_add1
 # @command gate add <gate>
-# @summary Create a gate: <gate> is a C identifier (it lands in foundation.c). A gate carries no secret -- the loader compares no password, the three factors open the encrypted providers or nothing does (Konzept loader-drei-faktoren, JB 16.09.). No arsenal record is referenced: the chain is write only, a re-add is a no-op and leaves the claim list untouched
+# @summary Create a gate: <gate> is a C identifier (it lands in foundation.c). A gate carries no secret -- the loader compares no password, the three factors open the encrypted providers or nothing does (the three-factor design). No arsenal record is referenced: the chain is write only, a re-add is a no-op and leaves the claim list untouched
 # @group   foundation
 # @example elebake gate add fish_0
 # @see     gate drop
