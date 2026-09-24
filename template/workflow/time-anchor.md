@@ -12,7 +12,7 @@
 # shutdown index written at SHUTDOWN, the NTP gap after the tunnel.
 # Assumed: wall time is the RTC, which anyone with the setup can set; the
 # anchor makes a forged RTC agree with two clocks the attacker cannot turn
-# back (Konzepte/zeitanker-lagerung.md).
+# back, the TPM clock and the disks' power-on hours.
 
 # --- the leafs (template/tbl/boot-leafs.tbl, gate-free) ---
 elebake stage kenv add daily-v1 loader.trust.tpm.anchor.nv 0x01c10e22

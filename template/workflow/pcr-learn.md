@@ -17,7 +17,7 @@ elebake stage push daily-v1 b                     # no rebuild: the loader is un
 # Then the owner's off-machine baseline (D.3): a full dump of the EFI
 # variables next to the PCR bank, into the infrastructure repository --
 # the state you just confirmed, kept where root of this machine cannot
-# rewrite it (Infrastruktur/tools/efivars-snapshot.sh, then commit).
+# rewrite it (a snapshot of efivar -l and the PCR bank, then commit).
 
 # Boot: PcrBank passes. loader.trust.pcr.require (kenv) selects the
 # registers -- 0,1,2,3,4,6,7 on a machine with two boot cards of unequal

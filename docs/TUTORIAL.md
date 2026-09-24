@@ -477,7 +477,7 @@ and applies the three factors as they are — passphrase, the key file on the
 medium, the key file the TPM releases under its PCR policy — to the encrypted
 providers; a provider that opens is the only proof, and it exists only on this
 machine with unchanged firmware. Gates measure and publish; none of them halts,
-none of them asks (Konzepte/loader-drei-faktoren.md in the owner's notes).
+none of them asks.
 
 loaderlock guards the loader's own prerequisites; its expected values are HEADER
 CONSTANTS     —     an    expectation     value     is     verbatim    C,     so
@@ -1011,10 +1011,10 @@ the bundle is what a rescue needs, and it is there.
 less: a passphrase the owner knows (`fde-daily-v1`), the key file on the boot
 medium the owner carries (`/boot/keys/zroot.key`), and 32 bytes this laptop's
 TPM releases only under its PCR policy -- firmware code, option ROMs and the
-Secure Boot state unchanged (`tpm-reflected-v1`, sealed as `0x81010001`, see
-the owner's `Playbooks/tpm-sealing-illyria.md`). GELI takes the two key files
-in the kernel's order, zroot.key then the TPM's, folds them with the
-passphrase into the user key, and the master key opens or it does not. The
+Secure Boot state unchanged (`tpm-reflected-v1`, sealed as `0x81010001`).
+GELI takes the two key files in the kernel's order, zroot.key then the
+TPM's, folds them with the passphrase into the user key, and the master key
+opens or it does not. The
 TPM bytes decrypt nothing by themselves; they are the second key file, as
 they are.
 
@@ -1075,3 +1075,133 @@ rebuild, pcr-learn, kenv-change, baseline-relearn, inventory-drop,
 policy-change, tpm-seal, restore -- are files now: `elebake workflow`
 lists them, `elebake workflow show rebuild` prints one, commands and the
 comments between them, to read and to type after.
+
+## 22. The time anchor: two clocks the setup cannot turn back
+
+24 September. Every witness so far answers "is the machine the same?"; none
+answers "how long was it out of my hands?". Wall time is the RTC, and the RTC
+is a setup menu: anyone with the supervisor password -- or, on this board,
+anyone at all after a pull of the CMOS battery -- sets it. A stolen laptop can
+come back with the date of the day it left. Two clocks on the board do not
+turn back: the TPM's clock (it only counts while powered, and its reset
+counter tells a power loss apart from a pause) and the NVMe's power-on hours.
+The anchor makes the RTC answer to both, and it makes the previous boot
+answer for this one.
+
+The parts, in the order the workflow `time-anchor` adds them
+(`elebake workflow show time-anchor`):
+
+- **Six leafs**, gate-free, in `boot-leafs.tbl`: the anchor index
+  `loader.trust.tpm.anchor.nv` (0x01c10e22), the shutdown index
+  `tpm.shutdown.nv` (0x01c10e23), the cap PCR `tpm.cap.pcr` (14 -- in neither
+  `pcr.require` nor `keyfile.pcrs`), `storage.gap.max.days` (7),
+  `clock.skew.s` (300) and `smart.step.units.max` (64 NVMe data units of
+  512,000 bytes: a boot reads a handful, a clone of the disks reads
+  terabytes). Two more name a firmware variable and a byte range in it,
+  `firmware.counter.var` and `firmware.moving.var` (below).
+- **Two NV indices**, both under a PCR policy over the cap PCR: the anchor
+  index is writable while PCR 14 is in its boot state, the shutdown index
+  only after the loader has extended PCR 14 with the cap digest
+  (sha256 of "elvboot cap"). So the loader writes the anchor -- record
+  counter, TPM clock, NVMe hours -- then caps the PCR; from then until the
+  next reset nothing can rewrite the anchor, and only the running system can
+  write the shutdown index. `stage tpm anchor daily-v1` renders the
+  tpm2-tools for both (an interpreter pin, `sudo sh`, runs them on the RAM
+  disk); `stage tpm status` lists them beside the counter.
+- **Four claims in recordlock** (an unlock when one falls): StorageGap, the
+  unpowered time since the previous boot -- the RTC advance minus the TPM
+  clock advance -- against `storage.gap.max.days`; ClockOrder, the RTC
+  advance against the TPM clock and the power-on hours, within
+  `clock.skew.s`; SmartStep, the disks' counters now against what the
+  shutdown index recorded at the last clean shutdown; AnchorValid, the pair
+  in the TPM against the record.
+- **Five tells in a new gate, tellwatch**, which publishes and never asks:
+  MediumSwitch (the letter stamped on the medium, `EFI/elvboot/medium`,
+  written by `stage push`, against the record's), UnsafeStep (the NVMe
+  unsafe-shutdown count), EfiVarsForeign (non-volatile variables the
+  firmware shows that are neither in the learned set nor in
+  `LOADER_TRUST_EFIVARS_KNOWN`, every variable any inventory record ever
+  listed -- a health counter that moves every boot is known, not foreign),
+  FirmwareBootStep and FirmwareMoved.
+- **The runtime side**: elvbootd writes the shutdown index at SHUTDOWN
+  (`smart_anchor_act`; the log says `shutdown anchor written: hours=1030
+  read=541319 written=34690100 medium=a`), earlboot warns at login after an
+  unclean shutdown (gate shutdownwatch: `warn_shutdown_act` into the motd),
+  and PERIODIC checks the NTP offset (`ntp-gap`, 600 s -- PERIODIC only: at
+  STARTUP ntpd has not synchronised yet, and an armed claim without a
+  measurement fails) and `health-unique`.
+
+FirmwareBootStep and FirmwareMoved came out of the inventory. The Insyde
+firmware keeps a variable `MotherBoardHealth`, sixteen bytes, and the
+EfiVariables digest fell on every boot until the inventory showed why: bytes
+8 to 11 count the firmware's boots, bytes 0 to 7 change every time. Left out
+of the set the digest is stable again; the variable was noise. Read as two
+leafs (`<guid>-MotherBoardHealth:8:4` and `:0:8`) it is two witnesses: the
+firmware's own boot counter must step by exactly one across the owner's
+shutdown -- the setup visited, a boot into the boot manager, a boot from
+another medium each cost a step -- and the moving part must not repeat any of
+the last four the record kept (`firmware.moving="now=5b48c9309,kept=
+5b78a6a7b,5ba8dade5,0,0"`), nor, in PERIODIC, any of the whole history
+(`measure_efivar_unique` over every inventory record). A firmware image put
+back from a dump would repeat both.
+
+The Attempts expectation changed with the anchor: it counts what the boot did
+not ask for -- attempts minus two passphrases, minus the unlocks the gates
+prompted for, minus the retries of the boot answer -- so its expectation is
+0 (`attempts-zero`; claims are immutable, the claim was re-made on the new
+expectation: gate claim drop, claim drop, claim add, gate claim add). And
+the boot answer is typed once: the record's MAC proves it against the
+previous record, and only when no record can be checked -- a new chain --
+does the loader ask it again to confirm.
+
+The rollout on card a, from a chain that had to start over:
+
+- **The boot without gates.** `stage recheckout` leaves the checkout's
+  foundation.c -- the empty one. The build that followed skipped
+  `stage foundation make`, and the loader that came out had no gates: no
+  prompt, no sentinel question, straight into the kernel. earlboot caught it
+  from the other side (`custody fail [word-ok, taint-open, prompted-set,
+  book-step]`), the reserve card was the way back, and the sequence is a
+  file since: `elebake workflow show rebuild`. Two things the walk wrote
+  down for the loader and the tool: a loader whose ledger is empty must not
+  open the root, and a build from the checkout's empty foundation.c with
+  policies bound must refuse.
+- **Chain restart.** The repaired loader asked the sentinel question again;
+  recordlock fell as a whole (RecordValid and, with it, every claim that
+  measures against the record or the anchor -- an armed claim without a
+  measurement fails), PcrBank fell (a new loader, a new bank), HaltQuiet
+  fell: the halt counter had stepped when earlboot powered the machine off.
+  `anchor="verified,differs,counter=1"` -- the anchor already there, from
+  the boot before, correctly not matching a record it had never seen.
+  EfiVarsForeign was 0 for the first time: the KNOWN list at work.
+- **pcr-learn and halt-relearn together**, one `loaderconf mk`, one
+  `include`, one `push`, no rebuild. The next boot: the chain closed
+  (`counter=1, chain=match`, `anchor matches`), `storage.gap gap.s=11`
+  (RTC 1046 s against TPM 1035 s), `smart.step units.read.diff=6,
+  units.written.diff=20`, `firmware.counter 257/256`. One claim fell, and it
+  was the rule, not the machine: ClockOrder compared the RTC advance against
+  the power-on hours times 3600, and the hours had stepped from 1028 to 1029
+  in an eighteen-minute pause. Whole hours at an unknown phase: a step of
+  h hours proves only (h - 1) * 3600 seconds. The claim takes that lower
+  bound now (measure_record.c), a step of one hour proves nothing.
+- **The fix, one more bank**, PcrBank once more, learned once more; the boot
+  after that was the first silent one of the anchor: eight gates pass,
+  `counter=3`, `gap.s=13`, `smart 6/17`, `firmware 259/258`, the moving
+  history three of four full, attempts 0. `sudo sh
+  /usr/local/etc/periodic/security/900.elvboot` by hand: `daily pass ...
+  smart-quiet, ntp-gap, health-unique`.
+- **The reserve card.** `stage push daily-v1 b` with card b in the reader:
+  the push stamps the letter (the mount is the same for both cards, the
+  stamp is what tells them apart -- a wrong card in the reader during a push
+  is stamped with the wrong letter, so check `EFI/elvboot/medium` after).
+  The boot from b: `tellwatch fail [MediumSwitch] now=b,last=a`, a tell, and
+  `recordlock fail [ChainOnMedium] chain=differs` -- the one chain lives on
+  the medium and card b's copy was days old; the unlock, as chapter 21 said
+  it would be. The record and the shutdown anchor carry `medium=b` from
+  here; the second boot from b is silent.
+
+Two numbers to judge later, after a series of boots, not now: the prompt
+dwell (108.8 s with two passphrases and a fumble, 88.8 s, 54.4 s with one --
+`PROMPT_MAX_MS` is 90000 and sits close to a slow evening) and
+`storage.gap.max.days`, generous at 7 until the machine has shown what a
+weekend and a holiday look like.
