@@ -1138,8 +1138,9 @@ EfiVariables digest fell on every boot until the inventory showed why: bytes
 of the set the digest is stable again; the variable was noise. Read as two
 leafs (`<guid>-MotherBoardHealth:8:4` and `:0:8`) it is two witnesses: the
 firmware's own boot counter must step by exactly one across the owner's
-shutdown -- the setup visited, a boot into the boot manager, a boot from
-another medium each cost a step -- and the moving part must not repeat any of
+shutdown -- it counts the POSTs that reach a boot medium, so a boot into the
+boot manager or from another medium costs a step, a setup visit ended at the
+logo does not -- and the moving part must not repeat any of
 the last four the record kept (`firmware.moving="now=5b48c9309,kept=
 5b78a6a7b,5ba8dade5,0,0"`), nor, in PERIODIC, any of the whole history
 (`measure_efivar_unique` over every inventory record). A firmware image put
@@ -1200,8 +1201,21 @@ The rollout on card a, from a chain that had to start over:
   it would be. The record and the shutdown anchor carry `medium=b` from
   here; the second boot from b is silent.
 
+The clock, both ways, on the reserve card: with the RTC set ten days ahead in
+the setup, StorageGap fell (`gap.s=864068`, the RTC 884,905 s ahead against
+20,837 s of TPM clock) and ClockOrder passed -- a clock set forward is
+consistent with itself, which is why StorageGap exists -- and CounterStep
+fell with it: four TPM resets and four NVMe power cycles for one shutdown
+(a missed cold start, the setup's own reboot, the power-off at the logo),
+the detour counted. After ntpd had put the clock back, the next boot fell on
+LastBootGap (the record said the 4th of October, the RTC the 24th of
+September); StorageGap and ClockOrder fell with it, a negative gap being no
+measurement (`storage.gap="unknown"`) -- one unlock for the gate. The boot
+after that was silent, `counter=7`.
+
 Two numbers to judge later, after a series of boots, not now: the prompt
-dwell (108.8 s with two passphrases and a fumble, 88.8 s, 54.4 s with one --
-`PROMPT_MAX_MS` is 90000 and sits close to a slow evening) and
+dwell (108.8 s with two passphrases and a fumble, 88.8 s, 54.4 s with one,
+180 s with three prompts and a typo -- `PROMPT_MAX_MS` is 90000 and sits
+close to a slow evening) and
 `storage.gap.max.days`, generous at 7 until the machine has shown what a
 weekend and a holiday look like.
