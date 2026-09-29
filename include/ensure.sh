@@ -596,13 +596,13 @@ __stage_string_demands2() {
 
 #@help __stage_macro_demand3
 # @command stage macro demand <stage> <MACRO> <BASELINE>
-# @summary The macro's baseline is in the stage (a baseline record or a CFLAGS line of site.mk): a comment, else a note -- its claims skip at boot
+# @summary The macro's baseline is in the stage (a baseline record, or a CFLAGS+= or CFLAGS.foundation.c += line of site.mk -- board, keys and marker write the latter): a comment, else a note -- its claims skip at boot
 # @group   foundation
 # @internal
 # @see     stage baseline add
 #@end
 __stage_macro_demand3() {
-        if test -f "$ELEBAKE_BASE/stage/$1/baselines/$3" || grep -qs "^CFLAGS+=[[:space:]]*-D$3[=[:space:]]" "$ELEBAKE_BASE/stage/$1/work/stand/efi/loader/local/site.mk"; then
+        if test -f "$ELEBAKE_BASE/stage/$1/baselines/$3" || grep -qs "^CFLAGS\(\.foundation\.c\)\{0,1\}[[:space:]]*+=[[:space:]]*-D$3[=[:space:]]" "$ELEBAKE_BASE/stage/$1/work/stand/efi/loader/local/site.mk"; then
                 printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" log 'macro $2: $3 provisioned'"
         else
                 printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" log 'macro $2: $3 has no value yet -- its claims skip at boot (stage baseline add|learn $1 $3 ..., or stage site mk for board, keys, marker, origin and the disks)'"
@@ -617,7 +617,7 @@ __stage_macro_demand3() {
 # @see     stage baseline add
 #@end
 __stage_baseline_demand3() {
-        if test -f "$ELEBAKE_BASE/stage/$1/baselines/$3" || grep -qs "^CFLAGS+=[[:space:]]*-D$3[=[:space:]]" "$ELEBAKE_BASE/stage/$1/work/stand/efi/loader/local/site.mk"; then
+        if test -f "$ELEBAKE_BASE/stage/$1/baselines/$3" || grep -qs "^CFLAGS\(\.foundation\.c\)\{0,1\}[[:space:]]*+=[[:space:]]*-D$3[=[:space:]]" "$ELEBAKE_BASE/stage/$1/work/stand/efi/loader/local/site.mk"; then
                 printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" log '$2: $3 provisioned'"
         else
                 printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" log '$2 needs $3 -- no baseline yet, the code has no default: what it guards is absent at boot (stage baseline add $1 $3 ..., or stage site mk disks for GELI_PARTS)'"

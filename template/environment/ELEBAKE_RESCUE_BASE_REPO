@@ -1,0 +1,2 @@
+FreeBSD-base
+# The pkgbase repository stage rescue base install draws the base system and the kernel from (pkg -vv names it).

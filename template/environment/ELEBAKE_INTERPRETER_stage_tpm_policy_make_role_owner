@@ -1,0 +1,2 @@
+sudo sh
+# Act terminal of 'stage tpm policy': the tpm2-tools need /dev/tpm0 (root).

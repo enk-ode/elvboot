@@ -528,13 +528,13 @@ _stage_disks_scratch_mk1() {
 
 #@help _stage_disk_uuid_record2
 # @command stage disk uuid record <stage> <partition>
-# @summary Act terminal: the partition's GPT rawuuid (gpart list, lower case) appended to the scratch parts list; none fails
+# @summary Act terminal: the partition's GPT rawuuid (gpart list, lower case: the provider line reads '1. Name: nda1p1', the Name: word is not the first field) appended to the scratch parts list; none fails
 # @group   provisioning
 # @internal
 # @see     stage site mk disks
 #@end
 _stage_disk_uuid_record2() {
-        printf '%s\n' "u=\$(gpart list '${2%p[0-9]*}' | awk -v want='$2' '\$1 == \"Name:\" { cur = \$2 } \$1 == \"rawuuid:\" && cur == want { print tolower(\$2); exit }'); test -n \"\$u\" && printf '%s\\n' \"\$u\" >> '$ELEBAKE_BASE/stage/$1/disks.measure/parts'"
+        printf '%s\n' "u=\$(gpart list '${2%p[0-9]*}' | awk -v want='$2' '{ for (i = 1; i < NF; i++) if (\$i == \"Name:\") cur = \$(i + 1) } \$1 == \"rawuuid:\" && cur == want { print tolower(\$2); exit }'); test -n \"\$u\" && printf '%s\\n' \"\$u\" >> '$ELEBAKE_BASE/stage/$1/disks.measure/parts'"
 }
 
 #@help _stage_disk_geli_measure2

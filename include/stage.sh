@@ -1129,7 +1129,7 @@ _stage_reset1() {
 
 #@help ___stage_build1
 # @command stage build <stage>
-# @summary The isolated stand/ build: the trust anchor in the worktree (stage trust) first -- the cheapest check, local to the stage -- then the toolchain, the build gate (keys bound), clean, then one 'stage build stand <stage> <component>' per curated component
+# @summary The isolated stand/ build: the trust anchor in the worktree (stage trust) first -- the cheapest check, local to the stage -- then foundation.c rendered from the stage's bindings (stage foundation make: what the owner bound is in the binary, a stage that binds nothing gets empty tables and a loader that boots like stock), then site.mk where the stage has baselines (stage site present: a loader compiled without it takes every expectation as none and measures nothing), then the toolchain, the build gate (keys bound), clean, then one 'stage build stand <stage> <component>' per curated component
 # @group   stage
 # @env     ELEBAKE_STAND_BUILD_SUBDIRS  curated components in SUBDIR_DEPEND order (see the template)
 # @env     ELEBAKE_MAKEARGS  extra make(1) arguments per component (e.g. -j16); empty = none
@@ -1140,6 +1140,8 @@ _stage_reset1() {
 #@end
 ___stage_build1() {
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage trust anchored '$1'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage foundation make '$1'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage site present '$1'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" freebsd prerequisites"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage build ready '$1'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage clean '$1'"
@@ -1160,6 +1162,28 @@ __stage_trust_anchored1() {
                 printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'stage $1: trust anchor in the worktree'"
         else
                 printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'stage build $1: no trust anchor in the worktree (stage trust $1 exports it; a loader without it verifies no manifest and opens nothing)'"
+        fi
+}
+
+#@help __stage_site_present1
+# @command stage site present <stage>
+# @summary The baselines the stage holds reach the loader only through site.mk in the worktree (stage site mk writes it): with baseline records and no site.mk the line is an error -- the build would compile every expectation as none and the loader would measure nothing; with site.mk, or with no baselines at all, a comment line. A check at generation time, like the trust anchor: nothing at run time
+# @group   stage
+# @internal
+# @see     stage build
+# @see     stage site mk
+#@end
+__stage_site_present1() {
+        local mk="$ELEBAKE_BASE/stage/$1/work/stand/efi/loader/local/site.mk" b="" n=0
+        for b in "$ELEBAKE_BASE/stage/$1"/baselines/*; do
+                test -f "$b" && n=$((n + 1))
+        done
+        if test "$n" -eq 0; then
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'stage $1: no baselines, site.mk not required'"
+        elif test -s "$mk"; then
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'stage $1: site.mk in the worktree carries the $n baseline(s)'"
+        else
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'stage build $1: $n baseline(s) bound but no site.mk in the worktree (stage site mk $1 first; a loader built without it takes every expectation as none and measures nothing)'"
         fi
 }
 
@@ -3773,6 +3797,7 @@ ___stage_dump_complete1() {
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage dump hooks '$1'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage dump marker '$1'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage dump backup '$1'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage dump rescue '$1'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage dump boot complete '$1'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage dump rebuild '$1'"
 }
@@ -3836,7 +3861,7 @@ ___stage_dump_add1() {
 
 #@help ___stage_dump_boot_complete1
 # @command stage dump boot complete <stage>
-# @summary Dump block: the stage's boot/ as ONE 'stage import tree <stage> boot <archive boot>' line (the bundle's MANIFEST already vouches for every file; a line per file cost ~1100 batches in the rescue probe); no boot tree is a comment line
+# @summary Dump block: the stage's boot/ as ONE 'stage import tree <stage> boot <archive boot>' line (the bundle's MANIFEST already vouches for every file; a line per file cost ~1100 batches in the rescue probe), then the skeleton -- the bundle carries files only, so every EMPTY directory of the tree is one 'stage import <stage> <dir>' line after it (the tree copy replaces the directory, the skeleton lands behind it)
 # @group   stage
 # @internal
 # @env     ELEBAKE_ARCHIVE_BASE  the prefix the emitted paths are written against
@@ -3844,11 +3869,40 @@ ___stage_dump_add1() {
 # @see     stage import tree
 #@end
 ___stage_dump_boot_complete1() {
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage dump boot tree '$1'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage dump boot skeleton '$1'"
+}
+
+#@help __stage_dump_boot_tree1
+# @command stage dump boot tree <stage>
+# @summary The stage has a boot tree: the one 'stage import tree <stage> boot <archive boot>' line, else a comment line
+# @group   stage
+# @internal
+# @env     ELEBAKE_ARCHIVE_BASE  the prefix the emitted paths are written against
+# @see     stage dump boot complete
+#@end
+__stage_dump_boot_tree1() {
         if test -d "$ELEBAKE_BASE/stage/$1/boot"; then
                 printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage import tree '$1' 'boot' \"\$ELEBAKE_ARCHIVE_BASE/stage/$1/boot\""
         else
                 printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'stage $1 has no boot tree'"
         fi
+}
+
+#@help ___stage_dump_boot_skeleton1
+# @command stage dump boot skeleton <stage>
+# @summary The empty directories of the stage's boot tree (found now, sorted), one 'stage import <stage> <dir>' line each; none is a comment line
+# @group   stage
+# @internal
+# @see     stage dump boot complete
+#@end
+___stage_dump_boot_skeleton1() {
+        local d="" n=0
+        for d in $(find "$ELEBAKE_BASE/stage/$1/boot" -type d -empty 2>/dev/null | LC_ALL=C sort); do
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage import '$1' '${d#"$ELEBAKE_BASE/stage/$1/"}'"
+                n=$((n + 1))
+        done
+        test "$n" -gt 0 || printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'the boot tree of $1 has no empty directory'"
 }
 
 #@help ___stage_dump_boot_minimized1

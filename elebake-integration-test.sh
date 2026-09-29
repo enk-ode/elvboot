@@ -100,6 +100,13 @@ make_source_db() {
   eb "$base" stage attest key story openpgp attest > /dev/null 2>&1
   eb "$base" stage device story t /dev/testda99 /mnt > /dev/null 2>&1
   eb "$base" stage boot tree story t test-label pool/test > /dev/null 2>&1
+  # the rescue description: dataset, pool, tools, mirrored paths, the medium's card
+  eb "$base" stage rescue dataset add story zroot/rescue > /dev/null 2>&1
+  eb "$base" stage rescue pool add story zcard > /dev/null 2>&1
+  eb "$base" stage rescue tools add story tpm2-tools > /dev/null 2>&1
+  eb "$base" stage rescue tools add story gnupg > /dev/null 2>&1
+  eb "$base" stage rescue config add story /etc/wpa_supplicant.conf > /dev/null 2>&1
+  eb "$base" stage rescue card add story t da1p3 > /dev/null 2>&1
   mkdir -p "$base/stage/story/boot/lua" "$base/stage/story/boot/dtb/overlays"
   printf 'EFI\n'  > "$base/stage/story/boot/loader.efi"
   printf 'LUA\n'  > "$base/stage/story/boot/lua/loader.lua"
@@ -113,13 +120,13 @@ make_source_db() {
   eb "$base" expectation add story-macro macro - STORY_EXPECTED > /dev/null
   eb "$base" claim add story-claim measure_story - story.flag story-exp > /dev/null
   eb "$base" trigger add story-fire when_always publish_act > /dev/null
-  eb "$base" gate add story-gate STORY_SECRET_SLOT > /dev/null
+  eb "$base" gate add story-gate > /dev/null
   eb "$base" gate claim add story-gate story-claim > /dev/null
   eb "$base" policy add story-policy story-gate > /dev/null
   eb "$base" policy trigger add story-policy story-fire > /dev/null
   # binding via the check-free append (the stage has no worktree here --
   # exactly the situation a restore is in; the dump replays this line)
-  eb "$base" stage phase policy append story PHASE_STORY story-policy > /dev/null 2>&1
+  eb "$base" stage phase policy append story PHASE_STORY story-policy 1 > /dev/null 2>&1
   return 0
 }
 
@@ -132,7 +139,7 @@ migrate() {
   # so the machine secrets (marker, backups) travel to one's own new home.
   story_key "$dstroot" || return 1
   story_pin "$srcbase" attest-story
-  eb "$srcbase" export "$dumpfile" "$dstroot/bundle.tar.gz" full > "$dstroot/export.log" 2>&1
+  eb "$srcbase" export full "$dumpfile" "$dstroot/bundle.tar.gz" > "$dstroot/export.log" 2>&1
   ELEBAKE_ROOT="$dstroot" ELEBAKE_BASE="$dstbase" "$TEST_SCRIPT" bootstrap current minimal > "$dstroot/bootstrap.log" 2>&1 || return 1
   eb "$dstbase" setenv ELEBAKE_TERMINAL_INTERPRETER sh > /dev/null
   story_pin "$dstbase" attest-story
@@ -203,13 +210,13 @@ acc_arsenal() {
   eb "$base" claim add prereqs-verify measure_prerequisites_verify diagnose_prerequisites_verify verify.count prereqs-verify > /dev/null
   eb "$base" claim add strict-active  measure_strict - strict.active strict-active > /dev/null
   eb "$base" claim add strict-marker  measure_ve_strict - strict.marker strict-marker > /dev/null
-  eb "$base" gate add bootlock LOADER_TRUST_BOOTLOCK_SECRET > /dev/null
+  eb "$base" gate add bootlock > /dev/null
   eb "$base" gate claim add bootlock secureboot > /dev/null
   eb "$base" gate claim add bootlock setupmode > /dev/null
   eb "$base" gate claim add bootlock marker > /dev/null
   eb "$base" gate claim add bootlock board > /dev/null
   eb "$base" gate claim add bootlock keys > /dev/null
-  eb "$base" gate add loaderlock LOADER_TRUST_LOADERLOCK_SECRET > /dev/null
+  eb "$base" gate add loaderlock > /dev/null
   eb "$base" gate claim add loaderlock prereqs-exist > /dev/null
   eb "$base" gate claim add loaderlock prereqs-verify > /dev/null
   eb "$base" gate add strictwatch > /dev/null
@@ -277,45 +284,39 @@ user_story_4_foundation_acceptance() {
 #define	MARKER_EXPECTED	MEASUREMENT_NONE("BootMarker", MEAS_SHA256)
 #endif
 
-#ifdef LOADER_TRUST_BOOTLOCK_SECRET
-#define	BOOTLOCK_SECRET	LOADER_TRUST_BOOTLOCK_SECRET
-#else
-#define	BOOTLOCK_SECRET	NULL
-#endif
-
-#ifdef LOADER_TRUST_LOADERLOCK_SECRET
-#define	LOADERLOCK_SECRET	LOADER_TRUST_LOADERLOCK_SECRET
-#else
-#define	LOADERLOCK_SECRET	NULL
-#endif
-
-GATE_DEFINE(bootlock, BOOTLOCK_SECRET, NULL,
+GATE_DEFINE(bootlock,
     CLAIM(measure_secureboot, NULL, NULL, MEASUREMENT_BYTE("SecureBoot", 1)),
     CLAIM(measure_setupmode, NULL, NULL, MEASUREMENT_BYTE("SetupMode", 0)),
     CLAIM(measure_marker, diagnose_marker, NULL, MARKER_EXPECTED),
     CLAIM(measure_board, NULL, "board.sha256", BOARD_EXPECTED),
     CLAIM(measure_keys, diagnose_keys, "keys.sha256", KEYS_EXPECTED));
 
-GATE_DEFINE(loaderlock, LOADERLOCK_SECRET, NULL,
+GATE_DEFINE(loaderlock,
     CLAIM(measure_prerequisites_exist, diagnose_prerequisites_exist, "exist.count", MEASUREMENT_BYTE("PrereqsExist", LOADER_PREREQUISITES_EXIST_N)),
     CLAIM(measure_prerequisites_verify, diagnose_prerequisites_verify, "verify.count", MEASUREMENT_BYTE("PrereqsVerify", LOADER_PREREQUISITES_VERIFY_N)));
 
-GATE_DEFINE(strictwatch, NULL, NULL,
+GATE_DEFINE(strictwatch,
     CLAIM(measure_strict, NULL, "strict.active", MEASUREMENT_BYTE("StrictActive", 1)),
     CLAIM(measure_ve_strict, NULL, "strict.marker", MEASUREMENT_BYTE("VeStrictPresent", 1)));
 
+POLICY_TABLE_DEFINE(publish_bootlock_bindings,
+    FIRE(when_always, publish_act));
+
 static const struct policy boot_policies[] = {
-	POLICY(bootlock,
-	    FIRE(when_always, &publish_act)),
+	POLICY(bootlock, publish_bootlock_bindings),
 	POLICY_END,
 };
 
+POLICY_TABLE_DEFINE(backstop_loaderlock_bindings,
+    FIRE(when_always, publish_act),
+    FIRE(when_fail, unlock_act));
+
+POLICY_TABLE_DEFINE(watch_strict_bindings,
+    FIRE(when_always, publish_act));
+
 static const struct policy loader_policies[] = {
-	POLICY(loaderlock,
-	    FIRE(when_always, &publish_act),
-	    FIRE(when_fail, &unlock_act)),
-	POLICY(strictwatch,
-	    FIRE(when_always, &publish_act)),
+	POLICY(loaderlock, backstop_loaderlock_bindings),
+	POLICY(strictwatch, watch_strict_bindings),
 	POLICY_END,
 };
 
@@ -366,7 +367,7 @@ user_story_5_export_import() {
   printf 'Boot0007\n' > "$src/stage/s5stage/marker/bootvar"
   ELEBAKE_ROOT="$root" eb "$src" expectation add s5exp byte S 1 > /dev/null 2>&1
 
-  if ELEBAKE_ROOT="$root" eb "$src" export "$root/nokey.sh" "$root/bundle/nokey.tar.gz" redacted 2>&1 \
+  if ELEBAKE_ROOT="$root" eb "$src" export redacted "$root/nokey.sh" "$root/bundle/nokey.tar.gz" 2>&1 \
      | grep -q "ELEBAKE_ARCHIVE_ATTEST_KEY not set"; then
     pass "an export without an attest key is refused -- an unsigned archive is not evidence"
   else
@@ -376,7 +377,7 @@ user_story_5_export_import() {
   story_key "$root" || { fail "could not create a story key"; story_close 5; return 0; }
   story_pin "$src" s5attest
 
-  ELEBAKE_ROOT="$root" eb "$src" export "$root/dump-for-git.sh" "$root/bundle/s5.tar.gz" redacted > /dev/null 2>&1
+  ELEBAKE_ROOT="$root" eb "$src" export redacted "$root/dump-for-git.sh" "$root/bundle/s5.tar.gz" > /dev/null 2>&1
   if [ -f "$root/bundle/s5.tar.gz" ] && [ -f "$root/dump-for-git.sh" ]; then
     pass "export produced both artifacts: a dump to version, a bundle to store"
   else
@@ -488,7 +489,7 @@ user_story_5_export_import() {
   else
     fail "receipt/serial wrong: $(ls "$fresh/provenance" 2>/dev/null) $(cat "$fresh/export/serial" 2>/dev/null)"
   fi
-  ELEBAKE_ROOT="$root" eb "$src" export "$root/dump2.sh" "$root/bundle/s5-2.tar.gz" redacted > /dev/null 2>&1
+  ELEBAKE_ROOT="$root" eb "$src" export redacted "$root/dump2.sh" "$root/bundle/s5-2.tar.gz" > /dev/null 2>&1
   ELEBAKE_ROOT="$root" eb "$fresh" import "$root/dump2.sh" "$root/bundle/s5-2.tar.gz" > /dev/null 2>&1
   out=$(ELEBAKE_ROOT="$root" eb "$fresh" import "$root/dump-for-git.sh" "$root/bundle/s5.tar.gz" 2>&1)
   if printf '%s\n' "$out" | grep -q "DOWNGRADE" && [ "$(cat "$fresh/export/serial")" = 2 ]; then
@@ -524,7 +525,7 @@ user_story_6_rescue_roundtrip() {
   story_key "$root" || { fail "story key"; story_close 6; return 0; }
   story_pin "$big" attest-story
 
-  ELEBAKE_ROOT="$root" eb "$big" export "$root/out.sh" "$root/bundle/out.tar.gz" minimized > "$root/export.log" 2>&1
+  ELEBAKE_ROOT="$root" eb "$big" export minimized "$root/out.sh" "$root/bundle/out.tar.gz" > "$root/export.log" 2>&1
   if tar -tzf "$root/bundle/out.tar.gz" | grep -q "boot/kernel/if_x.ko" && tar -tzf "$root/bundle/out.tar.gz" | grep -q "backup/a/known-good/loader.efi" \
      && ! tar -tzf "$root/bundle/out.tar.gz" | grep -q "lua" && ! tar -tzf "$root/bundle/out.tar.gz" | grep -q "marker" \
      && grep -q "^# Strategy: minimized$" "$root/out.sh" && ! grep -q "lua" "$root/out.sh"; then
@@ -562,7 +563,7 @@ user_story_6_rescue_roundtrip() {
   printf 'EVILLOADER\n' > "$r/backup/a/suspect-20260902T160000Z/loader.efi"; sha256 -q "$r/backup/a/suspect-20260902T160000Z/loader.efi" > "$r/backup/a/suspect-20260902T160000Z/sha256"
   printf '2026-09-02T16:00:00Z\n' > "$r/backup/a/suspect-20260902T160000Z/created"; printf 'loader found on medium a before rollback -- keep for analysis\n' > "$r/backup/a/suspect-20260902T160000Z/description"
   printf 'repaired\n' > "$r/boot/loader.conf"
-  ELEBAKE_ROOT="$root" eb "$rescue" export "$root/back.sh" "$root/bundle/back.tar.gz" minimized > "$root/export2.log" 2>&1
+  ELEBAKE_ROOT="$root" eb "$rescue" export minimized "$root/back.sh" "$root/bundle/back.tar.gz" > "$root/export2.log" 2>&1
   if grep -q "^# Serial: 2$" "$root/back.sh"; then
     pass "the rescue's export continues the lineage (serial 2, not 1)"
   else
@@ -609,6 +610,12 @@ user_story_1_migration_roundtrip() {
     pass "stage tree identical after migration (incl. empty skeleton dirs)"
   else
     fail "stage tree differs: $(head -3 "$dst/diff.out")"
+  fi
+  if [ "$(cat "$dstbase/stage/story/rescue/dataset" 2>/dev/null)" = zroot/rescue ] && [ "$(cat "$dstbase/stage/story/rescue/cards/t" 2>/dev/null)" = da1p3 ] \
+     && [ "$(grep -c . "$dstbase/stage/story/rescue/tools" 2>/dev/null)" = 2 ] && eb "$dstbase" stage rescue show story | grep -q "config: /etc/wpa_supplicant.conf"; then
+    pass "the rescue description (dataset, pool, tools, config, cards) is replayed by the dump"
+  else
+    fail "rescue description after migration: $(eb "$dstbase" stage rescue show story 2>&1 | tr '\n' ' ')"
   fi
   if [ "$(cat "$dstbase/pkcs11/tok/cert.pem" 2>/dev/null)" = "CERTMATERIAL" ]; then
     pass "backend extra file travelled with the dump"

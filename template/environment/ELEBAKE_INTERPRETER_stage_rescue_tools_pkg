@@ -1,0 +1,2 @@
+sudo sh
+# Act terminal of 'stage rescue tools install': pkg --rootdir into a root-owned tree.

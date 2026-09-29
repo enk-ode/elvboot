@@ -1,0 +1,2 @@
+sudo sh
+# Act terminal of 'stage rescue dataset open': mount -t zfs and devfs need root.

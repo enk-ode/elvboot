@@ -1,0 +1,2 @@
+sudo sh
+# Act terminal of 'stage tpm hierarchy': tpm2_changeauth of the owner and lockout hierarchy needs /dev/tpm0 (root).

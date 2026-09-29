@@ -1,0 +1,2 @@
+sudo sh
+# Act terminal of 'stage tpm duress' (duress_reset_write): the tpm2-tools need /dev/tpm0 (root).

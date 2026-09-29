@@ -1,0 +1,2 @@
+sudo sh
+# Act terminal of 'stage rescue card init': zpool create/export and geli detach need root.

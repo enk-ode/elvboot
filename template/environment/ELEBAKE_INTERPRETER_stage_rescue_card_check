@@ -1,0 +1,2 @@
+sudo sh
+# Act terminal of 'stage rescue push' and 'stage rescue verify': zfs get on the imported pool, as root like the import.

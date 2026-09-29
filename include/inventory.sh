@@ -429,16 +429,20 @@ ___stage_dump_inventory_sets1() {
         done
 }
 
-#@help ___stage_dump_inventory_dir1
+#@help __stage_dump_inventory_dir1
 # @command stage dump inventory dir <stage>
-# @summary Dump block: the one line that declares the inventory directory of the record ('stage import <stage> inventory') before the set files land in it
+# @summary Dump block: the record has an inventory directory -- the one line that declares it in the target ('stage import <stage> inventory') before the set files land in it; no directory (a stage that never learned an inventory) is a comment line, so the replay makes no directory the source does not have
 # @group   provisioning
 # @internal
 # @see     stage dump inventory sets
 # @see     stage import
 #@end
-___stage_dump_inventory_dir1() {
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage import '$1' 'inventory'"
+__stage_dump_inventory_dir1() {
+        if test -d "$ELEBAKE_BASE/stage/$1/inventory"; then
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage import '$1' 'inventory'"
+        else
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'stage $1 has no inventory directory'"
+        fi
 }
 
 #@help ___stage_dump_inventory_set2

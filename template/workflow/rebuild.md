@@ -7,10 +7,12 @@
 
 elebake stage recheckout daily-v1 ptg-15.1-next   # only when the branch moved
 elebake stage trust daily-v1                      # the fresh worktree has no trust anchor
-elebake stage foundation make daily-v1            # the policy tables into foundation.c
+elebake stage foundation check daily-v1           # the bindings resolve (stage make renders foundation.c itself, first thing in the build)
 elebake stage site mk daily-v1                    # the baselines into site.mk (and the inventory sets)
 elebake stage loaderconf mk daily-v1              # loader.trust.conf from the kenv records -- after EVERY kenv change
-elebake stage make daily-v1                       # build, install, include, sign
+elebake stage build kernel daily-v1               # when the checkout moved: the kernel from the fork (ELEBAKE_KERNCONF set); then
+elebake stage install kernel daily-v1             # ... installkernel into the stage's boot tree -- without this line the medium keeps the old kernel and SoftPcr stays
+elebake stage make daily-v1                       # build, install, include, sign (include takes the kernel from destdir/boot)
 elebake stage earlboot mk daily-v1 && elebake stage earlboot install daily-v1    # the hooks carry the loader's digest:
 elebake stage elvbootd mk daily-v1 && elebake stage elvbootd install daily-v1    # regenerate after every make (install: never with sudo, the pins do it)
 elebake stage push daily-v1 b                     # manifest, attest, tree onto the medium, loader onto the ESP

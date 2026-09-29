@@ -1,0 +1,2 @@
+sudo sh
+# Act terminal of 'stage rescue push': zfs send -I | zfs recv needs root.

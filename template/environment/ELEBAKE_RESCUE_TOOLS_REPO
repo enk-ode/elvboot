@@ -1,0 +1,2 @@
+FreeBSD-ports
+# The ports repository stage rescue tools install draws the tool list from (pkg -vv names it).

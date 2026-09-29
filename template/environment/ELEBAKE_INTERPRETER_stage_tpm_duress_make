@@ -1,0 +1,2 @@
+sudo sh
+# Act terminal of 'stage tpm duress' (duress_make): the tpm2-tools need /dev/tpm0 (root).

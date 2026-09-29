@@ -1,0 +1,2 @@
+sh
+# Act terminal of 'stage rescue passphrase': the hidden read on /dev/tty; sh so the file is written, cat only shows the script.

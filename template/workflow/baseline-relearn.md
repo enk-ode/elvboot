@@ -5,6 +5,16 @@
 # inventory drop, the TPM storage key after a reseal, a time window after a
 # series of settled boots. Baselines are -D macros in site.mk: relearning
 # is a rebuild, so a PCR round follows.
+#
+# LoadedImages after a change BELOW the operating system: a repartitioned
+# disk, a re-provisioned TPM (new objects, new indices), a device added to
+# the dock. The firmware's disk, partition and TPM drivers keep what they
+# enumerated in their data sections, and LoadedImages digests those
+# images as they sit in memory -- a dozen members of the set change their
+# digest at once, deterministically, and keep the new one on the next
+# cold boot. That is a new state, not a moving member: relearn
+# LOADER_TRUST_IMAGES_DIGEST here, do not drop (inventory-drop is for a
+# member that differs from boot to boot).
 
 kenv | grep -i "loader.trust.*failed="            # which claim, and the published value beside it
 

@@ -1,0 +1,2 @@
+sudo sh
+# Act terminal of 'stage rescue snapshot': zfs snapshot needs root.

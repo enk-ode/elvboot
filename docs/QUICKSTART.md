@@ -23,7 +23,7 @@ below spell out `./elebake.sh` so they work before that step.
 Without it the catalogs are empty and no foundation can be built:
 
 ```sh
-git clone -b platform-trust-gates-15.1 https://github.com/johannes-bruegmann/freebsd-src.git ~/git/freebsd-src
+git clone -b elvboot-15.1 https://github.com/johannes-bruegmann/freebsd-src.git ~/git/freebsd-src
 ./elebake.sh setenv ELEBAKE_FREEBSD_SRC ~/git/freebsd-src
 ./elebake.sh freebsd prerequisites          # git, make, clang, and the repo
 ```
@@ -42,7 +42,7 @@ git clone -b platform-trust-gates-15.1 https://github.com/johannes-bruegmann/fre
 ./elebake.sh stage add smoke1
 ./elebake.sh stage sign key smoke1 pkcs11 db
 ./elebake.sh stage attest key smoke1 openpgp manifest
-./elebake.sh stage checkout smoke1 platform-trust-gates-15.1^0 | sh   # git worktree, outside the DB
+./elebake.sh stage checkout smoke1 elvboot-15.1^0 | sh   # git worktree, outside the DB
 ./elebake.sh stage filter smoke1 +loader.efi.signed # curate what boot/ carries
 ```
 

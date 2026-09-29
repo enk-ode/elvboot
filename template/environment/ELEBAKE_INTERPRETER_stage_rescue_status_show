@@ -1,0 +1,2 @@
+sudo sh
+# Act terminal of 'stage rescue status': zfs list and mount, as root so an unmounted tree lists too.

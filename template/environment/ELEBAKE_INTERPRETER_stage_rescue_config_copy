@@ -1,0 +1,2 @@
+sudo sh
+# Act terminal of 'stage rescue config mirror': cp -a keeps owners and modes, needs root.

@@ -1,0 +1,2 @@
+sudo sh
+# Act terminal of 'stage rescue card init': geli init/attach and dd over the provider need root.

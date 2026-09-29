@@ -1,2 +1,0 @@
-sudo sh
-# Act terminal of 'stage tpm policy': the trial session needs /dev/tpm0 (root).

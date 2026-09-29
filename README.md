@@ -108,12 +108,12 @@ Against a stock FreeBSD tree the catalogs are empty and nothing
 measures anything.
 
 ```
-git clone -b platform-trust-gates-15.1 \
+git clone -b elvboot-15.1 \
     https://github.com/johannes-bruegmann/freebsd-src.git ~/git/freebsd-src
 ./elebake.sh setenv ELEBAKE_FREEBSD_SRC ~/git/freebsd-src
 ```
 
-Branch `platform-trust-gates-15.1` is based on releng/15.1; the
+Branch `elvboot-15.1` is based on releng/15.1; the
 loader-side engine lives under `stand/efi/loader/local/` and its README
 points back here. Parts of the series are on their way upstream.
 

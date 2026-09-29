@@ -206,7 +206,7 @@ equivalence: hyphens in command words normalize to spaces.)
 
 The source is  the FreeBSD tree that carries the  platform-trust-gates series --
 `https://github.com/johannes-bruegmann/freebsd-src`,                      branch
-`platform-trust-gates-15.1` (based on releng/15.1). A stock tree has no catalogs
+`elvboot-15.1` (based on releng/15.1). A stock tree has no catalogs
 to offer, and everything from chapter 7 on would be empty.
 
 Deliberately run WITHOUT the variable first — fail early is worth seeing once:
@@ -228,7 +228,7 @@ $ ./elebake.sh freebsd prerequisites
 > hid behind).
 
 The   checkout,  with   one   deliberate   detail  on   the   ref:  the   branch
-`platform-trust-gates-15.1`  is already  checked out  in the  production stage's
+`elvboot-15.1`  is already  checked out  in the  production stage's
 worktree, and git  refuses the same BRANCH  in two worktrees —  while any number
 may share a COMMIT. `^0` resolves the branch to its commit (detached), so stages
 share the state  without fighting over the branch. Collisions  are impossible on
@@ -239,14 +239,14 @@ point — that is why this takes seconds instead of a second clone.
 Pipeline commands are inspect-by-default. Read first:
 
 ```
-$ ./elebake.sh stage checkout illyria-boot platform-trust-gates-15.1^0
+$ ./elebake.sh stage checkout illyria-boot elvboot-15.1^0
 # freebsd prerequisites ok (checked at generation time): git make clang; src: /home/brj/git/freebsd-src
 mkdir -p '/home/brj/.elebake/worktree'
-git -C '/home/brj/git/freebsd-src' worktree add '/home/brj/.elebake/worktree/stage-faa35dcef54e' 'platform-trust-gates-15.1^0'
+git -C '/home/brj/git/freebsd-src' worktree add '/home/brj/.elebake/worktree/stage-faa35dcef54e' 'elvboot-15.1^0'
 ln -sfn '/home/brj/.elebake/worktree/stage-faa35dcef54e' '/home/brj/.elebake/db/.staging/stage-faa35dcef54e/work'
-echo 'platform-trust-gates-15.1^0' > '/home/brj/.elebake/db/.staging/stage-faa35dcef54e/checkout'
+echo 'elvboot-15.1^0' > '/home/brj/.elebake/db/.staging/stage-faa35dcef54e/checkout'
 chmod 0600 '/home/brj/.elebake/db/.staging/stage-faa35dcef54e/checkout'
-printf '# Checked out %s at %s (worktree %s)\n' 'illyria-boot' 'platform-trust-gates-15.1^0' '/home/brj/.elebake/worktree/stage-faa35dcef54e' >&2
+printf '# Checked out %s at %s (worktree %s)\n' 'illyria-boot' 'elvboot-15.1^0' '/home/brj/.elebake/worktree/stage-faa35dcef54e' >&2
 ```
 
 Note  `mkdir   -p`:  every   directory  emission   is  idempotent   by  doctrine
@@ -256,12 +256,12 @@ same stage  is a  decision, not  a silent  overwrite; the  batch stops  at git's
 error. Now act:
 
 ```
-$ ./elebake.sh stage checkout illyria-boot platform-trust-gates-15.1^0 | sh
+$ ./elebake.sh stage checkout illyria-boot elvboot-15.1^0 | sh
 # freebsd prerequisites ok (checked at generation time): git make clang; src: /home/brj/git/freebsd-src
 Preparing worktree (detached HEAD 59a2380128b)
 Updating files: 100% (109084/109084), done.
 HEAD is now at 59a2380128b stand: set st_dev/st_ino in the loader's ZFS stat for veriexec
-# Checked out illyria-boot at platform-trust-gates-15.1^0 (worktree /home/brj/.elebake/worktree/stage-faa35dcef54e)
+# Checked out illyria-boot at elvboot-15.1^0 (worktree /home/brj/.elebake/worktree/stage-faa35dcef54e)
 ```
 
 (That HEAD is  this machine's own story:  the commit is the  loader ZFS veriexec
@@ -278,7 +278,7 @@ Four display commands, all parsed LIVE  from the headers of the stage's checkout
 
 ```
 $ ./elebake.sh stage measure illyria-boot
-# measurement catalog of stage illyria-boot (checkout: platform-trust-gates-15.1^0)
+# measurement catalog of stage illyria-boot (checkout: elvboot-15.1^0)
 #   measure_prerequisites_exist
 #   measure_prerequisites_verify
 #   measure_secureboot
@@ -295,7 +295,7 @@ $ ./elebake.sh stage measure illyria-boot
 #   diagnose_keys
 #   diagnose_marker
 $ ./elebake.sh stage action illyria-boot
-# action catalog of stage illyria-boot (checkout: platform-trust-gates-15.1^0)
+# action catalog of stage illyria-boot (checkout: elvboot-15.1^0)
 #   proceed_act
 #   publish_act
 #   report_act
@@ -306,12 +306,12 @@ $ ./elebake.sh stage action illyria-boot
 #   panic_act
 #   reboot_act
 $ ./elebake.sh stage when illyria-boot
-# when catalog of stage illyria-boot (checkout: platform-trust-gates-15.1^0)
+# when catalog of stage illyria-boot (checkout: elvboot-15.1^0)
 #   when_always
 #   when_fail
 #   when_pass
 $ ./elebake.sh stage phase show illyria-boot
-# phase catalog of stage illyria-boot (checkout: platform-trust-gates-15.1^0)
+# phase catalog of stage illyria-boot (checkout: elvboot-15.1^0)
 #   PHASE_BOOT
 #	(no policies bound)
 #   PHASE_LOADER
@@ -559,7 +559,7 @@ The full batch — check stage -> foundation check -> make -> report:
 ```
 $ ./elebake.sh stage foundation illyria-boot
 $ ./elebake.sh stage foundation report illyria-boot
-# foundation report of stage illyria-boot (checkout: platform-trust-gates-15.1^0)
+# foundation report of stage illyria-boot (checkout: elvboot-15.1^0)
 #   PHASE_BOOT
 #       policy: publish-bootlock
 #   PHASE_LOADER
@@ -586,7 +586,7 @@ The acceptance, done  by hand — against  the committed truth of  the branch (t
 hand-written original only exists there):
 
 ```
-$ git -C ~/git/freebsd-src show platform-trust-gates-15.1:stand/efi/loader/local/foundation/foundation.c \
+$ git -C ~/git/freebsd-src show elvboot-15.1:stand/efi/loader/local/foundation/foundation.c \
     | diff - ~/.elebake/worktree/stage-faa35dcef54e/stand/efi/loader/local/foundation/foundation.c
 ```
 
@@ -646,7 +646,7 @@ $ head -10 ~/.elebake/worktree/stage-faa35dcef54e/stand/efi/loader/local/foundat
  */
 
 /* generated by elebake stage foundation make -- do not edit
- * stage: illyria-boot	checkout: platform-trust-gates-15.1^0 (59a2380128b) */
+ * stage: illyria-boot	checkout: elvboot-15.1^0 (59a2380128b) */
 ```
 
 License and author are  the USER's decision, entered once via  setenv — never an
@@ -872,6 +872,16 @@ something:
   the firmware's hash of  the loader image, and the loader is  one of the loaded
   images. Their expectation is read from the conf instead.
 
+  One more thing the owner should know about `LoadedImages`: it changes
+  when something below the operating system changes, even without any
+  firmware update. Repartitioning a disk, re-provisioning the TPM (new
+  objects, new NV indices) or adding a device to the dock moves the data
+  sections of the firmware drivers that enumerate disks, partitions and
+  the chip; a dozen members of the set change their digest together and
+  keep the new value on every cold boot after. That is a new state of the
+  machine, and the claim is right to report it -- the answer is the
+  baseline-relearn workflow, not inventory-drop.
+
 The mechanism  that came out  of it has add  semantics, never an  exclusion: the
 stage names the SET a claim measures.
 
@@ -975,7 +985,7 @@ per file. The next  lever, lines of a batch in one process,  is an engine change
 and waits for its plan.
 
 Then the  comparison. On the desktop  the worktree is re-anchored  from the same
-fork -- `stage checkout daily-v1 platform-trust-gates-15.1`, 109111 files -- and
+fork -- `stage checkout daily-v1 elvboot-15.1`, 109111 files -- and
 `stage require  daily-v1` prints on  both machines the  same 34 lines:  the five
 kenv  leafs the  bound actions  read, the  one key  expectation, every  baseline
 provisioned, the  three digests that have  no value yet. The  database describes
@@ -1064,7 +1074,7 @@ deviation is not healed silently -- it asks for an informed decision, the
 unlock with the one passphrase left in the loader, `loader-prompt-v1`, with
 no second role a hash could give away.
 
-The provisioning moved into the tool the same night: `stage tpm key`,
+The provisioning moved into the tool the same night: `stage tpm hierarchy`, `stage tpm key`,
 `stage tpm policy`, `stage tpm seal <stage> owner|duress <secret-file>`,
 `stage tpm counter`, `stage tpm probe` and `stage tpm clean` render the
 tpm2-tools commands from the stage's leafs (`loader.trust.tpm.key.handle`,
@@ -1163,10 +1173,13 @@ The rollout on card a, from a chain that had to start over:
   prompt, no sentinel question, straight into the kernel. earlboot caught it
   from the other side (`custody fail [word-ok, taint-open, prompted-set,
   book-step]`), the reserve card was the way back, and the sequence is a
-  file since: `elebake workflow show rebuild`. Two things the walk wrote
-  down for the loader and the tool: a loader whose ledger is empty must not
-  open the root, and a build from the checkout's empty foundation.c with
-  policies bound must refuse.
+  file since: `elebake workflow show rebuild`. What the walk changed in the
+  tool: `stage build` renders foundation.c from the stage's bindings
+  itself, first thing, so the gates an owner bound are in every binary
+  and nobody has to remember the step. The loader stays as it is: a build
+  that binds nothing runs every phase empty and boots like the stock
+  loader -- a configuration, not an error, and the way in for a user who
+  starts without policies.
 - **Chain restart.** The repaired loader asked the sentinel question again;
   recordlock fell as a whole (RecordValid and, with it, every claim that
   measures against the record or the anchor -- an armed claim without a
