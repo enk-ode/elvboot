@@ -1,0 +1,3 @@
+sudo sh
+# Act terminal of 'stage medium ensure' (in stage push and stage deploy): mounts the ESP read-write on the stage's mount directory and proves the card by its stamp, as root -- the wrong card is refused before anything is written.
+# @see ELEBAKE_INTERPRETER_stage_medium_release

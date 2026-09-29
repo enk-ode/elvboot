@@ -815,11 +815,12 @@ elebake freebsd prerequisites
       the owner decides about each such file</dd>
   <dt id="stage~47"><a class="permalink" href="#stage~47"><b>stage push
     &lt;stage&gt; &lt;medium&gt;</b></a></dt>
-  <dd>Publish the stage: manifest, attest, verify, tree onto the medium, loader
-      onto the ESP, the medium&#x2019;s letter stamped. Before the first write
-      the stamp on the inserted card is read and must name this medium (stage
-      medium stamp check): a fresh card gets its letter with `stage medium
-      stamp' first, the wrong card is refused</dd>
+  <dd>Publish the stage: manifest, attest, verify, the signed loader present;
+      then the way onto the medium (stage medium ensure: the ESP mounted
+      read-write and the card proven to be this medium by the letter it carries
+      &#x2013; the wrong card is refused before the first write, a fresh card
+      gets its letter with `stage medium stamp' first), the tree and the loader
+      written (stage medium write), the medium released</dd>
   <dt id="stage~48"><a class="permalink" href="#stage~48"><b>stage dump
     [&lt;strategy&gt;] [&lt;stage&gt;|all]</b></a></dt>
   <dd>The stage part of a dump: every stage in the complete vocabulary. The
@@ -1484,12 +1485,11 @@ elebake freebsd prerequisites
       which letter booted last</dd>
   <dt id="stage~131"><a class="permalink" href="#stage~131"><b>stage medium
     identify &lt;stage&gt; &lt;medium&gt;</b></a></dt>
-  <dd>Which card is in? Read the stamp the ESP of the inserted card carries
-      (EFI/elvboot/medium) and say it, under the assumption that it is the
-      registered medium named (its device node): the stage exists, the medium is
-      registered, the device node is present, then `stage medium stamp read'.
-      Nothing is written; the ESP is mounted read-only on the stage&#x2019;s own
-      mount directory (stage/&lt;stage&gt;/mnt/&lt;medium&gt;)</dd>
+  <dd>Which card is in? The stage exists, the medium is registered, its device
+      node is present; then `stage medium stamp read' mounts the ESP read-only
+      and says the letter the card carries (or that it carries none). Nothing is
+      written. With cloned cards every registered letter names the same device
+      node, so any registered medium serves as the way to the node</dd>
 </dl>
 </section>
 <section class="Ss">

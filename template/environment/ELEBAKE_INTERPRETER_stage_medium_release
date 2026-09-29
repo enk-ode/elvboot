@@ -1,0 +1,3 @@
+sudo sh
+# Act terminal of 'stage medium release': unmounts the ESP from the stage's mount directory, as root.
+# @see ELEBAKE_INTERPRETER_stage_medium_mount

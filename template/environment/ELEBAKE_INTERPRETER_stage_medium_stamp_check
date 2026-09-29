@@ -1,3 +1,0 @@
-sudo sh
-# Act terminal of 'stage medium stamp check' (in stage medium ready and stage deploy): mounts the ESP read-only and compares the stamp as root -- the wrong card is refused before anything is written.
-# @see ELEBAKE_INTERPRETER_stage_medium_stamp_write

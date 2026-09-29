@@ -561,32 +561,66 @@ test_stage_device_and_boot_tree() {
   else
     fail "invalid gpt label not rejected"
   fi
-  # the stamp guard: rendered as root work, never run here (pinned to cat)
-  run_elebake setenv ELEBAKE_INTERPRETER_stage_medium_stamp_check cat > /dev/null
-  run_elebake setenv ELEBAKE_INTERPRETER_stage_medium_stamp_read cat > /dev/null
-  local sc; sc=$(run_elebake stage medium stamp check unitm t 2>&1)
-  if printf '%s\n' "$sc" | grep -q "mount -r -t msdosfs '/dev/testda9' '$TEST_DIR/stage/unitm/mnt/t'" \
-     && printf '%s\n' "$sc" | grep -q "EFI/elvboot/medium" && printf '%s\n' "$sc" | grep -q "= 't' \]" \
-     && printf '%s\n' "$sc" | grep -q "no stamp on" && printf '%s\n' "$sc" | grep -q "wrong card, nothing written" \
-     && printf '%s\n' "$sc" | grep -q "^umount\|; umount"; then
-    pass "stamp check renders the read-only mount on the stage's own mount directory, the compare with the letter, umount"
+  # the way onto a medium: ensure decides at generation, mount proves the card as root, write assumes, release ends
+  if run_elebake stage medium ensure unitm t 2>&1 | grep -q "device not present: /dev/testda9"; then
+    pass "medium ensure: a device node that is not there is an error line, the acts after it stay dead"
   else
-    fail "stamp check wrong: $sc"
+    fail "medium ensure wrong: $(run_elebake stage medium ensure unitm t 2>&1 | head -2)"
   fi
-  if run_elebake stage medium stamp read unitm t 2>&1 | grep -q "carries stamp" \
+  if run_elebake stage medium ensure unitm nosuch 2>&1 | grep -q "unknown medium nosuch"; then
+    pass "medium ensure: an unregistered medium is an error line"
+  else
+    fail "medium ensure (unregistered) wrong"
+  fi
+  run_elebake setenv ELEBAKE_INTERPRETER_stage_medium_mount cat > /dev/null
+  run_elebake setenv ELEBAKE_INTERPRETER_stage_medium_release cat > /dev/null
+  run_elebake setenv ELEBAKE_INTERPRETER_stage_medium_stamp_read cat > /dev/null
+  local mm; mm=$(run_elebake stage medium mount unitm t 2>&1)
+  if printf '%s\n' "$mm" | grep -q "mount -t msdosfs '/dev/testda9' '$TEST_DIR/stage/unitm/mnt/t'" \
+     && printf '%s\n' "$mm" | grep -q "EFI/elvboot/medium" && printf '%s\n' "$mm" | grep -q "= 't' \]" \
+     && printf '%s\n' "$mm" | grep -q "no stamp on" && printf '%s\n' "$mm" | grep -q "wrong card, nothing written" \
+     && ! printf '%s\n' "$mm" | grep -q "^umount '$TEST_DIR/stage/unitm/mnt/t'$"; then
+    pass "medium mount renders the read-write mount on the stage's own mount directory, the letter compared, unmounted only on refusal"
+  else
+    fail "medium mount wrong: $mm"
+  fi
+  if run_elebake stage medium release unitm t 2>&1 | grep -q "^umount '$TEST_DIR/stage/unitm/mnt/t'"; then
+    pass "medium release unmounts the stage's mount directory"
+  else
+    fail "medium release wrong"
+  fi
+  if run_elebake stage medium stamp read unitm t 2>&1 | grep -q "mount -r -t msdosfs" \
+     && run_elebake stage medium stamp read unitm t 2>&1 | grep -q "carries stamp" \
      && ! run_elebake stage medium stamp read unitm t 2>&1 | grep -q "wrong card"; then
-    pass "stamp read says what the card carries and never fails the batch"
+    pass "stamp read mounts read-only, says what the card carries and decides nothing"
   else
     fail "stamp read wrong: $(run_elebake stage medium stamp read unitm t 2>&1 | head -3)"
   fi
-  run_elebake setenv ELEBAKE_INTERPRETER_stage_medium_ready2 cat > /dev/null
+  run_elebake setenv ELEBAKE_INTERPRETER_stage_push2 cat > /dev/null
   run_elebake setenv ELEBAKE_INTERPRETER_stage_deploy2 cat > /dev/null
-  if run_elebake stage medium ready unitm t 2>&1 | grep -q "stage medium stamp check 'unitm' 't'" \
-     && run_elebake stage deploy unitm t 2>&1 | grep -q "stage medium stamp check 'unitm' 't'" \
-     && run_elebake stage medium ready unitm t 2>&1 | grep -q "mkdir -p '$TEST_DIR/stage/unitm/mnt/t'"; then
-    pass "medium ready and deploy carry the stamp check (and create the stage's mount directory) before any write"
+  run_elebake setenv ELEBAKE_INTERPRETER_stage_medium_write2 cat > /dev/null
+  local pb; pb=$(run_elebake stage push unitm t 2>&1)
+  if printf '%s\n' "$pb" | grep -n "stage medium ensure 'unitm' 't'\|stage medium write 'unitm' 't'\|stage medium release 'unitm' 't'" | cut -d: -f1 | tr '\n' ' ' | grep -q "^[0-9]* [0-9]* [0-9]* $" \
+     && ! printf '%s\n' "$pb" | grep -q "stage medium stamp 'unitm'" \
+     && run_elebake stage medium write unitm t 2>&1 | grep -q "stage tree sync 'unitm' 't'" \
+     && run_elebake stage medium write unitm t 2>&1 | grep -q "stage deploy write 'unitm' 't'"; then
+    pass "push is ensure, write, release in that order; write is tree sync then deploy write; no re-stamp at the end"
   else
-    fail "stamp check not in the batches: $(run_elebake stage medium ready unitm t 2>&1 | tail -3)"
+    fail "push composition wrong: $pb"
+  fi
+  if run_elebake stage deploy unitm t 2>&1 | grep -q "stage medium ensure 'unitm' 't'" \
+     && run_elebake stage deploy unitm t 2>&1 | grep -q "stage medium release 'unitm' 't'"; then
+    pass "deploy carries ensure and release around deploy write"
+  else
+    fail "deploy composition wrong: $(run_elebake stage deploy unitm t 2>&1 | tail -4)"
+  fi
+  run_elebake setenv ELEBAKE_INTERPRETER_stage_deploy_write cat > /dev/null
+  local dw; dw=$(run_elebake stage deploy write unitm t 2>&1)
+  if ! printf '%s\n' "$dw" | grep -q "mount -t msdosfs" && ! printf '%s\n' "$dw" | grep -q "^umount" \
+     && printf '%s\n' "$dw" | grep -q "the ESP is not mounted on"; then
+    pass "deploy write mounts nothing itself: it works on the ESP ensure mounted and refuses when it is not there"
+  else
+    fail "deploy write still mounts: $(printf '%s\n' "$dw" | grep -n "mount" | head -3)"
   fi
 }
 

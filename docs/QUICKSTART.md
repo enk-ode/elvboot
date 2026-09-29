@@ -64,7 +64,8 @@ yours):
 ./elebake.sh stage status smoke1      # derived state: signed: yes (current)?
 ./elebake.sh stage device smoke1 b /dev/da1p1   # name the medium (operator intent)
 ./elebake.sh stage boot tree smoke1 b sdcard-x pool/boot
-./elebake.sh stage push smoke1 b      # manifest, attest, verify, tree sync, deploy
+./elebake.sh stage medium stamp smoke1 b   # the one act that names the card: its letter onto the ESP (a fresh card has none)
+./elebake.sh stage push smoke1 b      # manifest, attest, verify; medium ensure (the card proves itself by its stamp), tree + loader, release
 ```
 
 Reboot from the medium; the loader's gates report into

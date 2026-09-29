@@ -1127,7 +1127,9 @@ The parts, in the order the workflow `time-anchor` adds them
   in the TPM against the record.
 - **Five tells in a new gate, tellwatch**, which publishes and never asks:
   MediumSwitch (the letter stamped on the medium, `EFI/elvboot/medium`,
-  written by `stage push`, against the record's), UnsafeStep (the NVMe
+  written once by `stage medium stamp` and read back by every `stage push`
+  before it writes -- two cloned cards differ in nothing else, so the
+  wrong card is refused --, against the record's), UnsafeStep (the NVMe
   unsafe-shutdown count), EfiVarsForeign (non-volatile variables the
   firmware shows that are neither in the learned set nor in
   `LOADER_TRUST_EFIVARS_KNOWN`, every variable any inventory record ever

@@ -2262,7 +2262,7 @@ ___stage_tree_sync2() {
 
 #@help ___stage_medium_ready2
 # @command stage medium ready <stage> <medium>
-# @summary The preconditions of every act on a medium's boot tree: at generation the stage exists, the medium is registered, its boot tree is bound, the device node is present, the GPT label is there; then, as root, the stamp on the ESP names this medium (stage medium stamp check) -- two cloned cards differ in nothing else, and a push onto the wrong one would re-letter it
+# @summary The preconditions of every act on a medium's boot tree, checked at generation: the stage exists, the medium is registered, its boot tree is bound, the device node is present, the GPT label is there. Which card is in is not decidable here: 'stage medium ensure' settles it, as root, before any write
 # @group   deploy
 # @internal
 # @see     stage pool import
@@ -2275,8 +2275,6 @@ ___stage_medium_ready2() {
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage boot tree exists '$1' '$2'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage medium present '$1' '$2'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage medium labeled '$1' '$2'"
-        printf '%s\n' "$MODIFY_DIR_CREATE '$ELEBAKE_BASE/stage/$1/mnt/$2'"
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage medium stamp check '$1' '$2'"
 }
 
 #@help __stage_medium_exists2
@@ -2983,10 +2981,11 @@ __stage_backup_new3() {
 #@end
 _stage_backup_take4() {
         local node="" mnt="" rel="" rec=""
-        node=$(head -n1 "$ELEBAKE_BASE/stage/$1/media/$2/node" 2>/dev/null); mnt=$(head -n1 "$ELEBAKE_BASE/stage/$1/media/$2/mountpoint" 2>/dev/null); rel=$(head -n1 "$ELEBAKE_BASE/stage/$1/media/$2/loaderpath" 2>/dev/null)
+        node=$(head -n1 "$ELEBAKE_BASE/stage/$1/media/$2/node" 2>/dev/null); mnt="$ELEBAKE_BASE/stage/$1/mnt/$2"; rel=$(head -n1 "$ELEBAKE_BASE/stage/$1/media/$2/loaderpath" 2>/dev/null)
         rec="$ELEBAKE_BASE/stage/$1/backup/$2/$3"
         emit_note "elebake stage backup '$1' medium '$2' label '$3' ($node:$rel -> backup/$2/$3/)"
         printf '%s\n' "$MODIFY_DIR_CREATE '$ELEBAKE_BASE/stage/$1/backup/$2'"
+        printf '%s\n' "mkdir -p '$mnt'"
         printf '%s\n' "mount -r -t msdosfs '$node' '$mnt' || { printf '# Error: mount failed -- already mounted or device busy? (mount | grep %s)\\n' '$node' >&2; exit 1; }"
         printf '%s\n' "test -f '$mnt/$rel' || { umount '$mnt'; printf '# Error: no loader on medium %s: %s\\n' '$2' '$rel' >&2; exit 1; }"
         printf '%s\n' "$MODIFY_DIR_CREATE '$rec' && $MODIFY_FILE_PERMS 0700 '$rec'"
@@ -3121,10 +3120,11 @@ __stage_backup_record_intact3() {
 #@end
 _stage_rollback_write3() {
         local node="" mnt="" rel="" want="" bak="$ELEBAKE_BASE/stage/$1/backup/$2/$3/loader.efi"
-        node=$(head -n1 "$ELEBAKE_BASE/stage/$1/media/$2/node" 2>/dev/null); mnt=$(head -n1 "$ELEBAKE_BASE/stage/$1/media/$2/mountpoint" 2>/dev/null); rel=$(head -n1 "$ELEBAKE_BASE/stage/$1/media/$2/loaderpath" 2>/dev/null)
+        node=$(head -n1 "$ELEBAKE_BASE/stage/$1/media/$2/node" 2>/dev/null); mnt="$ELEBAKE_BASE/stage/$1/mnt/$2"; rel=$(head -n1 "$ELEBAKE_BASE/stage/$1/media/$2/loaderpath" 2>/dev/null)
         want=$(sha256 -q "$bak" 2>/dev/null)
         emit_note "elebake stage rollback '$1' medium '$2' ($node:$rel <- backup/$2/$3/loader.efi, sha256 $want)"
         emit_note "  $(head -n1 "$ELEBAKE_BASE/stage/$1/backup/$2/$3/description" 2>/dev/null) (created $(head -n1 "$ELEBAKE_BASE/stage/$1/backup/$2/$3/created" 2>/dev/null))"
+        printf '%s\n' "mkdir -p '$mnt'"
         printf '%s\n' "mount -t msdosfs '$node' '$mnt' || { printf '# Error: mount failed -- already mounted or device busy? (mount | grep %s)\\n' '$node' >&2; exit 1; }"
         printf '%s\n' "cp '$bak' '$mnt/$rel'"
         printf '%s\n' "[ \"\$(sha256 -q '$mnt/$rel')\" = '$want' ] || { printf '# Error: hash mismatch after rollback (medium left mounted at %s)\\n' '$mnt' >&2; exit 1; }"
@@ -3145,12 +3145,10 @@ _stage_rollback_write3() {
 #@end
 ___stage_deploy2() {
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage check stage '$1'"
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage medium exists '$1' '$2'"
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage medium present '$1' '$2'"
-        printf '%s\n' "$MODIFY_DIR_CREATE '$ELEBAKE_BASE/stage/$1/mnt/$2'"
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage medium stamp check '$1' '$2'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage loader signed '$1'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage medium ensure '$1' '$2'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage deploy write '$1' '$2'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage medium release '$1' '$2'"
 }
 
 #@help __stage_loader_signed1
@@ -3171,23 +3169,23 @@ __stage_loader_signed1() {
 
 #@help _stage_deploy_write2
 # @command stage deploy write <stage> <medium>
-# @summary Act terminal: mount the ESP, save the loader found there as the backup record pre-deploy-<stamp> (the same record 'stage backup' writes, labelled by the act that displaced it), copy the signed loader, verify its sha256 in place (the expected hash is computed now and baked in, so the trace shows which loader is meant to land), umount, sync; run as root
+# @summary Act terminal, on the ESP 'stage medium ensure' mounted (stage/<stage>/mnt/<medium>, read-write, the card verified): save the loader found there as the backup record pre-deploy-<stamp> (the same record 'stage backup' writes, labelled by the act that displaced it), copy the signed loader, verify its sha256 in place (the expected hash is computed now and baked in, so the trace shows which loader is meant to land), umount, sync; run as root
 # @group   deploy
 # @internal
 # @see     stage deploy
 #@end
 _stage_deploy_write2() {
         local src="$ELEBAKE_BASE/stage/$1/boot/loader.efi.signed" want="" label="" rec="" node="" mnt="" rel=""
-        node=$(head -n1 "$ELEBAKE_BASE/stage/$1/media/$2/node" 2>/dev/null); mnt=$(head -n1 "$ELEBAKE_BASE/stage/$1/media/$2/mountpoint" 2>/dev/null); rel=$(head -n1 "$ELEBAKE_BASE/stage/$1/media/$2/loaderpath" 2>/dev/null)
+        node=$(head -n1 "$ELEBAKE_BASE/stage/$1/media/$2/node" 2>/dev/null); mnt="$ELEBAKE_BASE/stage/$1/mnt/$2"; rel=$(head -n1 "$ELEBAKE_BASE/stage/$1/media/$2/loaderpath" 2>/dev/null)
         want=$(sha256 -q "$src" 2>/dev/null)
         label="pre-deploy-$(date -u '+%Y%m%dT%H%M%SZ')"
         rec="$ELEBAKE_BASE/stage/$1/backup/$2/$label"
-        emit_note "elebake stage deploy '$1' medium '$2' ($node:$rel <- boot/loader.efi.signed, sha256 $want)"
+        emit_note "elebake stage deploy '$1' medium '$2' ($node:$rel <- boot/loader.efi.signed, sha256 $want; the ESP mounted by stage medium ensure)"
         printf '%s\n' "$MODIFY_DIR_CREATE '$ELEBAKE_BASE/stage/$1/backup/$2'"
-        printf '%s\n' "mount -t msdosfs '$node' '$mnt' || { printf '# Error: mount failed -- already mounted or device busy? (mount | grep %s)\\n' '$node' >&2; exit 1; }"
+        printf '%s\n' "test -d '$mnt/EFI' || { printf '# Error: medium $2: the ESP is not mounted on %s (stage medium ensure first)\\n' '$mnt' >&2; exit 1; }"
         printf '%s\n' "if [ -f '$mnt/$rel' ]; then"
         printf '%s\n' "$MODIFY_DIR_CREATE '$rec' && $MODIFY_FILE_PERMS 0700 '$rec'"
-        printf '%s\n' "cp -p '$mnt/$rel' '$rec/loader.efi' || { umount '$mnt' 2>/dev/null; printf '# Error: cannot copy %s into %s\\n' '$mnt/$rel' '$rec' >&2; exit 1; }"
+        printf '%s\n' "cp -p '$mnt/$rel' '$rec/loader.efi' || { printf '# Error: cannot copy %s into %s\\n' '$mnt/$rel' '$rec' >&2; exit 1; }"
         printf '%s\n' "sha256 -q '$rec/loader.efi' > '$rec/sha256'"
         printf '%s\n' "printf '%s\\n' $(sq "loader found on medium $2 before deploy of stage $1 (incoming sha256 $want)") > '$rec/description'"
         printf '%s\n' "printf '%s\\n' '$(date -u '+%Y-%m-%dT%H:%M:%SZ')' > '$rec/created'"
@@ -3199,7 +3197,6 @@ _stage_deploy_write2() {
         printf '%s\n' "else printf '# note: no existing loader on medium %s to back up\\n' '$2' >&2; fi"
         printf '%s\n' "cp '$src' '$mnt/$rel'"
         printf '%s\n' "[ \"\$(sha256 -q '$mnt/$rel')\" = '$want' ] || { printf '# Error: hash mismatch after deploy (medium left mounted at %s)\\n' '$mnt' >&2; exit 1; }"
-        printf '%s\n' "umount '$mnt'"
         printf '%s\n' "sync"
         printf '%s\n' "chown '$(id -un)' '$ELEBAKE_BASE/stage/$1/backup/$2' 2>/dev/null || true"
         printf '%s\n' "printf '# deployed signed loader to medium %s (%s:%s, sha256 %s)\\n' '$2' '$node' '$rel' '$want' >&2"
@@ -3207,7 +3204,7 @@ _stage_deploy_write2() {
 
 #@help ___stage_push2
 # @command stage push <stage> <medium>
-# @summary Publish the stage: manifest, attest, verify, tree onto the medium, loader onto the ESP, the medium's letter stamped. Before the first write the stamp on the inserted card is read and must name this medium (stage medium stamp check): a fresh card gets its letter with 'stage medium stamp' first, the wrong card is refused
+# @summary Publish the stage: manifest, attest, verify, the signed loader present; then the way onto the medium (stage medium ensure: the ESP mounted read-write and the card proven to be this medium by the letter it carries -- the wrong card is refused before the first write, a fresh card gets its letter with 'stage medium stamp' first), the tree and the loader written (stage medium write), the medium released
 # @group   stage
 # @example elebake stage push daily-v1 a
 # @see     stage tree sync
@@ -3217,9 +3214,10 @@ ___stage_push2() {
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage manifest '$1'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage attest '$1'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage verify '$1'"
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage tree sync '$1' '$2'"
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage deploy '$1' '$2'"
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage medium stamp '$1' '$2'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage loader signed '$1'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage medium ensure '$1' '$2'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage medium write '$1' '$2'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage medium release '$1' '$2'"
 }
 
 #@help ___stage_medium_stamp2
@@ -3239,62 +3237,107 @@ ___stage_medium_stamp2() {
 
 #@help ___stage_medium_identify2
 # @command stage medium identify <stage> <medium>
-# @summary Which card is in? Read the stamp the ESP of the inserted card carries (EFI/elvboot/medium) and say it, under the assumption that it is the registered medium named (its device node): the stage exists, the medium is registered, the device node is present, then 'stage medium stamp read'. Nothing is written; the ESP is mounted read-only on the stage's own mount directory (stage/<stage>/mnt/<medium>)
+# @summary Which card is in? The stage exists, the medium is registered, its device node is present; then 'stage medium stamp read' mounts the ESP read-only and says the letter the card carries (or that it carries none). Nothing is written. With cloned cards every registered letter names the same device node, so any registered medium serves as the way to the node
 # @group   deploy
-# @param   medium  the registered medium whose device node to look at -- with cloned cards all media share the node, so any registered letter does
+# @param   medium  a registered medium: the way to the device node
 # @example elebake stage medium identify daily-v1 b
 # @see     stage medium stamp
-# @see     stage medium stamp check
+# @see     stage medium ensure
 #@end
 ___stage_medium_identify2() {
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage check stage '$1'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage medium exists '$1' '$2'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage medium present '$1' '$2'"
-        printf '%s\n' "$MODIFY_DIR_CREATE '$ELEBAKE_BASE/stage/$1/mnt/$2'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage medium stamp read '$1' '$2'"
-}
-
-# medium_stamp_shell <stage> <medium> <mode> -- the act body shared by 'stamp read' and 'stamp check':
-# mount the ESP read-only on the stage's mount directory, read EFI/elvboot/medium, umount;
-# read: say what is there; check: an error (exit 1) when the stamp is missing or names another medium
-medium_stamp_shell() {
-        local node="" d="$ELEBAKE_BASE/stage/$1/mnt/$2"
-        node=$(head -n1 "$ELEBAKE_BASE/stage/$1/media/$2/node" 2>/dev/null)
-        printf '%s\n' "mount -r -t msdosfs '$node' '$d' || { printf '# Error: medium $2: cannot mount %s read-only on %s (already mounted, or not this card?)\\n' '$node' '$d' >&2; exit 1; }"
-        printf '%s\n' "s=\$(cat '$d/EFI/elvboot/medium' 2>/dev/null); umount '$d'"
-        if test "$3" = check; then
-                printf '%s\n' "[ -n \"\$s\" ] || { printf '# Error: medium $2: no stamp on %s -- a fresh card: stage medium stamp $1 $2 first, then push\\n' '$node' >&2; exit 1; }"
-                printf '%s\n' "[ \"\$s\" = '$2' ] || { printf '# Error: medium $2: the card in %s carries stamp %s -- wrong card, nothing written\\n' '$node' \"\$s\" >&2; exit 1; }"
-                printf '%s\n' "printf '# medium $2: stamp verified on %s\\n' '$node' >&2"
-        else
-                printf '%s\n' "[ -n \"\$s\" ] && printf '# the card in %s carries stamp %s\\n' '$node' \"\$s\" >&2 || printf '# the card in %s carries no stamp (stage medium stamp writes it)\\n' '$node' >&2"
-        fi
 }
 
 #@help _stage_medium_stamp_read2
 # @command stage medium stamp read <stage> <medium>
-# @summary Act terminal (root): the ESP of the medium's device node mounted read-only on stage/<stage>/mnt/<medium>, EFI/elvboot/medium read and said (or "no stamp"), umount; nothing written
+# @summary Act terminal (root): the ESP mounted read-only on the stage's mount directory stage/<stage>/mnt/<medium>, EFI/elvboot/medium read and said (or "no stamp"), umount. Nothing written, nothing decided
 # @group   deploy
 # @internal
 # @see     stage medium identify
 #@end
 _stage_medium_stamp_read2() {
+        local node="" d="$ELEBAKE_BASE/stage/$1/mnt/$2"
+        node=$(head -n1 "$ELEBAKE_BASE/stage/$1/media/$2/node" 2>/dev/null)
         emit_note "elebake stage medium identify '$1' medium '$2': the stamp on the inserted card"
-        medium_stamp_shell "$1" "$2" read
+        printf '%s\n' "mkdir -p '$d'"
+        printf '%s\n' "mount -r -t msdosfs '$node' '$d' || { printf '# Error: medium $2: cannot mount %s read-only on %s (already mounted, or not this card?)\\n' '$node' '$d' >&2; exit 1; }"
+        printf '%s\n' "s=\$(cat '$d/EFI/elvboot/medium' 2>/dev/null); umount '$d'"
+        printf '%s\n' "[ -n \"\$s\" ] && printf '# the card in %s carries stamp %s\\n' '$node' \"\$s\" >&2 || printf '# the card in %s carries no stamp (stage medium stamp writes it)\\n' '$node' >&2"
 }
 
-#@help _stage_medium_stamp_check2
-# @command stage medium stamp check <stage> <medium>
-# @summary Act terminal (root): the ESP of the medium's device node mounted read-only on stage/<stage>/mnt/<medium>, EFI/elvboot/medium read, umount; the stamp must name this medium -- no stamp (a fresh card: stage medium stamp first) or another letter (the wrong card) is an error before anything is written. The guard of every act that writes onto a medium (stage medium ready, stage deploy)
+#@help __stage_medium_ensure2
+# @command stage medium ensure <stage> <medium>
+# @summary The way onto a medium, one line: what is decidable now decides now -- the stage exists, the medium is registered, its device node is present -- else an error line, and every act after it stays dead; otherwise the line is 'stage medium mount', the act that mounts the ESP read-write and proves the card is the medium named. The precondition of 'stage medium write' and 'stage deploy write': the ESP mounted, read-write, verified
 # @group   deploy
 # @internal
-# @see     stage medium ready
-# @see     stage deploy
-# @see     stage medium stamp
+# @see     stage medium mount
+# @see     stage medium write
+# @see     stage medium release
 #@end
-_stage_medium_stamp_check2() {
-        emit_note "elebake stage medium stamp check '$1' medium '$2': the card must carry the letter $2"
-        medium_stamp_shell "$1" "$2" check
+__stage_medium_ensure2() {
+        local node=""
+        node=$(head -n1 "$ELEBAKE_BASE/stage/$1/media/$2/node" 2>/dev/null)
+        if ! test -d "$ELEBAKE_BASE/stage/$1"; then
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'stage medium ensure: unknown stage $1'"
+        elif test -z "$node"; then
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'stage $1: unknown medium $2 (stage device $1 $2 /dev/<node>)'"
+        elif ! test -c "$node"; then
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'stage $1: device not present: $node (insert medium $2 -- checked at generation time)'"
+        else
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage medium mount '$1' '$2'"
+        fi
+}
+
+#@help _stage_medium_mount2
+# @command stage medium mount <stage> <medium>
+# @summary Act terminal (root): the ESP of the medium's device node mounted read-write on the stage's mount directory stage/<stage>/mnt/<medium>, then EFI/elvboot/medium read -- the letter must be this medium's; no stamp (a fresh card: stage medium stamp first) or another letter (the wrong card) unmounts and fails before anything is written. On success the ESP stays mounted: the postcondition every write act relies on. The counterpart is 'stage medium release'
+# @group   deploy
+# @internal
+# @see     stage medium ensure
+# @see     stage medium release
+#@end
+_stage_medium_mount2() {
+        local node="" d="$ELEBAKE_BASE/stage/$1/mnt/$2"
+        node=$(head -n1 "$ELEBAKE_BASE/stage/$1/media/$2/node" 2>/dev/null)
+        emit_note "elebake stage medium mount '$1' medium '$2' ($node read-write on $d, the card must carry the letter $2)"
+        printf '%s\n' "mkdir -p '$d'"
+        printf '%s\n' "mount -t msdosfs '$node' '$d' || { printf '# Error: medium $2: cannot mount %s on %s (already mounted, or device busy? mount | grep %s)\\n' '$node' '$d' '$node' >&2; exit 1; }"
+        printf '%s\n' "s=\$(cat '$d/EFI/elvboot/medium' 2>/dev/null)"
+        printf '%s\n' "[ -n \"\$s\" ] || { umount '$d'; printf '# Error: medium $2: no stamp on %s -- a fresh card: stage medium stamp $1 $2 first, then push\\n' '$node' >&2; exit 1; }"
+        printf '%s\n' "[ \"\$s\" = '$2' ] || { umount '$d'; printf '# Error: medium $2: the card in %s carries stamp %s -- wrong card, nothing written\\n' '$node' \"\$s\" >&2; exit 1; }"
+        printf '%s\n' "printf '# medium $2 mounted read-write on %s (stamp verified)\\n' '$d' >&2"
+}
+
+#@help _stage_medium_release2
+# @command stage medium release <stage> <medium>
+# @summary Act terminal (root): the ESP unmounted from the stage's mount directory, sync -- the counterpart of 'stage medium mount', the last line of every batch that writes onto a medium (after a failed batch, run it by hand)
+# @group   deploy
+# @internal
+# @see     stage medium mount
+#@end
+_stage_medium_release2() {
+        local d="$ELEBAKE_BASE/stage/$1/mnt/$2"
+        emit_note "elebake stage medium release '$1' medium '$2' ($d)"
+        printf '%s\n' "umount '$d' || { printf '# Error: medium $2: cannot unmount %s\\n' '$d' >&2; exit 1; }"
+        printf '%s\n' "sync"
+        printf '%s\n' "printf '# medium $2 released\\n' >&2"
+}
+
+#@help ___stage_medium_write2
+# @command stage medium write <stage> <medium>
+# @summary Everything 'stage push' writes onto the medium, under the precondition 'stage medium ensure' established (the ESP mounted read-write, the card verified as this medium): the boot tree onto the medium's dataset (stage tree sync), then the signed loader onto the ESP (stage deploy write)
+# @group   deploy
+# @internal
+# @see     stage medium ensure
+# @see     stage tree sync
+# @see     stage deploy write
+#@end
+___stage_medium_write2() {
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage tree sync '$1' '$2'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage deploy write '$1' '$2'"
 }
 
 #@help _stage_medium_stamp_write2
@@ -3306,8 +3349,9 @@ _stage_medium_stamp_check2() {
 #@end
 _stage_medium_stamp_write2() {
         local node="" mnt=""
-        node=$(head -n1 "$ELEBAKE_BASE/stage/$1/media/$2/node" 2>/dev/null); mnt=$(head -n1 "$ELEBAKE_BASE/stage/$1/media/$2/mountpoint" 2>/dev/null)
+        node=$(head -n1 "$ELEBAKE_BASE/stage/$1/media/$2/node" 2>/dev/null); mnt="$ELEBAKE_BASE/stage/$1/mnt/$2"
         emit_note "elebake stage medium stamp '$1' medium '$2' ($node: EFI/elvboot/medium = '$2')"
+        printf '%s\n' "mkdir -p '$mnt'"
         printf '%s\n' "mount -t msdosfs '$node' '$mnt' || { printf '# Error: mount failed -- already mounted or device busy? (mount | grep %s)\\n' '$node' >&2; exit 1; }"
         printf '%s\n' "mkdir -p '$mnt/EFI/elvboot'"
         printf '%s\n' "printf '%s' '$2' > '$mnt/EFI/elvboot/medium'"
