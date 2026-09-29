@@ -2262,7 +2262,7 @@ ___stage_tree_sync2() {
 
 #@help ___stage_medium_ready2
 # @command stage medium ready <stage> <medium>
-# @summary The preconditions of every act on a medium's boot tree, checked at generation: the stage exists, the medium is registered, its boot tree is bound, the device node is present, the GPT label is there
+# @summary The preconditions of every act on a medium's boot tree: at generation the stage exists, the medium is registered, its boot tree is bound, the device node is present, the GPT label is there; then, as root, the stamp on the ESP names this medium (stage medium stamp check) -- two cloned cards differ in nothing else, and a push onto the wrong one would re-letter it
 # @group   deploy
 # @internal
 # @see     stage pool import
@@ -2275,6 +2275,8 @@ ___stage_medium_ready2() {
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage boot tree exists '$1' '$2'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage medium present '$1' '$2'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage medium labeled '$1' '$2'"
+        printf '%s\n' "$MODIFY_DIR_CREATE '$ELEBAKE_BASE/stage/$1/mnt/$2'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage medium stamp check '$1' '$2'"
 }
 
 #@help __stage_medium_exists2
@@ -3145,6 +3147,8 @@ ___stage_deploy2() {
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage check stage '$1'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage medium exists '$1' '$2'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage medium present '$1' '$2'"
+        printf '%s\n' "$MODIFY_DIR_CREATE '$ELEBAKE_BASE/stage/$1/mnt/$2'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage medium stamp check '$1' '$2'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage loader signed '$1'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage deploy write '$1' '$2'"
 }
@@ -3203,7 +3207,7 @@ _stage_deploy_write2() {
 
 #@help ___stage_push2
 # @command stage push <stage> <medium>
-# @summary Publish the stage: manifest, attest, verify, tree onto the medium, loader onto the ESP, the medium's letter stamped
+# @summary Publish the stage: manifest, attest, verify, tree onto the medium, loader onto the ESP, the medium's letter stamped. Before the first write the stamp on the inserted card is read and must name this medium (stage medium stamp check): a fresh card gets its letter with 'stage medium stamp' first, the wrong card is refused
 # @group   stage
 # @example elebake stage push daily-v1 a
 # @see     stage tree sync
@@ -3231,6 +3235,66 @@ ___stage_medium_stamp2() {
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage medium exists '$1' '$2'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage medium present '$1' '$2'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage medium stamp write '$1' '$2'"
+}
+
+#@help ___stage_medium_identify2
+# @command stage medium identify <stage> <medium>
+# @summary Which card is in? Read the stamp the ESP of the inserted card carries (EFI/elvboot/medium) and say it, under the assumption that it is the registered medium named (its device node): the stage exists, the medium is registered, the device node is present, then 'stage medium stamp read'. Nothing is written; the ESP is mounted read-only on the stage's own mount directory (stage/<stage>/mnt/<medium>)
+# @group   deploy
+# @param   medium  the registered medium whose device node to look at -- with cloned cards all media share the node, so any registered letter does
+# @example elebake stage medium identify daily-v1 b
+# @see     stage medium stamp
+# @see     stage medium stamp check
+#@end
+___stage_medium_identify2() {
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage check stage '$1'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage medium exists '$1' '$2'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage medium present '$1' '$2'"
+        printf '%s\n' "$MODIFY_DIR_CREATE '$ELEBAKE_BASE/stage/$1/mnt/$2'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage medium stamp read '$1' '$2'"
+}
+
+# medium_stamp_shell <stage> <medium> <mode> -- the act body shared by 'stamp read' and 'stamp check':
+# mount the ESP read-only on the stage's mount directory, read EFI/elvboot/medium, umount;
+# read: say what is there; check: an error (exit 1) when the stamp is missing or names another medium
+medium_stamp_shell() {
+        local node="" d="$ELEBAKE_BASE/stage/$1/mnt/$2"
+        node=$(head -n1 "$ELEBAKE_BASE/stage/$1/media/$2/node" 2>/dev/null)
+        printf '%s\n' "mount -r -t msdosfs '$node' '$d' || { printf '# Error: medium $2: cannot mount %s read-only on %s (already mounted, or not this card?)\\n' '$node' '$d' >&2; exit 1; }"
+        printf '%s\n' "s=\$(cat '$d/EFI/elvboot/medium' 2>/dev/null); umount '$d'"
+        if test "$3" = check; then
+                printf '%s\n' "[ -n \"\$s\" ] || { printf '# Error: medium $2: no stamp on %s -- a fresh card: stage medium stamp $1 $2 first, then push\\n' '$node' >&2; exit 1; }"
+                printf '%s\n' "[ \"\$s\" = '$2' ] || { printf '# Error: medium $2: the card in %s carries stamp %s -- wrong card, nothing written\\n' '$node' \"\$s\" >&2; exit 1; }"
+                printf '%s\n' "printf '# medium $2: stamp verified on %s\\n' '$node' >&2"
+        else
+                printf '%s\n' "[ -n \"\$s\" ] && printf '# the card in %s carries stamp %s\\n' '$node' \"\$s\" >&2 || printf '# the card in %s carries no stamp (stage medium stamp writes it)\\n' '$node' >&2"
+        fi
+}
+
+#@help _stage_medium_stamp_read2
+# @command stage medium stamp read <stage> <medium>
+# @summary Act terminal (root): the ESP of the medium's device node mounted read-only on stage/<stage>/mnt/<medium>, EFI/elvboot/medium read and said (or "no stamp"), umount; nothing written
+# @group   deploy
+# @internal
+# @see     stage medium identify
+#@end
+_stage_medium_stamp_read2() {
+        emit_note "elebake stage medium identify '$1' medium '$2': the stamp on the inserted card"
+        medium_stamp_shell "$1" "$2" read
+}
+
+#@help _stage_medium_stamp_check2
+# @command stage medium stamp check <stage> <medium>
+# @summary Act terminal (root): the ESP of the medium's device node mounted read-only on stage/<stage>/mnt/<medium>, EFI/elvboot/medium read, umount; the stamp must name this medium -- no stamp (a fresh card: stage medium stamp first) or another letter (the wrong card) is an error before anything is written. The guard of every act that writes onto a medium (stage medium ready, stage deploy)
+# @group   deploy
+# @internal
+# @see     stage medium ready
+# @see     stage deploy
+# @see     stage medium stamp
+#@end
+_stage_medium_stamp_check2() {
+        emit_note "elebake stage medium stamp check '$1' medium '$2': the card must carry the letter $2"
+        medium_stamp_shell "$1" "$2" check
 }
 
 #@help _stage_medium_stamp_write2

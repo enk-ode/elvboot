@@ -1,0 +1,3 @@
+sudo sh
+# Act terminal of 'stage medium identify': mounts the ESP read-only and reads the stamp as root.
+# @see ELEBAKE_INTERPRETER_stage_medium_stamp_write

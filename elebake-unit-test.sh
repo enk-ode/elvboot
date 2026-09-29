@@ -561,6 +561,33 @@ test_stage_device_and_boot_tree() {
   else
     fail "invalid gpt label not rejected"
   fi
+  # the stamp guard: rendered as root work, never run here (pinned to cat)
+  run_elebake setenv ELEBAKE_INTERPRETER_stage_medium_stamp_check cat > /dev/null
+  run_elebake setenv ELEBAKE_INTERPRETER_stage_medium_stamp_read cat > /dev/null
+  local sc; sc=$(run_elebake stage medium stamp check unitm t 2>&1)
+  if printf '%s\n' "$sc" | grep -q "mount -r -t msdosfs '/dev/testda9' '$TEST_DIR/stage/unitm/mnt/t'" \
+     && printf '%s\n' "$sc" | grep -q "EFI/elvboot/medium" && printf '%s\n' "$sc" | grep -q "= 't' \]" \
+     && printf '%s\n' "$sc" | grep -q "no stamp on" && printf '%s\n' "$sc" | grep -q "wrong card, nothing written" \
+     && printf '%s\n' "$sc" | grep -q "^umount\|; umount"; then
+    pass "stamp check renders the read-only mount on the stage's own mount directory, the compare with the letter, umount"
+  else
+    fail "stamp check wrong: $sc"
+  fi
+  if run_elebake stage medium stamp read unitm t 2>&1 | grep -q "carries stamp" \
+     && ! run_elebake stage medium stamp read unitm t 2>&1 | grep -q "wrong card"; then
+    pass "stamp read says what the card carries and never fails the batch"
+  else
+    fail "stamp read wrong: $(run_elebake stage medium stamp read unitm t 2>&1 | head -3)"
+  fi
+  run_elebake setenv ELEBAKE_INTERPRETER_stage_medium_ready2 cat > /dev/null
+  run_elebake setenv ELEBAKE_INTERPRETER_stage_deploy2 cat > /dev/null
+  if run_elebake stage medium ready unitm t 2>&1 | grep -q "stage medium stamp check 'unitm' 't'" \
+     && run_elebake stage deploy unitm t 2>&1 | grep -q "stage medium stamp check 'unitm' 't'" \
+     && run_elebake stage medium ready unitm t 2>&1 | grep -q "mkdir -p '$TEST_DIR/stage/unitm/mnt/t'"; then
+    pass "medium ready and deploy carry the stamp check (and create the stage's mount directory) before any write"
+  else
+    fail "stamp check not in the batches: $(run_elebake stage medium ready unitm t 2>&1 | tail -3)"
+  fi
 }
 
 test_stage_marker_emission_inspects_only() {
