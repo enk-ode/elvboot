@@ -6,7 +6,7 @@
 #
 # tpm.sh -- the TPM 2.0 of the machine, provisioned from the stage's leafs.
 #
-# The loader (fork platform-trust-gates-15.1, stand/efi/loader/local/tpm.c)
+# The loader (fork elvboot-15.1, stand/efi/loader/local/tpm.c)
 # unseals a GELI key file from a persistent object under a policy the
 # TPM replays step by step; every session is salted to a persistent
 # storage key. Two objects, two policies (the order of the steps is

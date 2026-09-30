@@ -7,4 +7,4 @@ in the source tree;
 <https://github.com/enk-ode/elvboot>;
 the FreeBSD sources with the platform-trust-gates series:
 <https://github.com/johannes-bruegmann/freebsd-src> (branch
-`platform-trust-gates-15.1`).
+`elvboot-15.1`).

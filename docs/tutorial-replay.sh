@@ -275,3 +275,15 @@ done
 ./elebake.sh stage phase show illyria-boot
 ./elebake.sh stage foundation check illyria-boot
 ./elebake.sh workflow show time-anchor
+
+# 23. The card proves itself: no record changes -- the media of chapter 16
+# stand; identify, mount, write and release need the card in the reader
+./elebake.sh stage medium ensure illyria-boot a || true   # here: device not present, the error line
+
+# 24. The duress factor: the decoy root's leafs and the second counter;
+# duress.count.sealed comes from the machine (stage tpm duress count record)
+./elebake.sh stage kenv add illyria-boot loader.trust.tpm.duress.nv 0x01c10e24
+./elebake.sh stage kenv add illyria-boot loader.trust.tpm.duress.count.nv 0x01c10e25
+./elebake.sh stage kenv add illyria-boot loader.trust.tpm.decoy.providers nda1p1
+./elebake.sh stage kenv add illyria-boot loader.trust.tpm.decoy.root zfs:zempty/ROOT/default
+./elebake.sh workflow show duress-bind

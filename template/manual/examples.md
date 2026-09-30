@@ -11,7 +11,7 @@ the pins decide what runs as root):
     elebake stage add smoke1
     elebake stage sign key smoke1 pkcs11 db
     elebake stage attest key smoke1 openpgp manifest
-    elebake stage checkout smoke1 platform-trust-gates-15.1^0
+    elebake stage checkout smoke1 elvboot-15.1^0
     elebake stage make smoke1
     elebake stage push smoke1 b
 

@@ -36,6 +36,14 @@ The family, by name:
 
 ## What elebake gives you
 
+- **A boot-media pipeline, gates or not.** A stage is a described boot
+  tree: a checkout of the sources, a curated file list, the kernel you
+  name (`stage build kernel`, any KERNCONF of the tree), signed with
+  your UEFI db key, attested with your OpenPGP key, pushed onto a
+  removable card that proves its letter before it is written. A stage
+  that binds no policy builds the same way and boots like stock; the
+  builds are reproducible -- the same records, the same sources, the
+  same loader bytes, the same PCR 4.
 - **A boot trust chain you compile.** Expectations, claims, gates and
   policies are named records in a database; `stage site mk`,
   `stage build`, `stage sign` and `stage deploy` turn them into a loader
@@ -56,8 +64,11 @@ The family, by name:
   object with the same bytes and the duress passphrase raises an
   increment-only counter in the TPM and marks the boot for earlboot --
   nothing on the console differs, nothing on the medium holds a hash
-  to tell the two apart. `stage tpm` provisions all of it from the
-  stage's leafs; every session is salted and encrypted.
+  to tell the two apart. The second object carries the key of a decoy
+  root; opening it kills the owner's seal by an increment-only counter
+  the TPM keeps, and the way back is the recovery slot on paper.
+  `stage tpm` provisions all of it from the stage's leafs; every
+  session is salted and encrypted.
 - **A record chain the loader must write.** An EFI variable, keyed HMAC,
   counter and anchors: a boot that did not run your loader leaves no
   valid record, and you see the gap.
@@ -146,27 +157,32 @@ Working today, on real hardware: database and environment model, key
 registries (pem/openpgp/pkcs11, Nitrokey signing), stages (checkout,
 isolated stand/ and kernel builds, curation filter, include, manifest,
 verify, attest, sign, deploy to a removable card, markers, backups,
-rollback), the foundation compiler (measurement catalogs, arsenal,
-per-phase policy binding, generated foundation.c), compile-time
-baselines and run-time kenv records, inventory sets learned from boots
-(ACPI, EFI variables, loaded images), the record chain, earlboot and
-elvbootd rc.d witnesses, dump/restore, the signed export/import pair
-with the `minimized` rescue variant, and three test suites
-(architecture, unit, integration) that run in parallel.
+rollback, a card that proves its letter before every write), the
+foundation compiler (measurement catalogs, arsenal, per-phase policy
+binding, foundation.c rendered by every build), compile-time baselines
+and run-time kenv records, inventory sets learned from boots (ACPI, EFI
+variables, loaded images), the record chain, the time anchor, the TPM
+factor with its decoy root and the two counters, earlboot and elvbootd
+rc.d witnesses, dump/restore, the signed export/import pair with the
+`minimized` rescue variant, and three test suites (architecture, unit,
+integration) that run in parallel.
 
 The walk that built all this is recorded in `docs/TUTORIAL.md`; its
 current state is the silent boot: every gate green, no claim skipped,
 the database published as an attested, encrypted dump.
 
-Open: the restore probe into a second database (in progress), the
-earlboot witnesses bound into custody, time windows after a series of
-settled boots.
+Open: the rescue system on the medium (`stage rescue`: a dataset on the
+production pool, described in records, sent to every card -- built,
+its first run on a machine pending), the review of the loader series,
+time windows after a series of settled boots.
 
 ## Getting started
 
 - `docs/QUICKSTART.md` — the short path.
 - `docs/TUTORIAL.md` — a full guided walk, recorded live on real
   hardware, including the findings that walk fixed.
+- `docs/example-dump.sh` — what `elebake dump` writes: the tutorial's
+  database as one replayable script.
 - `docs/ARCHITECTURE.md` — the combinator model (`_` terminals emit
   shell, `__` combinators re-invoke once, `___` batches sequence).
 - `elebake help` — fully generated, cannot erode; `docs/elebake.8` is

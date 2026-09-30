@@ -765,9 +765,9 @@ change to  the loader  sources or to  the stage's records  runs the  same cycle,
 typed in this order and never abbreviated:
 
 ```
-elebake stage recheckout daily-v1 ptg-15.1-next^0
+elebake stage recheckout daily-v1 elvboot-dev-15.1
 elebake stage trust daily-v1
-elebake stage foundation make daily-v1
+elebake stage foundation check daily-v1
 elebake stage site mk daily-v1
 elebake stage loaderconf mk daily-v1
 elebake stage build daily-v1
@@ -785,12 +785,15 @@ elebake stage marker write daily-v1 restore | sudo sh
 `recheckout` replaces  the worktree  with the  named ref  (a second  checkout is
 refused, on  purpose); `trust` exports the  OpenPGP anchor into the  worktree --
 `build` refuses without  it, because a loader built without  its anchor verifies
-nothing and  opens the prompt.  `foundation make`  renders the gates,  `site mk`
-measures this machine and renders the baselines, `loaderconf mk` writes the kenv
-records   into    `boot/loader.trust.conf`,   `build`/`install`/`include`/`sign`
-produce  the boot  tree, the  two `mk`/`install`  pairs generate  and place  the
-hooks, `push` writes the card, and the  marker is written last, from root's copy
-of the recorded value. Two things learned the hard way: the card reader may drop
+nothing and  opens the prompt.  `foundation check` says  whether every  binding
+resolves; the rendering  itself is `build`'s first step since  chapter 24 (a stale
+foundation.c in the worktree never  reaches make(1), and a build with  no site.mk
+while baselines exist is refused).  `site mk` measures this machine and  renders
+the baselines,  `loaderconf mk` writes the  kenv records into  `boot/loader.trust.conf`,
+`build`/`install`/`include`/`sign` produce  the boot tree,  the two `mk`/`install`
+pairs generate and place the hooks, `push`  writes the card -- after the card has
+proven  its  letter,  chapter  23  --  and  the marker  is  written  last,  from
+root's copy of the recorded value. Two things learned the hard way: the card reader may drop
 off the USB bus after a boot  (`push` then says "device not present: /dev/da1p1"
 -- re-seat the reader, not the card), and a second tap at "Press any key" or the
 Enter  that chose  the  card in  the  firmware menu  used to  land  in the  GELI
@@ -1234,3 +1237,166 @@ dwell (108.8 s with two passphrases and a fumble, 88.8 s, 54.4 s with one,
 close to a slow evening) and
 `storage.gap.max.days`, generous at 7 until the machine has shown what a
 weekend and a holiday look like.
+
+## 23. The card proves itself: stage medium ensure
+
+Two cards, `a` and `b`, and they are clones: the same device node
+(`/dev/da1p1`), the same GPT labels, the same pool name. The one thing that
+tells them apart is the byte on the ESP, `EFI/elvboot/medium`, which the
+loader reads and MediumSwitch compares (chapter 22). elebake had never read
+it. `stage push daily-v1 a` with card b in the reader wrote the tree onto b
+and, as its last step, stamped b with the letter a -- chapter 22 said
+"check `EFI/elvboot/medium` after", which is a warning, not a design.
+
+The design came out of asking what each step returns, not what it does.
+A function that takes the user's letter and gives it back unchanged
+computes nothing; the information is in the other one, the card's byte.
+And a check that returns "ok" or "error" is a shell idiom, not a function
+of this tool: a combinator returns the next command line. So the way onto
+a medium is one line, and the batches that write read like this:
+
+```
+$ ./elebake.sh stage push illyria-boot a
+"$ELEBAKE_CONTEXT_SCRIPT" stage manifest 'illyria-boot'
+"$ELEBAKE_CONTEXT_SCRIPT" stage attest 'illyria-boot'
+"$ELEBAKE_CONTEXT_SCRIPT" stage verify 'illyria-boot'
+"$ELEBAKE_CONTEXT_SCRIPT" stage loader signed 'illyria-boot'
+"$ELEBAKE_CONTEXT_SCRIPT" stage medium ensure 'illyria-boot' 'a'
+"$ELEBAKE_CONTEXT_SCRIPT" stage medium write 'illyria-boot' 'a'
+"$ELEBAKE_CONTEXT_SCRIPT" stage medium release 'illyria-boot' 'a'
+$ ./elebake.sh stage medium write illyria-boot a
+"$ELEBAKE_CONTEXT_SCRIPT" stage tree sync 'illyria-boot' 'a'
+"$ELEBAKE_CONTEXT_SCRIPT" stage deploy write 'illyria-boot' 'a'
+```
+
+`stage medium ensure` is a combinator: what is decidable at generation time
+it decides there -- the stage exists, the medium is registered, the device
+node is present -- and returns an error line, after which every act of the
+batch is dead code. Otherwise it returns the act that settles the rest as
+root:
+
+```
+$ ./elebake.sh stage medium mount illyria-boot a
+mkdir -p '/home/brj/.elebake/tutorial/stage/illyria-boot/mnt/a'
+mount -t msdosfs '/dev/da1p1' '/home/brj/.elebake/tutorial/stage/illyria-boot/mnt/a' || { ... exit 1; }
+s=$(cat '/home/brj/.elebake/tutorial/stage/illyria-boot/mnt/a/EFI/elvboot/medium' 2>/dev/null)
+[ -n "$s" ] || { umount '...'; printf '# Error: medium a: no stamp on %s -- a fresh card: stage medium stamp illyria-boot a first, then push\n' '/dev/da1p1' >&2; exit 1; }
+[ "$s" = 'a' ] || { umount '...'; printf '# Error: medium a: the card in %s carries stamp %s -- wrong card, nothing written\n' '/dev/da1p1' "$s" >&2; exit 1; }
+printf '# medium a mounted read-write on %s (stamp verified)\n' '...' >&2
+```
+
+The ESP is mounted read-write on the stage's own directory,
+`stage/<stage>/mnt/<medium>`, and the letter is read. A fresh card carries
+none and is refused with the pointer to `stage medium stamp` -- the one
+act in which a human names a card, run once per card, never again by
+`push`. The wrong card is refused before the first write. On success the
+ESP stays mounted: that is the postcondition `stage medium write` and
+`stage deploy write` rely on, neither mounts anything itself any more, and
+`stage medium release` unmounts at the end of the batch (after a failed
+batch, by hand). `stage medium identify <stage> <medium>` answers the
+everyday question -- which card is in? -- with a read-only mount and no
+decision; with cloned cards any registered letter is a way to the node.
+
+The recorded mountpoint (`stage device ... [<mountpoint>]`, `/mnt` in
+this walk) is not used by any act now; every mount is on the stage's own
+directory. The record is a leftover to be dropped with the next change of
+`stage device`.
+
+The probe on the machine is the walk's next step: card b in the reader,
+`stage push daily-v1 a` must stop at `stage medium mount` with "carries
+stamp b -- wrong card, nothing written", `stage medium identify daily-v1 b`
+must still say b, and `stage push daily-v1 b` must run.
+
+## 24. The duress factor: two objects, two counters, a decoy root
+
+Chapter 21 put duress classification behind the encrypted root and left
+the second sealed object with the same bytes as the first. Late September
+gave it its own bytes and its own root.
+
+**The decoy root.** A small, empty FreeBSD on the second disk (`zempty`,
+one GELI provider with the BOOT flag and no passphrase, its key file the
+bytes of the second object, `loader.trust.tpm.decoy.providers` and
+`decoy.root`). Whoever lands there finds a login prompt, no root account,
+`securelevel 2`, no TPM driver, and the production providers closed:
+the kernel runs with `kern.geom.eli.boot_prompt=0`, so it asks nothing
+about them, and the decoy root distrusts the chain on its own -- an rc.d
+script early in its boot exports every pool but its own, detaches every
+GELI provider that lets itself be detached (the root and the swap do not)
+and unloads the TPM driver before securelevel is raised. What it cannot do
+is erase what the loader published: `kenv -u loader.trust.*` fails for
+root too, `mac_bootlock` guards those names against change, not against
+reading.
+
+**Two objects, two counters.** The duress passphrase is the auth value of a
+`TPM_NT_PIN_PASS` index (`loader.trust.tpm.duress.nv`); the second object
+opens under PolicySecret against that index and the PCRs. The owner's
+object opens under the PCRs, its own auth value, and PolicyNV: an
+increment-only counter (`duress.count.nv`) must read the value it read at
+seal time (`duress.count.sealed`, a leaf on the medium). The loader raises
+that counter on every duress unseal; earlboot raises it for a boot answer
+of the coercion class (`duress_count_act`, bound in front of the stop by
+the workflow `duress-bind`). One increment kills the owner's seal, in the
+TPM, and nothing a running system could undo: the TPM's owner and lockout
+passwords come from the owner's seed (`stage tpm hierarchy`), no root on
+this machine holds them, and a counter never goes back. The index counts
+too -- its pinLimit is unlimited, so the decoy opens as often as the line
+is spoken, and `pinCount` is the owner's witness of how often (`stage tpm
+status`, with the hierarchy password on the RAM disk).
+
+**The probes, on the machine.** The duress boot: the same one dialog, the
+TPM decides which object answers, the loader places the decoy key file,
+diverts the root and runs no gate and writes no record after that; the
+decoy root comes up without a further prompt. A second duress boot: the
+decoy root again. The owner's boot after that:
+
+```
+tpm.keyfile="unsealed=0,providers=0,added=0,key=verified,duress.count=808/805,TPM_RC 0x9a2"
+```
+
+805 sealed, three events since -- one coercion-class answer, two decoy
+boots -- so the owner's object is dead, and the loader falls through to the
+recovery slot, the passphrase on paper (`geli.slot="passphrase"`). The
+error code is that of the last attempt, the PIN index refusing the owner's
+line, not the owner object's own; a diagnosis to sharpen in the loader
+some day. Note for the keyboard: the loader speaks the US layout, y and z
+swap places, and a mistyped duress line ends at the same recovery prompt
+(`0x9a2` is `AUTH_FAIL`).
+
+**The way back**, the short form of the workflow `tpm-seal` -- the storage
+key, the index, the counters and the anchors stand:
+
+```
+elebake stage tpm duress reset daily-v1           # pinCount 0 (read first: how often)
+elebake stage kenv drop daily-v1 loader.trust.tpm.duress.count.sealed   # records are immutable
+elebake stage tpm duress count daily-v1           # the counter's new value -> count-sealed.hex
+elebake stage tpm duress count record daily-v1
+elebake stage tpm seal read daily-v1 duress       # the passphrase for the trial PolicySecret
+elebake stage tpm policy daily-v1
+elebake stage tpm seal daily-v1 owner /tmp/ram/secret.bin
+elebake stage tpm seal daily-v1 duress /tmp/ram/zempty.bin
+elebake stage tpm probe daily-v1 owner /tmp/ram/secret.bin
+elebake stage tpm probe daily-v1 duress /tmp/ram/zempty.bin
+elebake stage tpm clean
+elebake stage loaderconf mk daily-v1              # the new sealed value rides on the medium
+elebake stage include daily-v1
+elebake stage push daily-v1 b
+```
+
+The boot after it: `unsealed=1,providers=2,added=2,duress.count=808/808,ok`,
+and the record chain starts anew once -- the previous record was written
+under the recovery slot, the user key differs, `record=present,invalid`,
+"a new chain starts" at the boot answer -- and HaltQuiet asks the
+acknowledgement of the stop (`halt-relearn`, one push). The boot after
+that is silent. Three probes of the plan are behind the walk with this:
+the duress boot, the coercion-class answer, and the loader's silence
+around both.
+
+**Two decisions of these days**, both configuration time, not run time. A
+build with no policy bound boots like the stock loader -- a user may
+start without policies -- so the loader's halt at zero policies is gone;
+what the owner bound reaches the binary because `stage build` renders
+foundation.c from the stage first thing, and refuses when baselines exist
+and site.mk is missing from the worktree (a loader compiled without it
+takes every expectation as none: measured once, by accident, on a card
+that boot never saw). And a card must prove itself before a write,
+chapter 23.

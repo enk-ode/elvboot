@@ -62,7 +62,7 @@
 <dl class="Bl-tag">
   <dt></dt>
   <dd>
-    <pre>git clone -b platform-trust-gates-15.1 https://github.com/johannes-bruegmann/freebsd-src.git ~/git/freebsd-src
+    <pre>git clone -b elvboot-15.1 https://github.com/johannes-bruegmann/freebsd-src.git ~/git/freebsd-src
 elebake setenv ELEBAKE_FREEBSD_SRC ~/git/freebsd-src
 elebake freebsd prerequisites
     </pre>
@@ -2069,7 +2069,7 @@ elebake openpgp add manifest 4E1F0A2B7C9D8E6F5A4B3C2D1E0F9A8B7C6D5E4F /root/sb/.
 elebake stage add smoke1
 elebake stage sign key smoke1 pkcs11 db
 elebake stage attest key smoke1 openpgp manifest
-elebake stage checkout smoke1 platform-trust-gates-15.1^0
+elebake stage checkout smoke1 elvboot-15.1^0
 elebake stage make smoke1
 elebake stage push smoke1 b
     </pre>
@@ -2159,7 +2159,7 @@ elebake stage site mk daily-v1
     <a class="Lk" href="https://github.com/enk-ode/elvboot">https://github.com/enk-ode/elvboot</a>;
     the FreeBSD sources with the platform-trust-gates series:
     <a class="Lk" href="https://github.com/johannes-bruegmann/freebsd-src">https://github.com/johannes-bruegmann/freebsd-src</a>&#x00A0;(branch
-    <span class="Li">platform-trust-gates-15.1</span>).</p>
+    <span class="Li">elvboot-15.1</span>).</p>
 </section>
 <section class="Sh">
 <h2 class="Sh" id="AUTHORS"><a class="permalink" href="#AUTHORS">AUTHORS</a></h2>
@@ -2172,6 +2172,6 @@ elebake stage site mk daily-v1
 </main>
 <div class="foot" role="doc-pagefooter" aria-label="Manual footer
   line"><span class="foot-left">elebake</span> <span class="foot-date">September
-  29, 2026</span> <span class="foot-right">ELEBAKE(8)</span></div>
+  30, 2026</span> <span class="foot-right">ELEBAKE(8)</span></div>
 </body>
 </html>

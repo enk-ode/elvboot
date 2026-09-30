@@ -969,7 +969,7 @@ _stage_detachsign1() {
 # @summary Add a DETACHED git worktree of ELEBAKE_FREEBSD_SRC at <ref> (a snapshot, never a branch to commit on) and point the stage at it: the toolchain is there, the stage exists, the source repo is set; then 'stage worktree'
 # @group   stage
 # @env     ELEBAKE_FREEBSD_SRC  the source repo the worktree is added from
-# @example elebake stage checkout daily-v1 platform-trust-gates-15.1
+# @example elebake stage checkout daily-v1 elvboot-15.1
 # @see     stage build
 # @see     stage clean
 #@end
