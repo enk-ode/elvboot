@@ -19,13 +19,17 @@
 #@help
 # @defgroup setup  Without a database
 # @order   10
-#   The only commands that run without an existing database. Start here.
+#   The commands that run before a database exists: bootstrap creates one,
+#   help and the manual read the shipped corpus, complete serves the shell.
+#   Start here.
 #@end
 
 #@help
 # @defgroup configuration  Configuration
 # @order   20
-#   Read and change elebake environment variables and interpreter pins.
+#   The database's environment: the profile installed and re-synced
+#   (environment init), the cache, the freeze; variables and interpreter
+#   pins read and changed (setenv, getenv, unsetenv, setintp, getintp).
 #@end
 
 #@help

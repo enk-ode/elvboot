@@ -62,70 +62,14 @@ Every command, grouped as \f[CR]elebake help\f[R] groups it.
 \f[CR]elebake help <command>\f[R] shows parameters, environment and
 examples.
 .SS Without a database
-The only commands that run without an existing database.
+The commands that run before a database exists: bootstrap creates one,
+help and the manual read the shipped corpus, complete serves the shell.
 Start here.
 .TP
 \f[B]bootstrap <name> <profile>\f[R]
 Create the database \(ti/.elebake/<name> (under ELEBAKE_ROOT) with the
 named profile and point the active\-DB symlink db at it.
 <name> is a plain name, not a path: a slash is refused, db is reserved
-.TP
-\f[B]environment init <profile>\f[R]
-Install (or re\-sync after an update) the profile\(cqs template
-variables into .env/default: the profile is shipped, then `environment
-install'
-.TP
-\f[B]environment cache on\f[R]
-Build the environment cache, the pattern of stage site mk: `environment
-cache render' redirected into .env/local/ELEBAKE_CACHE_ENV_ARGS.new (a
-fresh scan of .env/), then `environment cache place' moves it into place
-(0600) and says how many variables.
-The scan happens when the lines run, not when this command generates: a
-compiled script carries them, and they see the setenv acts before them.
-A database whose cache predates this version knows no pin for `place'
-and only displays it: re\-sync first (environment init <profile>), it
-drops the cache
-.TP
-\f[B]environment freeze <name>\f[R]
-Freeze the interpreter environment of this database, with no way back:
-the name IS the confirmation (as destroy), a warning says what goes,
-then every machine override that weakens a combinator or batch pin is
-removed (environment freeze pins), the terminal default becomes sh (acts
-run), the marker .env/frozen is written, the cache rebuilt.
-Frozen, setenv and unsetenv refuse those pins.
-The shipped defaults are the only interpreters that read ONE line
-reliably (head \-n1 | xargs \&...
-for a combinator, the batch runner for a batch): a pin of sh or cat
-there works until two lines stand on stdin.
-A pin that must deviate is a decision taken BEFORE the freeze, in the
-template that ships it, never a machine override afterwards.
-Assumes: the database is provisioned and about to be trusted with acts;
-there is no thaw
-.TP
-\f[B]init <profile>\f[R]
-Initialize the database at ELEBAKE_BASE: the layout (database init),
-then the profile\(cqs environment (environment init), then the
-environment cache (environment cache on) \(en every later invocation
-reads one file instead of the layered store
-.TP
-\f[B]setenv <VAR> <value>\f[R]
-Set a machine override: the name is a variable name, a frozen database
-allows it (environment frozen allows: no combinator or batch pin after
-environment freeze), the value is written to .env/local/<VAR> (0640,
-owner of the database when possible), the environment cache refreshed
-when one is on.
-Effective with the next command
-.TP
-\f[B]getenv <VAR>\f[R]
-Show the effective value of a variable and the layer that answers
-(.env/local override, .env/default, the shipped template): the variable
-resolves: rewrite to `getenv read <VAR> <layer> <path>', else an error
-line
-.TP
-\f[B]unsetenv <VAR>\f[R]
-Remove the machine override .env/local/<VAR> when there is one (else say
-so) \(en a frozen database allows it first (environment frozen allows)
-\(en and refresh the environment cache when one is on
 .TP
 \f[B]help [<command|group|topic>]\f[R]
 Show the grouped overview, or detail for a command, group or topic
@@ -168,10 +112,28 @@ elebake setenv ELEBAKE_TERMINAL_INTERPRETER sh (inspect any single
 command via setintp <family> cat, or per run under an explicit
 interpreter).
 .SS Configuration
-Read and change elebake environment variables and interpreter pins.
+The database\(cqs environment: the profile installed and re\-synced
+(environment init), the cache, the freeze; variables and interpreter
+pins read and changed (setenv, getenv, unsetenv, setintp, getintp).
+.TP
+\f[B]environment init <profile>\f[R]
+Install (or re\-sync after an update) the profile\(cqs template
+variables into .env/default: the profile is shipped, then `environment
+install'
 .TP
 \f[B]environment cache [on|off|status]\f[R]
 Manage the cached\-environment optimisation
+.TP
+\f[B]environment cache on\f[R]
+Build the environment cache, the pattern of stage site mk: `environment
+cache render' redirected into .env/local/ELEBAKE_CACHE_ENV_ARGS.new (a
+fresh scan of .env/), then `environment cache place' moves it into place
+(0600) and says how many variables.
+The scan happens when the lines run, not when this command generates: a
+compiled script carries them, and they see the setenv acts before them.
+A database whose cache predates this version knows no pin for `place'
+and only displays it: re\-sync first (environment init <profile>), it
+drops the cache
 .TP
 \f[B]environment cache off\f[R]
 Remove the environment cache; later invocations read the layered store
@@ -180,6 +142,47 @@ again
 \f[B]environment cache status\f[R]
 Is the environment cache on, how many variables does it hold, and is the
 environment frozen (environment freeze)?
+.TP
+\f[B]environment freeze <name>\f[R]
+Freeze the interpreter environment of this database, with no way back:
+the name IS the confirmation (as destroy), a warning says what goes,
+then every machine override that weakens a combinator or batch pin is
+removed (environment freeze pins), the terminal default becomes sh (acts
+run), the marker .env/frozen is written, the cache rebuilt.
+Frozen, setenv and unsetenv refuse those pins.
+The shipped defaults are the only interpreters that read ONE line
+reliably (head \-n1 | xargs \&...
+for a combinator, the batch runner for a batch): a pin of sh or cat
+there works until two lines stand on stdin.
+A pin that must deviate is a decision taken BEFORE the freeze, in the
+template that ships it, never a machine override afterwards.
+Assumes: the database is provisioned and about to be trusted with acts;
+there is no thaw
+.TP
+\f[B]init <profile>\f[R]
+Initialize the database at ELEBAKE_BASE: the layout (database init),
+then the profile\(cqs environment (environment init), then the
+environment cache (environment cache on) \(en every later invocation
+reads one file instead of the layered store
+.TP
+\f[B]setenv <VAR> <value>\f[R]
+Set a machine override: the name is a variable name, a frozen database
+allows it (environment frozen allows: no combinator or batch pin after
+environment freeze), the value is written to .env/local/<VAR> (0640,
+owner of the database when possible), the environment cache refreshed
+when one is on.
+Effective with the next command
+.TP
+\f[B]getenv <VAR>\f[R]
+Show the effective value of a variable and the layer that answers
+(.env/local override, .env/default, the shipped template): the variable
+resolves: rewrite to `getenv read <VAR> <layer> <path>', else an error
+line
+.TP
+\f[B]unsetenv <VAR>\f[R]
+Remove the machine override .env/local/<VAR> when there is one (else say
+so) \(en a frozen database allows it first (environment frozen allows)
+\(en and refresh the environment cache when one is on
 .TP
 \f[B]printenv [<VAR>]\f[R]
 Show all effective environment variables, or just one

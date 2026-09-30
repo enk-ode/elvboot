@@ -105,7 +105,7 @@ __environment_profile_valid1() {
 #@help ___database_init0
 # @command database init
 # @summary Ensure every directory of the database layout (ELEBAKE_INIT_DIR_CONFIG: path, mode, exec flag, content policy), one 'database dir ensure' per line, then the ready line
-# @group   setup
+# @group   configuration
 # @internal
 # @see     init
 # @see     database dir ensure
@@ -122,7 +122,7 @@ ___database_init0() {
 #@help __database_dir_ensure4
 # @command database dir ensure <dir> <mode> <exec-flag> <policy>
 # @summary The directory is there: rewrite to 'database dir validate ...', else to 'database dir create <dir> <mode>'
-# @group   setup
+# @group   configuration
 # @internal
 # @see     database init
 #@end
@@ -137,7 +137,7 @@ __database_dir_ensure4() {
 #@help __database_dir_validate4
 # @command database dir validate <dir> <mode> <exec-flag> <policy>
 # @summary The path is a directory, its content admissible (policy operational: any; else empty -- the exclusive hierarchy) and, with the exec flag, its mount runs scripts: rewrite to 'database dir validated <dir> <mode>', else an error line
-# @group   setup
+# @group   configuration
 # @internal
 # @see     database dir ensure
 #@end
@@ -152,7 +152,7 @@ __database_dir_validate4() {
 #@help _database_dir_validated2
 # @command database dir validated <dir> <mode>
 # @summary Act terminal: the validated line for the directory, with a warning when its mode differs from the layout's
-# @group   setup
+# @group   configuration
 # @internal
 # @see     database dir ensure
 #@end
@@ -168,7 +168,7 @@ _database_dir_validated2() {
 #@help _database_dir_create2
 # @command database dir create <dir> <mode>
 # @summary Act terminal: create the directory with its mode and say so
-# @group   setup
+# @group   configuration
 # @internal
 # @see     database dir ensure
 #@end
@@ -181,7 +181,7 @@ _database_dir_create2() {
 #@help ___environment_init1
 # @command environment init <profile>
 # @summary Install (or re-sync after an update) the profile's template variables into .env/default: the profile is shipped, then 'environment install'
-# @group   setup
+# @group   configuration
 # @param   profile  minimal or all
 # @example elebake environment init all
 # @see     bootstrap
@@ -196,7 +196,7 @@ ___environment_init1() {
 #@help _environment_install1
 # @command environment install <profile>
 # @summary Act terminal: the script that copies every template the profile lists into .env/default (0600), removes the default pins the profile no longer lists (a renamed terminal's old pin would bind the wrong function), records the profile marker, invalidates the environment cache when one is there and says so; a local pin that names no function is reported
-# @group   setup
+# @group   configuration
 # @internal
 # @see     environment init
 # @env     ELEBAKE_TEMPLATE_DIR  where the profile and its templates live
@@ -246,7 +246,7 @@ __environment_cache0() {
 #@help ___environment_cache_on0
 # @command environment cache on
 # @summary Build the environment cache, the pattern of stage site mk: 'environment cache render' redirected into .env/local/ELEBAKE_CACHE_ENV_ARGS.new (a fresh scan of .env/), then 'environment cache place' moves it into place (0600) and says how many variables. The scan happens when the lines run, not when this command generates: a compiled script carries them, and they see the setenv acts before them. A database whose cache predates this version knows no pin for 'place' and only displays it: re-sync first (environment init <profile>), it drops the cache
-# @group   setup
+# @group   configuration
 # @env     ELEBAKE_CACHE_ENV_ARGS  the cache file the lines write
 # @see     environment cache render
 # @see     environment cache place
@@ -261,7 +261,7 @@ ___environment_cache_on0() {
 #@help _environment_cache_render0
 # @command environment cache render
 # @summary Text terminal: the layered store .env/ as one line of NAME='value' pairs, local over default, scanned afresh (the in-memory cache a parent handed down is set aside for the scan) -- the content of the cache, what 'environment cache on' redirects into the .new file
-# @group   setup
+# @group   configuration
 # @internal
 # @env     ELEBAKE_CACHE_ENV_ARGS  the value a parent may have handed down -- ignored here, the scan reads .env/
 # @see     environment cache on
@@ -273,7 +273,7 @@ _environment_cache_render0() {
 #@help _environment_cache_place0
 # @command environment cache place
 # @summary Act terminal: the script that moves .env/local/ELEBAKE_CACHE_ENV_ARGS.new into place (0600) and says how many variables the cache holds. Before 14.09. the cache was written while 'environment cache on' generated; a compiled script had nothing to run, and a display pin was not innocent
-# @group   setup
+# @group   configuration
 # @internal
 # @env     ELEBAKE_CACHE_ENV_ARGS  the cache file this script places
 # @see     environment cache on
@@ -327,7 +327,7 @@ _environment_cache_status0() {
 # @command environment freeze <name>
 # @completion name database
 # @summary Freeze the interpreter environment of this database, with no way back: the name IS the confirmation (as destroy), a warning says what goes, then every machine override that weakens a combinator or batch pin is removed (environment freeze pins), the terminal default becomes sh (acts run), the marker .env/frozen is written, the cache rebuilt. Frozen, setenv and unsetenv refuse those pins. The shipped defaults are the only interpreters that read ONE line reliably (head -n1 | xargs ... for a combinator, the batch runner for a batch): a pin of sh or cat there works until two lines stand on stdin. A pin that must deviate is a decision taken BEFORE the freeze, in the template that ships it, never a machine override afterwards. Assumes: the database is provisioned and about to be trusted with acts; there is no thaw
-# @group   setup
+# @group   configuration
 # @param   name  must match the database's own name -- the confirmation
 # @env     ELEBAKE_TERMINAL_INTERPRETER  set to sh by the batch: acts run in a frozen database
 # @example elebake environment freeze production
@@ -348,7 +348,7 @@ ___environment_freeze1() {
 #@help __environment_freeze_named1
 # @command environment freeze named <name>
 # @summary The name is this database's own (the basename the active-DB symlink resolves to): a comment line, else an error line -- naming the database IS the confirmation
-# @group   setup
+# @group   configuration
 # @internal
 # @see     environment freeze
 #@end
@@ -365,7 +365,7 @@ __environment_freeze_named1() {
 #@help _environment_freeze_warn1
 # @command environment freeze warn <name>
 # @summary Print what the freeze removes for good and what it fixes -- the warning the batch shows before the first unsetenv
-# @group   setup
+# @group   configuration
 # @internal
 # @env     ELEBAKE_COMBINATOR_INTERPRETER  named in the warning: a class default the freeze pins to the shipped value
 # @env     ELEBAKE_BATCH_COMBINATOR_INTERPRETER  named in the warning: the other class default
@@ -384,7 +384,7 @@ _environment_freeze_warn1() {
 #@help ___environment_freeze_pins0
 # @command environment freeze pins
 # @summary Every machine override that weakens a combinator or batch pin, per file of .env/local: an ELEBAKE_INTERPRETER_<anchor> whose anchor is a __ or ___ function (the stem table), or one of the two class defaults, holding anything but the shipped default of its class (template/environment): one 'unsetenv <VAR>' each; none: a comment line
-# @group   setup
+# @group   configuration
 # @internal
 # @env     ELEBAKE_TEMPLATE_DIR  the template directory (the shipped defaults)
 # @env     ELEBAKE_COMBINATOR_INTERPRETER  the shipped default a combinator pin must equal
@@ -416,7 +416,7 @@ ___environment_freeze_pins0() {
 #@help _environment_freeze_mark0
 # @command environment freeze mark
 # @summary Act terminal: write the marker .env/frozen (the date, 0400) -- what environment frozen allows reads
-# @group   setup
+# @group   configuration
 # @internal
 # @see     environment freeze
 #@end
@@ -429,7 +429,7 @@ _environment_freeze_mark0() {
 #@help __environment_frozen_allows1
 # @command environment frozen allows <VAR>
 # @summary A frozen database (.env/frozen) refuses to set or unset a combinator or batch pin -- ELEBAKE_INTERPRETER_<anchor> of a __ or ___ function (the stem table), or a class default: an error line naming the rule; any other variable, or no freeze, is a comment line
-# @group   setup
+# @group   configuration
 # @internal
 # @env     ELEBAKE_COMBINATOR_INTERPRETER  a class default: refused when frozen
 # @env     ELEBAKE_BATCH_COMBINATOR_INTERPRETER  the other class default: refused when frozen
@@ -457,7 +457,7 @@ __environment_frozen_allows1() {
 #@help ___init1
 # @command init <profile>
 # @summary Initialize the database at ELEBAKE_BASE: the layout (database init), then the profile's environment (environment init), then the environment cache (environment cache on) -- every later invocation reads one file instead of the layered store
-# @group   setup
+# @group   configuration
 # @param   profile  minimal or all
 # @example elebake init minimal
 # @see     bootstrap
@@ -486,7 +486,7 @@ __init0() {
 #@help ___setenv2
 # @command setenv <VAR> <value>
 # @summary Set a machine override: the name is a variable name, a frozen database allows it (environment frozen allows: no combinator or batch pin after environment freeze), the value is written to .env/local/<VAR> (0640, owner of the database when possible), the environment cache refreshed when one is on. Effective with the next command
-# @group   setup
+# @group   configuration
 # @param   VAR    letters, digits and underscores
 # @param   value  the first line of the variable's file
 # @example elebake setenv ELEBAKE_FREEBSD_SRC /home/brj/git/freebsd-src
@@ -504,7 +504,7 @@ ___setenv2() {
 #@help __setenv_name_valid1
 # @command setenv name valid <VAR>
 # @summary The name consists of letters, digits and underscores only: a comment line, else an error line
-# @group   setup
+# @group   configuration
 # @internal
 # @see     setenv
 #@end
@@ -519,7 +519,7 @@ __setenv_name_valid1() {
 #@help _setenv_write2
 # @command setenv write <VAR> <value>
 # @summary Act terminal: the script that writes the value as .env/local/<VAR> (directory 0700, file 0640) and hands the file to the database's owner when that is someone else (best effort)
-# @group   setup
+# @group   configuration
 # @internal
 # @see     setenv
 #@end
@@ -537,7 +537,7 @@ _setenv_write2() {
 #@help __environment_cache_refresh0
 # @command environment cache refresh
 # @summary The environment cache is on (.env/local/ELEBAKE_CACHE_ENV_ARGS is there): rewrite to 'environment cache on' (a fresh scan), else a comment line
-# @group   setup
+# @group   configuration
 # @internal
 # @see     setenv
 # @see     unsetenv
@@ -554,7 +554,7 @@ __environment_cache_refresh0() {
 #@help __getenv1
 # @command getenv <VAR>
 # @summary Show the effective value of a variable and the layer that answers (.env/local override, .env/default, the shipped template): the variable resolves: rewrite to 'getenv read <VAR> <layer> <path>', else an error line
-# @group   setup
+# @group   configuration
 # @example elebake getenv ELEBAKE_FREEBSD_SRC
 # @see     setenv
 # @see     printenv
@@ -571,7 +571,7 @@ __getenv1() {
 #@help _getenv_read3
 # @command getenv read <VAR> <layer> <path>
 # @summary Act terminal: the source line (layer and path; the local layer is the override) on stderr and the value (the file's first line) on stdout
-# @group   setup
+# @group   configuration
 # @internal
 # @see     getenv
 #@end
@@ -583,7 +583,7 @@ _getenv_read3() {
 #@help ___unsetenv1
 # @command unsetenv <VAR>
 # @summary Remove the machine override .env/local/<VAR> when there is one (else say so) -- a frozen database allows it first (environment frozen allows) -- and refresh the environment cache when one is on
-# @group   setup
+# @group   configuration
 # @example elebake unsetenv ELEBAKE_FREEBSD_SRC
 # @see     setenv
 # @see     getenv
@@ -597,7 +597,7 @@ ___unsetenv1() {
 #@help __unsetenv_remove1
 # @command unsetenv remove <VAR>
 # @summary The override file is there: rewrite to 'unsetenv erase <VAR>', else a note line (nothing to unset)
-# @group   setup
+# @group   configuration
 # @internal
 # @see     unsetenv
 #@end
@@ -612,7 +612,7 @@ __unsetenv_remove1() {
 #@help _unsetenv_erase1
 # @command unsetenv erase <VAR>
 # @summary Act terminal: remove .env/local/<VAR> and say so
-# @group   setup
+# @group   configuration
 # @internal
 # @see     unsetenv
 #@end

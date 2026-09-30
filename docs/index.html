@@ -83,67 +83,15 @@ elebake freebsd prerequisites
 <section class="Ss">
 <h3 class="Ss" id="Without_a_database"><a class="permalink" href="#Without_a_database">Without
   a database</a></h3>
-<p class="Pp">The only commands that run without an existing database. Start
-    here.</p>
+<p class="Pp">The commands that run before a database exists: bootstrap creates
+    one, help and the manual read the shipped corpus, complete serves the shell.
+    Start here.</p>
 <dl class="Bl-tag">
   <dt id="bootstrap"><a class="permalink" href="#bootstrap"><b>bootstrap
     &lt;name&gt; &lt;profile&gt;</b></a></dt>
   <dd>Create the database ~/.elebake/&lt;name&gt; (under ELEBAKE_ROOT) with the
       named profile and point the active-DB symlink db at it. &lt;name&gt; is a
       plain name, not a path: a slash is refused, db is reserved</dd>
-  <dt id="environment"><a class="permalink" href="#environment"><b>environment
-    init &lt;profile&gt;</b></a></dt>
-  <dd>Install (or re-sync after an update) the profile&#x2019;s template
-      variables into .env/default: the profile is shipped, then `environment
-      install'</dd>
-  <dt id="environment~2"><a class="permalink" href="#environment~2"><b>environment
-    cache on</b></a></dt>
-  <dd>Build the environment cache, the pattern of stage site mk: `environment
-      cache render' redirected into .env/local/ELEBAKE_CACHE_ENV_ARGS.new (a
-      fresh scan of .env/), then `environment cache place' moves it into place
-      (0600) and says how many variables. The scan happens when the lines run,
-      not when this command generates: a compiled script carries them, and they
-      see the setenv acts before them. A database whose cache predates this
-      version knows no pin for `place' and only displays it: re-sync first
-      (environment init &lt;profile&gt;), it drops the cache</dd>
-  <dt id="environment~3"><a class="permalink" href="#environment~3"><b>environment
-    freeze &lt;name&gt;</b></a></dt>
-  <dd>Freeze the interpreter environment of this database, with no way back: the
-      name IS the confirmation (as destroy), a warning says what goes, then
-      every machine override that weakens a combinator or batch pin is removed
-      (environment freeze pins), the terminal default becomes sh (acts run), the
-      marker .env/frozen is written, the cache rebuilt. Frozen, setenv and
-      unsetenv refuse those pins. The shipped defaults are the only interpreters
-      that read ONE line reliably (head -n1 | xargs ... for a combinator, the
-      batch runner for a batch): a pin of sh or cat there works until two lines
-      stand on stdin. A pin that must deviate is a decision taken BEFORE the
-      freeze, in the template that ships it, never a machine override
-      afterwards. Assumes: the database is provisioned and about to be trusted
-      with acts; there is no thaw</dd>
-  <dt id="init"><a class="permalink" href="#init"><b>init
-    &lt;profile&gt;</b></a></dt>
-  <dd>Initialize the database at ELEBAKE_BASE: the layout (database init), then
-      the profile&#x2019;s environment (environment init), then the environment
-      cache (environment cache on) &#x2013; every later invocation reads one
-      file instead of the layered store</dd>
-  <dt id="setenv"><a class="permalink" href="#setenv"><b>setenv &lt;VAR&gt;
-    &lt;value&gt;</b></a></dt>
-  <dd>Set a machine override: the name is a variable name, a frozen database
-      allows it (environment frozen allows: no combinator or batch pin after
-      environment freeze), the value is written to .env/local/&lt;VAR&gt; (0640,
-      owner of the database when possible), the environment cache refreshed when
-      one is on. Effective with the next command</dd>
-  <dt id="getenv"><a class="permalink" href="#getenv"><b>getenv
-    &lt;VAR&gt;</b></a></dt>
-  <dd>Show the effective value of a variable and the layer that answers
-      (.env/local override, .env/default, the shipped template): the variable
-      resolves: rewrite to `getenv read &lt;VAR&gt; &lt;layer&gt; &lt;path&gt;',
-      else an error line</dd>
-  <dt id="unsetenv"><a class="permalink" href="#unsetenv"><b>unsetenv
-    &lt;VAR&gt;</b></a></dt>
-  <dd>Remove the machine override .env/local/&lt;VAR&gt; when there is one (else
-      say so) &#x2013; a frozen database allows it first (environment frozen
-      allows) &#x2013; and refresh the environment cache when one is on</dd>
   <dt id="help"><a class="permalink" href="#help"><b>help
     [&lt;command|group|topic&gt;]</b></a></dt>
   <dd>Show the grouped overview, or detail for a command, group or topic</dd>
@@ -187,20 +135,75 @@ elebake freebsd prerequisites
 </section>
 <section class="Ss">
 <h3 class="Ss" id="Configuration"><a class="permalink" href="#Configuration">Configuration</a></h3>
-<p class="Pp">Read and change elebake environment variables and interpreter
-    pins.</p>
+<p class="Pp">The database&#x2019;s environment: the profile installed and
+    re-synced (environment init), the cache, the freeze; variables and
+    interpreter pins read and changed (setenv, getenv, unsetenv, setintp,
+    getintp).</p>
 <dl class="Bl-tag">
-  <dt id="environment~4"><a class="permalink" href="#environment~4"><b>environment
+  <dt id="environment"><a class="permalink" href="#environment"><b>environment
+    init &lt;profile&gt;</b></a></dt>
+  <dd>Install (or re-sync after an update) the profile&#x2019;s template
+      variables into .env/default: the profile is shipped, then `environment
+      install'</dd>
+  <dt id="environment~2"><a class="permalink" href="#environment~2"><b>environment
     cache [on|off|status]</b></a></dt>
   <dd>Manage the cached-environment optimisation</dd>
-  <dt id="environment~5"><a class="permalink" href="#environment~5"><b>environment
+  <dt id="environment~3"><a class="permalink" href="#environment~3"><b>environment
+    cache on</b></a></dt>
+  <dd>Build the environment cache, the pattern of stage site mk: `environment
+      cache render' redirected into .env/local/ELEBAKE_CACHE_ENV_ARGS.new (a
+      fresh scan of .env/), then `environment cache place' moves it into place
+      (0600) and says how many variables. The scan happens when the lines run,
+      not when this command generates: a compiled script carries them, and they
+      see the setenv acts before them. A database whose cache predates this
+      version knows no pin for `place' and only displays it: re-sync first
+      (environment init &lt;profile&gt;), it drops the cache</dd>
+  <dt id="environment~4"><a class="permalink" href="#environment~4"><b>environment
     cache off</b></a></dt>
   <dd>Remove the environment cache; later invocations read the layered store
       again</dd>
-  <dt id="environment~6"><a class="permalink" href="#environment~6"><b>environment
+  <dt id="environment~5"><a class="permalink" href="#environment~5"><b>environment
     cache status</b></a></dt>
   <dd>Is the environment cache on, how many variables does it hold, and is the
       environment frozen (environment freeze)?</dd>
+  <dt id="environment~6"><a class="permalink" href="#environment~6"><b>environment
+    freeze &lt;name&gt;</b></a></dt>
+  <dd>Freeze the interpreter environment of this database, with no way back: the
+      name IS the confirmation (as destroy), a warning says what goes, then
+      every machine override that weakens a combinator or batch pin is removed
+      (environment freeze pins), the terminal default becomes sh (acts run), the
+      marker .env/frozen is written, the cache rebuilt. Frozen, setenv and
+      unsetenv refuse those pins. The shipped defaults are the only interpreters
+      that read ONE line reliably (head -n1 | xargs ... for a combinator, the
+      batch runner for a batch): a pin of sh or cat there works until two lines
+      stand on stdin. A pin that must deviate is a decision taken BEFORE the
+      freeze, in the template that ships it, never a machine override
+      afterwards. Assumes: the database is provisioned and about to be trusted
+      with acts; there is no thaw</dd>
+  <dt id="init"><a class="permalink" href="#init"><b>init
+    &lt;profile&gt;</b></a></dt>
+  <dd>Initialize the database at ELEBAKE_BASE: the layout (database init), then
+      the profile&#x2019;s environment (environment init), then the environment
+      cache (environment cache on) &#x2013; every later invocation reads one
+      file instead of the layered store</dd>
+  <dt id="setenv"><a class="permalink" href="#setenv"><b>setenv &lt;VAR&gt;
+    &lt;value&gt;</b></a></dt>
+  <dd>Set a machine override: the name is a variable name, a frozen database
+      allows it (environment frozen allows: no combinator or batch pin after
+      environment freeze), the value is written to .env/local/&lt;VAR&gt; (0640,
+      owner of the database when possible), the environment cache refreshed when
+      one is on. Effective with the next command</dd>
+  <dt id="getenv"><a class="permalink" href="#getenv"><b>getenv
+    &lt;VAR&gt;</b></a></dt>
+  <dd>Show the effective value of a variable and the layer that answers
+      (.env/local override, .env/default, the shipped template): the variable
+      resolves: rewrite to `getenv read &lt;VAR&gt; &lt;layer&gt; &lt;path&gt;',
+      else an error line</dd>
+  <dt id="unsetenv"><a class="permalink" href="#unsetenv"><b>unsetenv
+    &lt;VAR&gt;</b></a></dt>
+  <dd>Remove the machine override .env/local/&lt;VAR&gt; when there is one (else
+      say so) &#x2013; a frozen database allows it first (environment frozen
+      allows) &#x2013; and refresh the environment cache when one is on</dd>
   <dt id="printenv"><a class="permalink" href="#printenv"><b>printenv
     [&lt;VAR&gt;]</b></a></dt>
   <dd>Show all effective environment variables, or just one</dd>
