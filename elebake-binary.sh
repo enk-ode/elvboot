@@ -80,10 +80,12 @@ if [ -n "${ELV_SOURCED:-}" ]; then
         ELV_MODE=run
 else
         ELEBAKE_LIBDIR=$(cd "$(dirname "$0")" && pwd)
-        case "${0##*/}" in
-        elebake-compile.sh)     ELV_MODE=compile ;;
-        elebake-walkthrough.sh) ELV_MODE=walk ;;
-        *)                      ELV_MODE=run ;;
+        # the other names are files that set ELV_MODE and exec this one (a
+        # symlink would do, but GitHub Pages refuses a repository with one)
+        case "${ELV_MODE:-${0##*/}}" in
+        compile|elebake-compile.sh)     ELV_MODE=compile ;;
+        walk|elebake-walkthrough.sh)    ELV_MODE=walk ;;
+        *)                              ELV_MODE=run ;;
         esac
         ELEBAKE_BASE=${1:?database}; shift
 fi
