@@ -1,3 +1,3 @@
 sudo sh
-# Act terminal of 'stage backup': mounts the ESP read-only and copies the loader as root.
-# @see ELEBAKE_INTERPRETER_stage_deploy_write
+# Act terminal of 'stage backup': copies the loader from the ESP 'stage medium mount' mounted into the record, as root.
+# @see ELEBAKE_INTERPRETER_stage_medium_mount

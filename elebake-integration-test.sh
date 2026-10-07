@@ -11,7 +11,8 @@
 # Story 2: replay idempotence — restore the same dump AGAIN and prove the
 #          stage id stable, no .staging orphans, tree still identical.
 # Story 3: negative — a dump line for an unknown stage stops that sequence
-#          (check stage) while keep-going lets the rest of the replay run.
+#          (check stage) and the replay stops there: fail-fast, a dump half
+#          applied is no success.
 #
 # Doctrine: no real devices, no NVRAM, invented node names; everything acts
 # inside the sandbox databases only.
@@ -552,7 +553,7 @@ user_story_6_rescue_roundtrip() {
     fail "backup list on the rescue wrong"
   fi
   ELEBAKE_ROOT="$root" eb "$rescue" setenv ELEBAKE_INTERPRETER_stage_rollback3 cat > /dev/null
-  if ELEBAKE_ROOT="$root" eb "$rescue" stage rollback card a | grep -q "stage backup 'card' 'a' 'suspect-"; then
+  if ELEBAKE_ROOT="$root" eb "$rescue" stage rollback card a | grep -q "stage backup take 'card' 'a' 'suspect-"; then
     pass "a rollback on the rescue saves the suspect loader first"
   else
     fail "rollback does not save the suspect"
@@ -612,7 +613,7 @@ user_story_1_migration_roundtrip() {
     fail "stage tree differs: $(head -3 "$dst/diff.out")"
   fi
   if [ "$(cat "$dstbase/stage/story/rescue/dataset" 2>/dev/null)" = zroot/rescue ] && [ "$(cat "$dstbase/stage/story/rescue/cards/t" 2>/dev/null)" = da1p3 ] \
-     && [ "$(grep -c . "$dstbase/stage/story/rescue/tools" 2>/dev/null)" = 2 ] && eb "$dstbase" stage rescue show story | grep -q "config: /etc/wpa_supplicant.conf"; then
+     && [ "$(grep -c . "$dstbase/stage/story/rescue/tools" 2>/dev/null)" = 2 ] && eb "$dstbase" stage rescue show story 2>&1 | grep -q "config (1 lines):"; then
     pass "the rescue description (dataset, pool, tools, config, cards) is replayed by the dump"
   else
     fail "rescue description after migration: $(eb "$dstbase" stage rescue show story 2>&1 | tr '\n' ' ')"
@@ -630,6 +631,13 @@ user_story_1_migration_roundtrip() {
     pass "environment override restored via prologue/epilogue"
   else
     fail "environment override missing in target"
+  fi
+  if [ "$(grep -c '" environment refresh$' "$TEST_BASE_DIR/s1-dump.sh")" = 2 ] \
+     && grep -B1 "comment 'environment prologue replayed'" "$TEST_BASE_DIR/s1-dump.sh" | head -1 | grep -q '" environment refresh$' \
+     && grep -B1 "comment 'environment epilogue replayed'" "$TEST_BASE_DIR/s1-dump.sh" | head -1 | grep -q '" environment refresh$'; then
+    pass "the dump refreshes the environment after the pins of its prologue and of its epilogue"
+  else
+    fail "environment refresh misplaced in the dump: $(grep -n 'environment refresh\|replayed' "$TEST_BASE_DIR/s1-dump.sh" | tr '\n' ' ')"
   fi
   story_close 1
 }
@@ -668,7 +676,7 @@ user_story_2_replay_idempotence() {
 }
 
 user_story_3_unknown_stage_negative() {
-  story_header 3 "check stage stops a bad sequence, keep-going saves the rest"
+  story_header 3 "check stage stops a bad sequence, the replay stops there"
   local root="$TEST_BASE_DIR/s3" base="$TEST_BASE_DIR/s3/db"
   mkdir -p "$root"
   ELEBAKE_ROOT="$root" ELEBAKE_BASE="$base" "$TEST_SCRIPT" bootstrap current minimal > "$root/bootstrap.log" 2>&1 || { fail "bootstrap failed"; story_close 3; return 0; }
@@ -703,10 +711,10 @@ EOF
     fail "ghost import acted despite failing check"
   fi
   if [ "$(head -1 "$base/.env/local/ELEBAKE_INT_BEFORE" 2>/dev/null)" = "yes" ] \
-     && [ "$(head -1 "$base/.env/local/ELEBAKE_INT_AFTER" 2>/dev/null)" = "yes" ]; then
-    pass "keep-going replayed the lines around the failure"
+     && [ ! -f "$base/.env/local/ELEBAKE_INT_AFTER" ]; then
+    pass "fail-fast: the line before the failure replayed, the line after it did not"
   else
-    fail "keep-going did not survive the failing sequence"
+    fail "the replay did not stop at the failing sequence: before=$(head -1 "$base/.env/local/ELEBAKE_INT_BEFORE" 2>/dev/null) after=$(head -1 "$base/.env/local/ELEBAKE_INT_AFTER" 2>/dev/null)"
   fi
   story_close 3
 }

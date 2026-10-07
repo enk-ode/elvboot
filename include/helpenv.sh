@@ -33,8 +33,10 @@ _help_env0() {
 # @internal arity-1 of 'help env' (help env <name>): the name resolves to a documented variable (literal, ELEBAKE_<name>, ELEBAKE_INTERPRETER_<name>) -> rewrite to 'help env <variable> <effective layer>', else an error line
 #@end
 __help_env1() {
-        local var=""
-        var=$(env_var_resolve "$1")
+        local cand="" var=""
+        for cand in "$1" "ELEBAKE_$1" "ELEBAKE_INTERPRETER_$1"; do
+                env_resolve_file "$cand" > /dev/null 2>&1 && var=$cand && break
+        done
         if test -n "$var"; then
                 printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" help env '$var' '$(env_resolve_file "$var" | sed -n 1p)'"
         else
@@ -46,11 +48,15 @@ __help_env1() {
 # @internal arity-2 of 'help env' (help env <name> <location>): the variable's source (layer and file), its value and its documentation (lines 2+ of the shown file, or of the first deeper layer that documents anything; @tags as labelled sections; ELEBAKE_TEMPLATE_DIR)
 #@end
 _help_env2() {
-        local resolved="" layer="" path="" doc=""
+        local resolved="" layer="" path="" doc="" l="" d=""
         resolved=$(env_resolve_file "$1" "$2" 2>/dev/null)
         layer=$(printf '%s\n' "$resolved" | sed -n 1p)
         path=$(printf '%s\n' "$resolved" | sed -n 2p)
-        doc=$(env_doc_path "$1" "$layer")
+        for l in "$layer" default template; do
+                d=$(env_resolve_file "$1" "$l" 2>/dev/null | sed -n 2p)
+                test -n "$d" && tail -n +2 "$d" | grep -q '[^[:space:]]' && doc=$d && break
+        done
+        test -n "$doc" || doc=$path
         if test -z "$resolved"; then
                 printf '# %s: no value in location: %s\n' "$1" "$2"
         else

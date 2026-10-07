@@ -1,0 +1,3 @@
+sudo sh
+# Act terminal of 'stage tree findings' (in stage tree verify and stage tree close): compares the tree on the mounted dataset with the manifest as root and writes the observation media/<medium>/findings.
+# @see ELEBAKE_INTERPRETER_stage_tree_write

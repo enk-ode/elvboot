@@ -1,0 +1,3 @@
+sh
+# Act terminal of 'provenance serial': writes the next export serial (the current one handed down by the combinator). Arity-specific: the family is a combinator and an act.
+# @see ELEBAKE_INTERPRETER_provenance_file

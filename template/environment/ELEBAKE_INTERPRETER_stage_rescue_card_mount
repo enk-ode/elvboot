@@ -1,0 +1,2 @@
+sudo sh
+# Act terminal of 'stage rescue verify': the card's root mounted read-only, as root.

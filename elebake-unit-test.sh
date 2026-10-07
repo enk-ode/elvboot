@@ -453,19 +453,38 @@ test_dump_version_header() {
 }
 
 test_restore_keep_going() {
-  test_header "restore survives a failing line (keep-going pin)"
+  test_header "restore stops at a failing line (fail-fast: a dump half applied is no success)"
   test_setup
   unit_attest_key unit-attest || return 0
   unit_signed_dump "$TEST_BASE_DIR/unit-restore.sh" \
     '"$ELEBAKE_CONTEXT_SCRIPT" setenv ELEBAKE_UNIT_A one' \
     '"$ELEBAKE_CONTEXT_SCRIPT" stage filter add ghost x' \
     '"$ELEBAKE_CONTEXT_SCRIPT" setenv ELEBAKE_UNIT_B two'
-  run_elebake restore "$TEST_BASE_DIR/unit-restore.sh" > /dev/null 2>&1
+  local rc=0
+  run_elebake restore "$TEST_BASE_DIR/unit-restore.sh" > /dev/null 2>&1 || rc=$?
   if [ "$(head -1 "$TEST_DIR/.env/local/ELEBAKE_UNIT_A" 2>/dev/null)" = "one" ] \
-     && [ "$(head -1 "$TEST_DIR/.env/local/ELEBAKE_UNIT_B" 2>/dev/null)" = "two" ]; then
-    pass "lines after the failing one still replayed"
+     && [ ! -f "$TEST_DIR/.env/local/ELEBAKE_UNIT_B" ] && [ "$rc" -ne 0 ]; then
+    pass "the line before the failing one replayed, the line after it not, the exit reports the failure"
   else
-    fail "restore stopped at the failing line (A=$(head -1 "$TEST_DIR/.env/local/ELEBAKE_UNIT_A" 2>/dev/null) B=$(head -1 "$TEST_DIR/.env/local/ELEBAKE_UNIT_B" 2>/dev/null))"
+    fail "restore after the failing line (rc=$rc A=$(head -1 "$TEST_DIR/.env/local/ELEBAKE_UNIT_A" 2>/dev/null) B=$(head -1 "$TEST_DIR/.env/local/ELEBAKE_UNIT_B" 2>/dev/null))"
+  fi
+}
+
+test_restore_pin_in_prologue() {
+  test_header "restore: a pin in the prologue governs the lines after environment refresh in the same replay"
+  test_setup
+  unit_attest_key unit-attest || return 0
+  local dump="$TEST_BASE_DIR/unit-restore-pin-$TESTS_RUN.sh" pin="$TEST_DIR/.env/local/ELEBAKE_INTERPRETER_setenv_write2" rp="$TEST_DIR/.env/local/ELEBAKE_UNIT_RP" rc=0 out
+  unit_signed_dump "$dump" \
+    '"$ELEBAKE_CONTEXT_SCRIPT" setenv ELEBAKE_INTERPRETER_setenv_write2 cat' \
+    '"$ELEBAKE_CONTEXT_SCRIPT" environment refresh' \
+    '"$ELEBAKE_CONTEXT_SCRIPT" setenv ELEBAKE_UNIT_RP two'
+  out=$(run_elebake restore "$dump" 2>&1) || rc=$?
+  if [ "$rc" -eq 0 ] && [ "$(head -1 "$pin" 2>/dev/null)" = cat ] && [ ! -f "$rp" ] \
+     && printf '%s\n' "$out" | grep -q "> '$rp'"; then
+    pass "the pin acted, the setenv after the refresh was displayed, the replay succeeded"
+  else
+    fail "restore with a prologue pin: rc=$rc pin=$(head -1 "$pin" 2>/dev/null) rp=$(head -1 "$rp" 2>/dev/null)"
   fi
 }
 
@@ -562,15 +581,18 @@ test_stage_device_and_boot_tree() {
     fail "invalid gpt label not rejected"
   fi
   # the way onto a medium: ensure decides at generation, mount proves the card as root, write assumes, release ends
-  if run_elebake stage medium ensure unitm t 2>&1 | grep -q "device not present: /dev/testda9"; then
-    pass "medium ensure: a device node that is not there is an error line, the acts after it stay dead"
+  run_elebake setenv ELEBAKE_INTERPRETER_stage_medium_ensure2 cat > /dev/null
+  if run_elebake stage medium ensure unitm t 2>&1 | grep -q "stage boot tree exists 'unitm' 't'" \
+     && ! run_elebake stage medium ensure unitm t 2>&1 | grep -q "present\|labeled"; then
+    pass "medium ensure: the description's checks, never a question to the reader"
   else
-    fail "medium ensure wrong: $(run_elebake stage medium ensure unitm t 2>&1 | head -2)"
+    fail "medium ensure wrong: $(run_elebake stage medium ensure unitm t 2>&1 | head -3)"
   fi
+  run_elebake setenv ELEBAKE_INTERPRETER_stage_medium_ensure2 sh > /dev/null
   if run_elebake stage medium ensure unitm nosuch 2>&1 | grep -q "unknown medium nosuch"; then
     pass "medium ensure: an unregistered medium is an error line"
   else
-    fail "medium ensure (unregistered) wrong"
+    fail "medium ensure (unregistered) wrong: $(run_elebake stage medium ensure unitm nosuch 2>&1 | head -2)"
   fi
   run_elebake setenv ELEBAKE_INTERPRETER_stage_medium_mount cat > /dev/null
   run_elebake setenv ELEBAKE_INTERPRETER_stage_medium_release cat > /dev/null
@@ -600,17 +622,19 @@ test_stage_device_and_boot_tree() {
   run_elebake setenv ELEBAKE_INTERPRETER_stage_deploy2 cat > /dev/null
   run_elebake setenv ELEBAKE_INTERPRETER_stage_medium_write2 cat > /dev/null
   local pb; pb=$(run_elebake stage push unitm t 2>&1)
-  if printf '%s\n' "$pb" | grep -n "stage medium ensure 'unitm' 't'\|stage medium write 'unitm' 't'\|stage medium release 'unitm' 't'" | cut -d: -f1 | tr '\n' ' ' | grep -q "^[0-9]* [0-9]* [0-9]* $" \
-     && ! printf '%s\n' "$pb" | grep -q "stage medium stamp 'unitm'" \
+  if printf '%s\n' "$pb" | grep -n "stage medium ensure 'unitm' 't'\|stage medium mount 'unitm' 't'\|stage medium write 'unitm' 't'\|stage medium release 'unitm' 't'" | cut -d: -f1 | tr '\n' ' ' | grep -q "^[0-9]* [0-9]* [0-9]* [0-9]* $" \
+     && printf '%s\n' "$pb" | head -1 | grep -q "stage medium ensure 'unitm' 't'" \
+     && ! printf '%s\n' "$pb" | grep -q "stage medium stamp 'unitm'\|stage medium present" \
      && run_elebake stage medium write unitm t 2>&1 | grep -q "stage tree sync 'unitm' 't'" \
      && run_elebake stage medium write unitm t 2>&1 | grep -q "stage deploy write 'unitm' 't'"; then
-    pass "push is ensure, write, release in that order; write is tree sync then deploy write; no re-stamp at the end"
+    pass "push: the description checked first (ensure), then manifest/attest/verify, then mount, write, release; no re-stamp, no question to the reader"
   else
     fail "push composition wrong: $pb"
   fi
-  if run_elebake stage deploy unitm t 2>&1 | grep -q "stage medium ensure 'unitm' 't'" \
-     && run_elebake stage deploy unitm t 2>&1 | grep -q "stage medium release 'unitm' 't'"; then
-    pass "deploy carries ensure and release around deploy write"
+  if run_elebake stage deploy unitm t 2>&1 | grep -q "stage medium mount 'unitm' 't'" \
+     && run_elebake stage deploy unitm t 2>&1 | grep -q "stage medium release 'unitm' 't'" \
+     && ! run_elebake stage deploy unitm t 2>&1 | grep -q "stage medium present"; then
+    pass "deploy carries mount and release around deploy write"
   else
     fail "deploy composition wrong: $(run_elebake stage deploy unitm t 2>&1 | tail -4)"
   fi
@@ -684,28 +708,45 @@ test_stage_marker_emission_inspects_only() {
 }
 
 test_stage_tree_sync_is_a_batch_with_close() {
-  test_header "tree sync/adopt: batches of small terminals, guards at generation time"
+  test_header "tree sync/adopt: batches that prepare the medium, then work; the machine is asked when the acts run"
   test_setup
   run_elebake stage add unitt > /dev/null 2>&1
   run_elebake stage device unitt a /dev/nonexistent99 /mnt > /dev/null 2>&1
   run_elebake stage boot tree unitt a testlabel zpool99/testds > /dev/null 2>&1
-  run_elebake setenv ELEBAKE_INTERPRETER_stage_tree_sync cat > /dev/null
-  run_elebake setenv ELEBAKE_INTERPRETER_stage_adopt cat > /dev/null
+  for b in stage_tree_sync stage_adopt stage_medium_prepare2 stage_medium_prepare_readonly2 stage_medium_ensure2 stage_pool_import2 stage_pool_import_readonly2 \
+           stage_tree_snapshot2 stage_tree_copy2 stage_tree_verify2 stage_tree_close2 stage_adopt_copy2 stage_pool_export2; do
+    run_elebake setenv ELEBAKE_INTERPRETER_$b cat > /dev/null
+  done
+  for a in stage_pool_mount stage_pool_mount_readonly stage_dataset_mount stage_tree_write stage_tree_findings stage_tree_rollback stage_adopt_take stage_pool_unmount; do
+    run_elebake setenv ELEBAKE_INTERPRETER_$a cat > /dev/null
+  done
   local out; out=$(run_elebake stage tree sync unitt a 2>&1)
-  if printf '%s\n' "$out" | grep -q "stage pool import 'unitt' 'a' rw" \
-     && printf '%s\n' "$out" | grep -q "stage tree work 'unitt' 'a'" \
-     && printf '%s\n' "$out" | grep -q "stage tree close 'unitt' 'a'" \
-     && printf '%s\n' "$out" | grep -q "stage pool export 'unitt' 'a'"; then
-    pass "tree sync = pool import, tree work, tree close, pool export"
+  if printf '%s\n' "$out" | grep -n "stage medium prepare 'unitt' 'a'\|stage tree work 'unitt' 'a'\|stage tree close 'unitt' 'a'\|stage pool export 'unitt' 'a'" | cut -d: -f1 | tr '\n' ' ' | grep -q "^[0-9]* [0-9]* [0-9]* [0-9]* $"; then
+    pass "tree sync = medium prepare, tree work, tree close, pool export"
   else
     fail "tree sync batch wrong: $out"
   fi
   out=$(run_elebake stage adopt unitt a 2>&1)
-  if printf '%s\n' "$out" | grep -q "stage pool import 'unitt' 'a' ro" && printf '%s\n' "$out" | grep -q "stage adopt copy 'unitt' 'a'" \
+  if printf '%s\n' "$out" | grep -q "stage medium prepare readonly 'unitt' 'a'" && printf '%s\n' "$out" | grep -q "stage adopt copy 'unitt' 'a'" \
      && printf '%s\n' "$out" | grep -q "stage pool export 'unitt' 'a'"; then
-    pass "adopt = pool import (ro), adopt copy, pool export"
+    pass "adopt = medium prepare readonly, adopt copy, pool export"
   else
     fail "adopt batch wrong: $out"
+  fi
+  out=$(run_elebake stage medium prepare unitt a 2>&1)
+  if printf '%s\n' "$out" | grep -q "stage medium ensure 'unitt' 'a'" && printf '%s\n' "$out" | grep -q "stage pool import 'unitt' 'a'" \
+     && printf '%s\n' "$out" | grep -q "stage dataset mount 'unitt' 'a'" \
+     && run_elebake stage medium prepare readonly unitt a 2>&1 | grep -q "stage pool import readonly 'unitt' 'a'"; then
+    pass "medium prepare = ensure, pool import, dataset mount; the readonly form imports readonly"
+  else
+    fail "medium prepare wrong: $out"
+  fi
+  out=$(run_elebake stage medium ensure unitt a 2>&1)
+  if printf '%s\n' "$out" | grep -q "stage check stage 'unitt'" && printf '%s\n' "$out" | grep -q "stage medium exists 'unitt' 'a'" \
+     && printf '%s\n' "$out" | grep -q "stage boot tree exists 'unitt' 'a'" && ! printf '%s\n' "$out" | grep -q "present\|labeled"; then
+    pass "medium ensure asks the description only: stage, registration, boot tree -- never the reader"
+  else
+    fail "medium ensure wrong: $out"
   fi
   if head -1 "$TEST_DIR/.env/default/ELEBAKE_INTERPRETER_stage_tree_sync" | grep -q "KEEP_GOING=1" \
      && head -1 "$TEST_DIR/.env/default/ELEBAKE_INTERPRETER_stage_tree_work" | grep -q "KEEP_GOING=0"; then
@@ -713,24 +754,72 @@ test_stage_tree_sync_is_a_batch_with_close() {
   else
     fail "keep-going wrappers missing from the installed pins"
   fi
-  for cmd in "stage pool import unitt a rw" "stage tree snapshot unitt a" "stage tree copy unitt a" "stage tree verify unitt a" "stage adopt copy unitt a"; do
-    out=$(run_elebake $cmd 2>&1)
-    if printf '%s\n' "$out" | grep -q "device not present.*checked at generation time" && ! printf '%s\n' "$out" | grep -q "zpool\|zfs \|cp -a"; then
-      pass "$cmd: absent device is refused at generation time, nothing emitted"
-    else
-      fail "$cmd: guard not at generation time: $out"
-    fi
-  done
-  out=$(run_elebake stage backup unitt a lbl 'why' 2>&1)
-  if printf '%s\n' "$out" | grep -q "device not present.*checked at generation time" && ! printf '%s\n' "$out" | grep -q "mount"; then
-    pass "stage backup: device guard at generation time too"
+  # the acts: idempotent, and they ask the machine when they run
+  out=$(run_elebake stage pool mount unitt a 2>&1)
+  if printf '%s\n' "$out" | grep -q "zpool list -H -o name 'zpool99' >/dev/null 2>&1 && exit 0" \
+     && printf '%s\n' "$out" | grep -q "zpool import -d '/dev/gpt/testlabel' -R " && ! printf '%s\n' "$out" | grep -q "readonly=on" \
+     && run_elebake stage pool mount readonly unitt a 2>&1 | grep -q "zpool import -d '/dev/gpt/testlabel' -o readonly=on -R "; then
+    pass "pool mount: an imported pool is left alone; writable and readonly are two acts, not a mode argument"
   else
-    fail "backup guard: $out"
+    fail "pool mount wrong: $out"
   fi
-  if run_elebake stage pool import unitt a bogus 2>&1 | grep -q "rw or ro"; then
-    pass "pool import mode is validated"
+  out=$(run_elebake stage dataset mount unitt a 2>&1)
+  if printf '%s\n' "$out" | grep -q "mounted 'zpool99/testds')\" = yes \] && exit 0" && printf '%s\n' "$out" | grep -q "^zfs mount 'zpool99/testds'$" \
+     && printf '%s\n' "$out" | grep -q "is not mounted (stage pool import unitt a first)" && printf '%s\n' "$out" | grep -q "# mounted %s"; then
+    pass "dataset mount: mounted is done, else mount, then the result checked both ways"
   else
-    fail "bogus pool mode accepted"
+    fail "dataset mount wrong: $out"
+  fi
+  out=$(run_elebake stage tree write unitt a 2>&1)
+  if printf '%s\n' "$out" | grep -q 'mp=$(zfs get -H -o value mountpoint' && printf '%s\n' "$out" | grep -q 'cp -a' \
+     && ! printf '%s\n' "$out" | grep -q "^rm -rf '/"; then
+    pass "tree write asks zfs for the mountpoint when it runs, no path baked in at generation"
+  else
+    fail "tree write wrong: $out"
+  fi
+  out=$(run_elebake stage tree findings unitt a 2>&1)
+  if printf '%s\n' "$out" | grep -q "MISSING" && printf '%s\n' "$out" | grep -q "MISMATCH" && printf '%s\n' "$out" | grep -q "UNLISTED" \
+     && printf '%s\n' "$out" | grep -q "media/a/findings"; then
+    pass "tree findings compares on the machine and writes the observation media/<medium>/findings"
+  else
+    fail "tree findings wrong: $out"
+  fi
+  # judge and matches read the observation: none, empty, some
+  local obs="$TEST_DIR/stage/unitt/media/a/findings"
+  rm -f "$obs"
+  if run_elebake stage tree judge unitt a 2>&1 | grep -q "no findings for medium a (stage tree findings"; then
+    pass "tree judge without an observation names stage tree findings"
+  else
+    fail "judge without observation: $(run_elebake stage tree judge unitt a 2>&1 | head -2)"
+  fi
+  : > "$obs"
+  if run_elebake stage tree judge unitt a 2>&1 | grep -q "is the manifest -- kept" \
+     && run_elebake stage tree matches unitt a 2>&1 | grep -q "match the manifest, nothing unlisted"; then
+    pass "an empty observation: judge keeps, matches passes"
+  else
+    fail "empty observation wrong"
+  fi
+  printf 'MISSING  boot/x\nUNLISTED boot/y\n' > "$obs"
+  # a combinator re-invokes once: judge's line IS the rollback act (pinned to cat), matches' line IS the error
+  if run_elebake stage tree judge unitt a 2>&1 | grep -q 'zfs rollback "$snap"' \
+     && run_elebake stage tree matches unitt a 2>&1 | grep -q "is not the manifest" \
+     && run_elebake stage tree matches unitt a 2>&1 | grep -q "boot/x"; then
+    pass "findings: judge rewrites to tree rollback, matches carries them in its error line"
+  else
+    fail "findings wrong: $(run_elebake stage tree matches unitt a 2>&1 | head -4 | tr '\n' '|') // $(run_elebake stage tree judge unitt a 2>&1 | head -3 | tr '\n' '|')"
+  fi
+  out=$(run_elebake stage tree rollback unitt a 2>&1)
+  if printf '%s\n' "$out" | grep -q "sed 's/^/# /' '$obs'" && printf '%s\n' "$out" | grep -q 'snap=$(zfs list -H -t snapshot' \
+     && printf '%s\n' "$out" | grep -q 'zfs rollback "$snap"'; then
+    pass "tree rollback shows the findings and rolls back to the newest elebake snapshot found when it runs"
+  else
+    fail "tree rollback wrong: $out"
+  fi
+  out=$(run_elebake stage pool unmount unitt a 2>&1)
+  if printf '%s\n' "$out" | grep -q "zpool list -H -o name 'zpool99' >/dev/null 2>&1 || " && printf '%s\n' "$out" | grep -q "zpool export"; then
+    pass "pool unmount: a pool that is not imported is nothing to do"
+  else
+    fail "pool unmount wrong: $out"
   fi
 }
 
@@ -839,6 +928,32 @@ EOF
     pass "an interpreter killed by SIGTERM is reported as a signal death and stops the batch"
   else
     fail "signal death: rc=$rc b=$(cat "$b" 2>/dev/null) $(printf '%s\n' "$out" | grep -i "signal\|failed" | head -3)"
+  fi
+}
+
+test_batch_pin_governs_next_line() {
+  test_header "batch: a pin set by one line governs the next line -- process runner and binary runner"
+  test_setup
+  local bin="$(dirname "$TEST_SCRIPT")/elebake-binary.sh" a="$TEST_DIR/.env/local/ELEBAKE_UNIT_PA" b="$TEST_DIR/.env/local/ELEBAKE_UNIT_PB" out
+  cat > "$TEST_BASE_DIR/unit-pin-$TESTS_RUN.sh" <<'EOF'
+"$ELEBAKE_CONTEXT_SCRIPT" setenv ELEBAKE_UNIT_PA one
+"$ELEBAKE_CONTEXT_SCRIPT" setenv ELEBAKE_INTERPRETER_setenv_write2 cat
+"$ELEBAKE_CONTEXT_SCRIPT" environment refresh
+"$ELEBAKE_CONTEXT_SCRIPT" setenv ELEBAKE_UNIT_PB two
+EOF
+  out=$(run_elebake batch "$TEST_BASE_DIR/unit-pin-$TESTS_RUN.sh" 2>&1)
+  if [ "$(head -1 "$a" 2>/dev/null)" = one ] && [ ! -f "$b" ] && printf '%s\n' "$out" | grep -q "> '$b'"; then
+    pass "process runner: the setenv before the pin acted, the one after it was displayed"
+  else
+    fail "process runner: a=$(cat "$a" 2>/dev/null) b=$(cat "$b" 2>/dev/null)"
+  fi
+  rm -f "$a"
+  run_elebake unsetenv ELEBAKE_INTERPRETER_setenv_write2 > /dev/null 2>&1
+  out=$(sh "$bin" "$TEST_DIR" batch "$TEST_BASE_DIR/unit-pin-$TESTS_RUN.sh" 2>&1)
+  if [ "$(head -1 "$a" 2>/dev/null)" = one ] && [ ! -f "$b" ] && printf '%s\n' "$out" | grep -q "> '$b'"; then
+    pass "binary runner: the setenv before the pin acted, the one after it was displayed"
+  else
+    fail "binary runner: a=$(cat "$a" 2>/dev/null) b=$(cat "$b" 2>/dev/null)"
   fi
 }
 
@@ -2591,25 +2706,44 @@ test_backup_records_and_rollback() {
   else
     fail "bad label accepted"
   fi
+  run_elebake setenv ELEBAKE_INTERPRETER_stage_backup4 cat > /dev/null
+  out=$(run_elebake stage backup unitb a mylabel 'why')
+  if printf '%s\n' "$out" | grep -n "stage backup ensure 'unitb' 'a' 'mylabel' 'why'\|stage medium mount 'unitb' 'a'\|stage backup take 'unitb' 'a' 'mylabel' 'why'\|stage medium release 'unitb' 'a'" | cut -d: -f1 | tr '\n' ' ' | grep -q "^1 2 3 4 $" \
+     && ! printf '%s\n' "$out" | grep -q "medium present"; then
+    pass "backup: one line of preconditions (ensure), then mount, take, release -- no question to the reader at generation"
+  else
+    fail "backup batch wrong: $out"
+  fi
+  out=$(run_elebake stage backup take unitb a mylabel 'why')
+  if printf '%s\n' "$out" | grep -q "stage medium mount unitb a first" && ! printf '%s\n' "$out" | grep -q "^mount "; then
+    pass "backup take works on the ESP 'stage medium mount' mounted, never mounts itself"
+  else
+    fail "backup take wrong: $out"
+  fi
   run_elebake setenv ELEBAKE_INTERPRETER_stage_rollback3 cat > /dev/null
   out=$(run_elebake stage rollback unitb a)
-  if printf '%s\n' "$out" | grep -q "stage backup 'unitb' 'a' 'suspect-[0-9T]*Z' 'loader found on medium a before rollback to " \
-     && printf '%s\n' "$out" | grep -q "stage rollback apply 'unitb' 'a' 'known-good'"; then
-    pass "rollback resolves the NEWEST record and saves the suspect BEFORE applying"
+  if printf '%s\n' "$out" | grep -n "stage rollback ensure 'unitb' 'a' 'known-good'\|stage medium mount 'unitb' 'a'\|stage backup take 'unitb' 'a' 'suspect-[0-9T]*Z' 'loader found on medium a before rollback to \|stage rollback write 'unitb' 'a' 'known-good'\|stage medium release 'unitb' 'a'" | cut -d: -f1 | tr '\n' ' ' | grep -q "^1 2 3 4 5 $"; then
+    pass "rollback resolves the NEWEST record from the records; ensure, then mount, take the suspect, write, release"
   else
     fail "rollback batch wrong: $out"
   fi
-  out=$(run_elebake stage rollback apply unitb a older)
-  if printf '%s\n' "$out" | grep -q "backup/a/older/loader.efi" && printf '%s\n' "$out" | grep -q "first deploy"; then
-    pass "rollback apply writes the named record's loader and shows its description"
+  out=$(run_elebake stage rollback write unitb a older)
+  if printf '%s\n' "$out" | grep -q "backup/a/older/loader.efi" && printf '%s\n' "$out" | grep -q "first deploy" \
+     && printf '%s\n' "$out" | grep -q "stage medium mount unitb a first" && ! printf '%s\n' "$out" | grep -q "^mount \|^umount "; then
+    pass "rollback write copies the named record's loader onto the mounted ESP and shows its description; no mount of its own"
   else
-    fail "rollback apply wrong: $out"
+    fail "rollback write wrong: $out"
   fi
   printf 'TAMPERED\n' > "$d/backup/a/older/loader.efi"
-  if run_elebake stage rollback apply unitb a older 2>&1 | grep -q "CORRUPT"; then
+  if run_elebake stage rollback ensure unitb a older 2>&1 | grep -q "CORRUPT"; then
     pass "a record whose loader no longer matches its sha256 is never put on a medium"
   else
     fail "corrupt record accepted"
+  fi
+  if run_elebake stage rollback ensure unitb a nosuch 2>&1 | grep -q "no such backup record"; then
+    pass "a record that does not exist is refused in the description"
+  else
+    fail "missing record accepted"
   fi
 }
 
@@ -3068,13 +3202,54 @@ test_stage_baseline_prompt() {
   fi
 }
 
+test_import_bootstrap() {
+  test_header "import into a database that is not there: bootstrap from the dump (its profile, the signer from the keyring), then the import"
+  test_setup
+  unit_attest_key unit || return 0
+  local out="$TEST_BASE_DIR/boot-out-$TESTS_RUN" fresh="$TEST_BASE_DIR/boot-fresh-$TESTS_RUN/db" o
+  mkdir -p "$out"
+  run_elebake stage add unitb > /dev/null 2>&1
+  run_elebake stage rescue pool add unitb zcard > /dev/null 2>&1
+  o=$(run_elebake export full "$out/dump.sh" "$out/bundle.tar.gz" 2>&1) || true
+  if grep -q "^# Profile: $TEST_PROFILE\$" "$out/dump.sh"; then
+    pass "the dump header names the profile of its database"
+  else
+    fail "no profile line: $(head -n 8 "$out/dump.sh" 2>&1 | tr '\n' ' ') $o"
+  fi
+  o=$(ELEBAKE_BASE="$fresh" "$TEST_SCRIPT" import "$out/dump.sh" "$out/bundle.tar.gz" 2>&1) || true
+  if [ -d "$fresh" ] && [ "$(cat "$fresh/openpgp/unit/keyid" 2>/dev/null)" = "$UNIT_FPR" ] \
+     && [ "$(cat "$fresh/.env/local/ELEBAKE_ARCHIVE_ATTEST_KEY" 2>/dev/null)" = unit ] \
+     && [ -f "$fresh/.env/default/ELEBAKE_PROFILE_$(printf '%s' "$TEST_PROFILE" | tr '[:lower:]' '[:upper:]')" ] \
+     && [ "$(cat "$fresh/stage/unitb/rescue/pool" 2>/dev/null)" = zcard ] \
+     && [ "$(cat "$fresh"/provenance/*/signer 2>/dev/null)" = "$UNIT_FPR" ] && [ -L "$fresh" ] && [ "$(readlink "$fresh")" = current ] \
+     && [ -f "$(dirname "$fresh")/incoming/bundle/replay.sh" ] && [ -f "$(dirname "$fresh")/incoming/bundle/export/collection" ]; then
+    pass "import bootstrap: the database made as ROOT/current with the dump's profile (db -> current), the signer pinned under the dump's record name, the dump replayed, the receipt filed"
+  else
+    fail "import bootstrap: $(printf '%s\n' "$o" | grep -i 'error' | head -3 | tr '\n' ' ') $(ls "$fresh" "$fresh/openpgp" 2>&1 | tr '\n' ' ')"
+  fi
+  sed '/^# Profile:/d' "$out/dump.sh" > "$out/noprofile.sh"; cp "$out/dump.sh.asc" "$out/noprofile.sh.asc"
+  o=$(ELEBAKE_BASE="$fresh-2" "$TEST_SCRIPT" import "$out/noprofile.sh" "$out/bundle.tar.gz" 2>&1) || true
+  if printf '%s\n' "$o" | grep -q "names no profile" && [ ! -d "$fresh-2/.env" ]; then
+    pass "a dump without a profile line cannot bootstrap: refused, no database made"
+  else
+    fail "no-profile dump: $o"
+  fi
+  cp "$out/dump.sh" "$out/edited.sh"; cp "$out/dump.sh.asc" "$out/edited.sh.asc"; printf '# x\n' >> "$out/edited.sh"
+  o=$(ELEBAKE_BASE="$fresh-3" "$TEST_SCRIPT" import "$out/edited.sh" "$out/bundle.tar.gz" 2>&1) || true
+  if printf '%s\n' "$o" | grep -q "does not verify" && [ ! -d "$fresh-3/.env" ]; then
+    pass "an altered dump does not verify against the keyring: refused before any database is made"
+  else
+    fail "tampered dump: $o"
+  fi
+}
+
 test_stage_rescue_family() {
   test_header "stage rescue: the description records, their dump, the acts rendered, the batches stop at their checks"
   test_setup
   run_elebake stage add unitr > /dev/null 2>&1
-  run_elebake stage rescue dataset add unitr zroot/rescue > /dev/null
-  if [ "$(cat "$TEST_DIR/stage/unitr/rescue/dataset" 2>/dev/null)" = zroot/rescue ] \
-     && run_elebake stage rescue dataset add unitr zroot/rescue 2>&1 | grep -q "unchanged" \
+  run_elebake stage rescue dataset add unitr zroot/ROOT/rescue > /dev/null
+  if [ "$(cat "$TEST_DIR/stage/unitr/rescue/dataset" 2>/dev/null)" = zroot/ROOT/rescue ] \
+     && run_elebake stage rescue dataset add unitr zroot/ROOT/rescue 2>&1 | grep -q "unchanged" \
      && run_elebake stage rescue dataset add unitr zroot/other 2>&1 | grep -q "immutable"; then
     pass "rescue dataset add records the name; identical re-add is a no-op, a different one is refused"
   else
@@ -3100,6 +3275,20 @@ test_stage_rescue_family() {
     fail "config entry check: $(run_elebake stage rescue config add unitr relative/path 2>&1)"
   fi
   run_elebake stage rescue config add unitr /etc/wpa_supplicant.conf > /dev/null
+  run_elebake stage rescue package add unitr unit-rescue > /dev/null
+  run_elebake stage rescue keyfile add unitr /boot/keys/zroot.key > /dev/null
+  run_elebake stage rescue source add unitr elvboot "$(cd "$(dirname "$TEST_SCRIPT")" && pwd)" > /dev/null
+  run_elebake stage rescue local add unitr 'sshd_enable="NO"' > /dev/null
+  run_elebake stage rescue user add unitr root > /dev/null
+  if [ "$(cat "$TEST_DIR/stage/unitr/rescue/package")" = unit-rescue ] && [ "$(cat "$TEST_DIR/stage/unitr/rescue/keyfile")" = /boot/keys/zroot.key ] \
+     && [ -s "$TEST_DIR/stage/unitr/rescue/sources/elvboot" ] && grep -qx 'sshd_enable="NO"' "$TEST_DIR/stage/unitr/rescue/local" \
+     && grep -q '^0:0:/root:' "$TEST_DIR/stage/unitr/rescue/users/root" \
+     && run_elebake stage rescue local add unitr 'no quotes' 2>&1 | grep -q 'rc.conf line' \
+     && run_elebake stage rescue user add unitr nosuchuser-x 2>&1 | grep -q "no such user"; then
+    pass "package, keyfile, source, local line and user are recorded (the user as read from passwd); a bad line and an unknown user are refused"
+  else
+    fail "new records: $(ls -R "$TEST_DIR/stage/unitr/rescue" | tr '\n' ' ')"
+  fi
   run_elebake stage device unitr b /dev/testda99 /mnt > /dev/null 2>&1
   run_elebake stage rescue card add unitr b da1p3 > /dev/null
   if [ "$(cat "$TEST_DIR/stage/unitr/rescue/cards/b" 2>/dev/null)" = da1p3 ] \
@@ -3116,16 +3305,19 @@ test_stage_rescue_family() {
     fail "rescue tools drop: $(cat "$TEST_DIR/stage/unitr/rescue/tools")"
   fi
   local sh; sh=$(run_elebake stage rescue show unitr 2>&1)
-  if printf '%s\n' "$sh" | grep -q "dataset: zroot/rescue" && printf '%s\n' "$sh" | grep -q "pool: zcard" \
-     && printf '%s\n' "$sh" | grep -q "tools: tpm2-tools" && printf '%s\n' "$sh" | grep -q "card b: da1p3"; then
-    pass "rescue show lists dataset, pool, tools, config and the cards"
+  if printf '%s\n' "$sh" | grep -q "dataset: zroot/ROOT/rescue" && printf '%s\n' "$sh" | grep -q "pool: zcard" \
+     && printf '%s\n' "$sh" | grep -q "#     tpm2-tools" && printf '%s\n' "$sh" | grep -q "card b: da1p3" \
+     && printf '%s\n' "$sh" | grep -q "package: unit-rescue" && printf '%s\n' "$sh" | grep -q "users root:"; then
+    pass "rescue show lists dataset, pool, package, tools, config, users and the cards"
   else
     fail "rescue show: $sh"
   fi
   local out; out=$(run_elebake stage dump unitr)
-  for want in "stage rescue dataset add 'unitr' 'zroot/rescue'" "stage rescue pool add 'unitr' 'zcard'" \
+  for want in "stage rescue dataset add 'unitr' 'zroot/ROOT/rescue'" "stage rescue pool add 'unitr' 'zcard'" \
               "stage rescue tools add 'unitr' 'tpm2-tools'" "stage rescue config add 'unitr' '/etc/wpa_supplicant.conf'" \
-              "stage rescue card add 'unitr' 'b' 'da1p3'"; do
+              "stage rescue card add 'unitr' 'b' 'da1p3'" "stage rescue package add 'unitr' 'unit-rescue'" \
+              "stage rescue keyfile add 'unitr' '/boot/keys/zroot.key'" "stage rescue source add 'unitr' 'elvboot'" \
+              "stage rescue user record 'unitr' 'root' '0:0:/root:" "stage rescue local add 'unitr' 'sshd_enable=\"NO\"'"; do
     if printf '%s\n' "$out" | grep -qF "$want"; then
       pass "dump replays: $want"
     else
@@ -3141,36 +3333,110 @@ test_stage_rescue_family() {
     fail "dump carries observations: $(printf '%s\n' "$out" | grep "snapshot\|media")"
   fi
   local f
-  for f in dataset_create dataset_mount dataset_umount base_pkg tools_pkg config_copy snapshot_take card_geli card_pool \
-           card_attach card_detach send_whole send_increment card_bootfs card_check status_show database_place passphrase_read; do
+  for f in dataset_create dataset_mount dataset_umount config_copy snapshot_take card_geli card_pool card_setkey \
+           card_attach card_detach send_whole send_increment card_bootfs card_check status_show passphrase_read \
+           package_create repo_index package_pkg tool_build user_write local_file import_export import_place import_replay; do
     run_elebake setintp "stage_rescue_$f" cat > /dev/null
   done
   local r
   r=$(run_elebake stage rescue dataset create unitr)
-  if printf '%s\n' "$r" | grep -q "zfs create -o mountpoint=none -o canmount=off -o compression=lz4 -o atime=off 'zroot/rescue'" \
-     && printf '%s\n' "$r" | grep -q "zfs create -o mountpoint=/ -o canmount=noauto 'zroot/rescue/ROOT/default'"; then
-    pass "dataset create renders the three datasets, the root with mountpoint / and canmount noauto"
+  if printf '%s\n' "$r" | grep -q "zfs create -o mountpoint=/ -o canmount=noauto -o compression=lz4 -o atime=off 'zroot/ROOT/rescue'" \
+     && ! printf '%s\n' "$r" | grep -q "ROOT/default"; then
+    pass "dataset create renders ONE dataset, the root itself, mountpoint / and canmount noauto"
   else
     fail "dataset create: $r"
   fi
   r=$(run_elebake stage rescue dataset mount unitr)
-  if printf '%s\n' "$r" | grep -q "mount -t zfs 'zroot/rescue/ROOT/default' '$TEST_DIR/../mnt/unitr-rescue'\|mount -t zfs 'zroot/rescue/ROOT/default' '.*/mnt/unitr-rescue'" \
+  if printf '%s\n' "$r" | grep -q "mount -t zfs 'zroot/ROOT/rescue' '.*/mnt/unitr-rescue'" \
      && printf '%s\n' "$r" | grep -q "mount -t devfs devfs"; then
     pass "dataset mount renders mount -t zfs under the root's mnt and the devfs below"
   else
     fail "dataset mount: $r"
   fi
-  r=$(run_elebake stage rescue base pkg unitr)
-  if printf '%s\n' "$r" | grep -q "install -y -r 'FreeBSD-base' FreeBSD-set-base FreeBSD-kernel-generic" && printf '%s\n' "$r" | grep -q "usr/share/keys"; then
-    pass "base pkg renders the fingerprints copy and the base set with the kernel from the base repository"
+  r=$(run_elebake stage rescue package pkg unitr)
+  if printf '%s\n' "$r" | grep -q "usr/share/keys" && printf '%s\n' "$r" | grep -q "rescue/repos' install -y 'unit-rescue'"; then
+    pass "package pkg renders the fingerprints copy and the install of the meta package from this machine's repositories plus the stage's"
   else
-    fail "base pkg: $r"
+    fail "package pkg: $r"
   fi
-  r=$(run_elebake stage rescue tools pkg unitr)
-  if printf '%s\n' "$r" | grep -q "install -y -r 'FreeBSD-ports' tpm2-tools"; then
-    pass "tools pkg renders the tool list from the ports repository"
+  r=$(run_elebake stage rescue package create unitr)
+  if printf '%s\n' "$r" | grep -q "pkg create -M '.*/rescue/+MANIFEST' -o '.*/rescue/repo'"; then
+    pass "package create renders pkg create -M into the stage's repository"
   else
-    fail "tools pkg: $r"
+    fail "package create: $r"
+  fi
+  r=$(run_elebake stage rescue repo index unitr)
+  if printf '%s\n' "$r" | grep -q "pkg repo '.*/rescue/repo'" && printf '%s\n' "$r" | grep -q "repos/rescue.conf"; then
+    pass "repo index renders pkg repo and the repository configuration"
+  else
+    fail "repo index: $r"
+  fi
+  r=$(run_elebake stage rescue tool build unitr elvboot)
+  if printf '%s\n' "$r" | grep -q "git -C .*archive --format=tar.gz" && printf '%s\n' "$r" | grep -q "env ELEBAKE_DISTVERSION=.0\.0\.[0-9]*. make -C .*/port." \
+     && printf '%s\n' "$r" | grep -q "PACKAGES=.*/rescue/repo. clean makesum package"; then
+    pass "tool build renders the git archive of the checkout and the port build (makesum, package) into the stage repository"
+  else
+    fail "tool build: $r"
+  fi
+  if run_elebake stage rescue manifest render unitr 2>&1 | grep -q "no repository knows\|origin:"; then
+    pass "manifest render asks the repositories for every dependency and names the one none knows"
+  else
+    fail "manifest render: $(run_elebake stage rescue manifest render unitr 2>&1 | head -3)"
+  fi
+  r=$(run_elebake stage rescue user write unitr)
+  if printf '%s\n' "$r" | grep -q "grep '^root:' /etc/master.passwd | cut -d: -f2 | pw -R '.*/mnt/unitr-rescue' usermod -n 'root' -H 0" \
+     && ! printf '%s\n' "$r" | grep -q "useradd -n 'root'"; then
+    pass "user write renders root's password hash from master.passwd at run time, no useradd for root"
+  else
+    fail "user write: $r"
+  fi
+  r=$(run_elebake stage rescue local file unitr)
+  if printf '%s\n' "$r" | grep -q "etc/rc.conf.local" && printf '%s\n' "$r" | grep -qx 'sshd_enable="NO"'; then
+    pass "local file renders /etc/rc.conf.local with the recorded lines"
+  else
+    fail "local file: $r"
+  fi
+  run_elebake stage rescue patch add unitr unitp /usr/local/lib/unit/template/rescue/unit-patch.sh root > /dev/null 2>&1
+  if [ "$(cat "$TEST_DIR/stage/unitr/rescue/patches/unitp" 2>/dev/null)" = "root:/usr/local/lib/unit/template/rescue/unit-patch.sh" ] && [ -d "$TEST_DIR/.resource/unitp" ] \
+     && run_elebake stage rescue patch add unitr unitp /usr/local/lib/unit/template/rescue/unit-patch.sh root 2>&1 | grep -q "unchanged" \
+     && run_elebake stage rescue patch add unitr unitq relative.sh root 2>&1 | grep -q "absolute path" \
+     && run_elebake stage rescue patch add unitr unitq /x/y.sh nosuchuser-x 2>&1 | grep -q "no such user" \
+     && run_elebake stage dump rescue unitr | grep -q "stage rescue patch add 'unitr' 'unitp' '/usr/local/lib/unit/template/rescue/unit-patch.sh' 'root'" \
+     && run_elebake stage rescue show unitr | grep -q "patch unitp: /usr/local/lib/unit/template/rescue/unit-patch.sh as root"; then
+    pass "patch add: the record '<user>:<script>' (immutable, the script a path in the image), the resource directory .resource/<name> of the database, the dump and show lines"
+  else
+    fail "patch add: $(cat "$TEST_DIR/stage/unitr/rescue/patches/unitp" 2>&1) $(run_elebake stage dump rescue unitr | grep patch)"
+  fi
+  if run_elebake stage rescue patch complete unitr unitp 2>&1 | grep -q "script not in the rescue root" \
+     && run_elebake stage rescue patch complete unitr unitz 2>&1 | grep -q "no rescue patch unitz"; then
+    pass "patch complete: a script missing in the root and an unknown patch are named"
+  else
+    fail "patch complete: $(run_elebake stage rescue patch complete unitr unitp 2>&1 | head -2)"
+  fi
+  mkdir -p "$TEST_BASE_DIR/mnt/unitr-rescue/usr/local/lib/unit/template/rescue" && printf '#!/bin/sh\nexit 0\n' > "$TEST_BASE_DIR/mnt/unitr-rescue/usr/local/lib/unit/template/rescue/unit-patch.sh"
+  r=$(run_elebake stage rescue patch run unitr unitp)
+  if printf '%s\n' "$r" | grep -q "mount -t nullfs -o ro '$TEST_DIR/.resource/unitp' '$TEST_BASE_DIR/mnt/unitr-rescue/mnt/patch' || exit 1" \
+     && printf '%s\n' "$r" | grep -q "jail -c path='$TEST_BASE_DIR/mnt/unitr-rescue' ip4=disable ip6=disable exec.clean=1 command=/bin/sh '/usr/local/lib/unit/template/rescue/unit-patch.sh' 'root' /mnt/patch; rc=\$?" \
+     && printf '%s\n' "$r" | grep -q "umount '$TEST_BASE_DIR/mnt/unitr-rescue/mnt/patch'; rmdir" \
+     && ! run_elebake stage rescue patch complete unitr unitp 2>&1 | grep -q "Error"; then
+    pass "patch run: the resources hung into the root read-only, a one-shot jail on the root, sh <script> <user> /mnt/patch in it, the mount taken down (cat-pinned here)"
+  else
+    fail "patch run: $r"
+  fi
+  rm -rf "$TEST_BASE_DIR/mnt/unitr-rescue"
+  if run_elebake stage rescue patch apply unitr 2>&1 | grep -q "not mounted" \
+     && run_elebake stage rescue build unitr 2>&1 | grep -q "not mounted"; then
+    pass "patch apply and build need the mounted root"
+  else
+    fail "patch apply/build without the root: $(run_elebake stage rescue build unitr 2>&1 | head -2)"
+  fi
+  r=$(ELEBAKE_INTERPRETER_stage_rescue_dataset_mounted=cat run_elebake stage rescue patch apply unitr 2>&1)
+  run_elebake stage rescue patch drop unitr unitp > /dev/null 2>&1
+  if [ ! -f "$TEST_DIR/stage/unitr/rescue/patches/unitp" ] && [ -d "$TEST_DIR/.resource/unitp" ] \
+     && run_elebake stage rescue patch drop unitr unitp 2>&1 | grep -q "Error"; then
+    pass "patch drop: the record goes, the resource directory stays, a second drop is an error"
+  else
+    fail "patch drop: $(ls "$TEST_DIR/stage/unitr/rescue/patches" 2>&1)"
   fi
   r=$(run_elebake stage rescue config copy unitr)
   if printf '%s\n' "$r" | grep -q "cp -a '/etc/wpa_supplicant.conf'" && printf '%s\n' "$r" | grep -q "absent on this machine"; then
@@ -3179,38 +3445,87 @@ test_stage_rescue_family() {
     fail "config copy: $r"
   fi
   r=$(run_elebake stage rescue card geli unitr b)
-  if printf '%s\n' "$r" | grep -q "geli init -e AES-XTS -l 256 -a HMAC/SHA256 -s 4096 -b -T -i 9999999 -J '.*auth-rescue.txt' '/dev/da1p3'" \
+  if printf '%s\n' "$r" | grep -q "geli init -e AES-XTS -l 256 -a HMAC/SHA256 -s 4096 -b -T -i 9999999 -J '.*auth-rescue.txt' -K '.*/stage/unitr/boot/keys/zroot.key' '/dev/da1p3'" \
+     && printf '%s\n' "$r" | grep -q "geli attach -j '.*auth-rescue.txt' -k '.*/stage/unitr/boot/keys/zroot.key' '/dev/da1p3'" \
      && printf '%s\n' "$r" | grep -q "dd if=/dev/zero of='/dev/da1p3.eli'"; then
-    pass "card geli renders init with the passphrase file, the attach and the zeros over the provider"
+    pass "card geli renders init and attach with the passphrase file AND the key file, and the zeros over the provider"
   else
     fail "card geli: $r"
   fi
   r=$(run_elebake stage rescue card pool unitr b)
-  if printf '%s\n' "$r" | grep -q "zpool create -o altroot=.* 'zcard' '/dev/da1p3.eli'" && printf '%s\n' "$r" | grep -q "zpool export 'zcard' && geli detach '/dev/da1p3'"; then
-    pass "card pool renders the pool on the provider, exported and detached"
+  if printf '%s\n' "$r" | grep -q "zpool create -o altroot=.* 'zcard' '/dev/da1p3.eli'" && printf '%s\n' "$r" | grep -q "zfs create -o mountpoint=none -o canmount=off 'zcard/ROOT'" \
+     && printf '%s\n' "$r" | grep -q "zpool export 'zcard' && geli detach '/dev/da1p3'"; then
+    pass "card pool renders the pool with ROOT on the provider, exported and detached"
   else
     fail "card pool: $r"
   fi
   rm -f "$TEST_DIR/stage/unitr/rescue/media/b"
   r=$(run_elebake stage rescue send unitr b)
-  if printf '%s\n' "$r" | grep -q "zfs send -R 'zroot/rescue/ROOT@unitr-20260927T000000Z' | zfs recv -F -u 'zcard/ROOT'"; then
-    pass "a card without a receipt gets the whole tree"
+  if printf '%s\n' "$r" | grep -q "zfs send -R 'zroot/ROOT/rescue@unitr-20260927T000000Z' | zfs recv -F -u 'zcard/ROOT/rescue'"; then
+    pass "a card without a receipt gets the whole root, under its name below the card's ROOT"
   else
     fail "send whole: $r"
   fi
   printf 'unitr-20260926T000000Z\n' > "$TEST_DIR/stage/unitr/rescue/media/b"
   r=$(run_elebake stage rescue send unitr b)
-  if printf '%s\n' "$r" | grep -q "zfs send -R -I '@unitr-20260926T000000Z' 'zroot/rescue/ROOT@unitr-20260927T000000Z' | zfs recv -F -u 'zcard/ROOT'"; then
+  if printf '%s\n' "$r" | grep -q "zfs send -R -I '@unitr-20260926T000000Z' 'zroot/ROOT/rescue@unitr-20260927T000000Z' | zfs recv -F -u 'zcard/ROOT/rescue'"; then
     pass "a card with a receipt gets the increment since it"
   else
     fail "send increment: $r"
   fi
   r=$(run_elebake stage rescue card check unitr b)
-  if printf '%s\n' "$r" | grep -q "zfs get -H -o value guid 'zcard/ROOT/default@unitr-20260927T000000Z'" \
-     && printf '%s\n' "$r" | grep -q "zfs get -H -o value guid 'zroot/rescue/ROOT/default@unitr-20260927T000000Z'"; then
-    pass "card check compares the snapshot GUID on the card with the source"
+  if printf '%s\n' "$r" | grep -q "zfs get -H -o value guid 'zcard/ROOT/rescue@unitr-20260927T000000Z'" \
+     && printf '%s\n' "$r" | grep -q "zfs get -H -o value guid 'zroot/ROOT/rescue@unitr-20260927T000000Z'" \
+     && printf '%s\n' "$r" | grep -q "zfs get -H -o value readonly 'zcard/ROOT/rescue'"; then
+    pass "card check compares the snapshot GUID on the card with the source and asks for the read-only root"
   else
     fail "card check: $r"
+  fi
+  run_elebake stage rescue transient add unitr /home > /dev/null 2>&1
+  run_elebake stage rescue transient add unitr /etc > /dev/null 2>&1
+  if run_elebake stage rescue transient add unitr etc 2>&1 | grep -q "not a absolute path" \
+     && grep -qx "/home" "$TEST_DIR/stage/unitr/rescue/transient" && grep -qx "/etc" "$TEST_DIR/stage/unitr/rescue/transient" \
+     && run_elebake stage dump rescue unitr | grep -q "stage rescue transient add 'unitr' '/home'"; then
+    pass "transient add records absolute paths, refuses a relative one, the dump replays them"
+  else
+    fail "transient add: $(run_elebake stage rescue transient add unitr etc 2>&1 | head -2)"
+  fi
+  r=$(run_elebake stage rescue transient file unitr)
+  if printf '%s\n' "$r" | grep -q "rc.d/rescue_union' <<'ELVUNION'" && printf '%s\n' "$r" | grep -q "^# PROVIDE: rescue_union" \
+     && printf '%s\n' "$r" | grep -q "rescue_union_paths=\"%s\".*'/home /etc'" && printf '%s\n' "$r" | grep -q "tmpmfs=" && printf '%s\n' "$r" | grep -q "varmfs="; then
+    pass "transient file renders the rc.d script from the template, the paths, tmpmfs and varmfs into rc.conf.d"
+  else
+    fail "transient file: $(printf '%s\n' "$r" | head -5)"
+  fi
+  run_elebake stage rescue transient add unitr /var > /dev/null 2>&1
+  r=$(run_elebake stage rescue transient file unitr)
+  if printf '%s\n' "$r" | grep -q "varmfs=\"NO\"" && printf '%s\n' "$r" | grep -q "/.rescue-union'"; then
+    pass "transient file switches varmfs off when /var is a layer and makes the mount point of the layers"
+  else
+    fail "transient file with /var: $(printf '%s\n' "$r" | grep -n 'varmfs\|rescue-union' | head -3)"
+  fi
+  r=$(run_elebake stage rescue card readonly unitr b)
+  if printf '%s\n' "$r" | grep -q "zfs set readonly=on 'zcard/ROOT/rescue'" && run_elebake stage rescue push unitr b 2>&1 | grep -q "device not present"; then
+    pass "card readonly renders the read-only root on the card; push carries it"
+  else
+    fail "card readonly: $r"
+  fi
+  r=$(run_elebake stage rescue baseline write unitr)
+  if printf '%s\n' "$r" | grep -q "find -x \. " && printf '%s\n' "$r" | grep -q "rescue/baseline/MANIFEST.new" && printf '%s\n' "$r" | grep -q "sha256 -q"; then
+    pass "baseline write renders the hashed, sorted manifest of the mounted root as root"
+  else
+    fail "baseline write: $r"
+  fi
+  if run_elebake stage rescue verify unitr b 2>&1 | grep -q "no signed baseline"; then
+    pass "verify stops without a signed baseline"
+  else
+    fail "verify baseline check: $(run_elebake stage rescue verify unitr b 2>&1 | head -3)"
+  fi
+  r=$(run_elebake stage rescue tree check unitr b)
+  if printf '%s\n' "$r" | grep -q "UNLISTED" && printf '%s\n' "$r" | grep -q "CHANGED" && printf '%s\n' "$r" | grep -q "rescue/baseline/MANIFEST'"; then
+    pass "tree check renders the comparison of the card tree with the baseline, unlisted files included"
+  else
+    fail "tree check: $r"
   fi
   r=$(run_elebake stage rescue passphrase read unitr)
   if printf '%s\n' "$r" | grep -q "stty -echo" && printf '%s\n' "$r" | grep -q "auth-rescue.txt"; then
@@ -3218,11 +3533,18 @@ test_stage_rescue_family() {
   else
     fail "passphrase read: $r"
   fi
+  r=$(run_elebake stage rescue card setkey unitr b /tmp/old.key)
+  if printf '%s\n' "$r" | grep -q "geli setkey -n 0 -j '.*auth-rescue.txt' -k '/tmp/old.key' -J '.*auth-rescue.txt' -K '.*/stage/unitr/boot/keys/zroot.key' '/dev/da1p3'"; then
+    pass "card setkey renders the rekey of slot 0 from the old key file to the recorded one"
+  else
+    fail "card setkey: $r"
+  fi
   if run_elebake stage rescue dataset close unitr 2>&1 | grep -q "not mounted" \
-     && run_elebake stage rescue tools install unitr 2>&1 | grep -q "not mounted" \
-     && run_elebake stage rescue database describe unitr 2>&1 | grep -q "not mounted" \
+     && run_elebake stage rescue package install unitr 2>&1 | grep -q "not mounted" \
+     && run_elebake stage rescue patch apply unitr 2>&1 | grep -q "not mounted" \
+     && run_elebake stage rescue user mirror unitr 2>&1 | grep -q "not mounted" \
      && run_elebake stage rescue push unitr b 2>&1 | grep -q "device not present"; then
-    pass "close, tools install, database describe and push stop at their checks (root not mounted, medium absent)"
+    pass "close, package install, import elebake, user mirror and push stop at their checks (root not mounted, medium absent)"
   else
     fail "batch checks: $(run_elebake stage rescue push unitr b 2>&1 | head -3)"
   fi
@@ -3513,7 +3835,7 @@ test_workflow_family() {
   local f bad=""
   for f in "$(dirname "$TEST_SCRIPT")"/template/workflow/*.md; do
     head -1 "$f" | grep -q "^# " || bad="$bad ${f##*/}"
-    grep -v "^#" "$f" | grep -v "^$" | grep -v "^elebake \|^sudo \|^gpg \|^kenv \|^rm -P\|^export \|^cd " > /dev/null && bad="$bad ${f##*/}(line)"
+    grep -v "^#" "$f" | grep -v "^$" | grep -v "^elebake \|^vpn-switch \|^sudo \|^gpg \|^kenv \|^rm -P\|^export \|^cd " > /dev/null && bad="$bad ${f##*/}(line)"
   done
   if [ -z "$bad" ]; then
     pass "every workflow starts with a title and holds only commands and comments"
@@ -3553,10 +3875,11 @@ test_export_serial_last() {
   test_header "export advances the serial LAST: the dump header carries current+1, a failed export leaves the number"
   test_setup
   unit_attest_key unitx || return 0
-  run_elebake setenv ELEBAKE_INTERPRETER_export_pair cat > /dev/null
+  run_elebake setenv ELEBAKE_INTERPRETER_export_pair6 cat > /dev/null
   local b; b=$(run_elebake export pair complete full "$TEST_DIR/d.sh" "$TEST_DIR/b.tgz" all 2>&1 | grep CONTEXT_SCRIPT | sed 's/^"[^"]*" //')
-  if [ "$(printf '%s\n' "$b" | tail -1)" = "provenance serial" ] && ! printf '%s\n' "$b" | head -2 | grep -q "provenance serial"; then
-    pass "the serial advance is the last line of the export batch"
+  if [ "$(printf '%s\n' "$b" | tail -1)" = "provenance serial '0'" ] && ! printf '%s\n' "$b" | head -2 | grep -q "provenance serial" \
+     && printf '%s\n' "$b" | grep -q "^dump 'complete' 'all' '0' > "; then
+    pass "the serial is read once at the entry and handed to the dump and to the advance, which is the last line of the export batch"
   else
     fail "export batch order: $b"
   fi
@@ -4328,6 +4651,7 @@ main() {
   should_run_test test_stage_dump_structure_first
   should_run_test test_dump_version_header
   should_run_test test_restore_keep_going
+  should_run_test test_restore_pin_in_prologue
   should_run_test test_help_env_cascade
   should_run_test test_complete_candidates
   should_run_test test_error_and_log
@@ -4339,6 +4663,7 @@ main() {
   should_run_test test_stage_unkey_and_attest
   should_run_test test_batch_fail_fast_default
   should_run_test test_batch_exit_survives_a_closed_pipe
+  should_run_test test_batch_pin_governs_next_line
   should_run_test test_binary_runs_in_one_process
   should_run_test test_compile_writes_the_script
   should_run_test test_walkthrough_shows_the_tree
@@ -4381,6 +4706,7 @@ main() {
   should_run_test test_gate_add_plain
   should_run_test test_stage_require_boot_leafs
   should_run_test test_stage_tpm_family
+  should_run_test test_import_bootstrap
   should_run_test test_stage_rescue_family
   should_run_test test_workflow_family
   should_run_test test_stage_tree_prune

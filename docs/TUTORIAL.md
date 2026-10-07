@@ -1248,20 +1248,21 @@ it. `stage push daily-v1 a` with card b in the reader wrote the tree onto b
 and, as its last step, stamped b with the letter a -- chapter 22 said
 "check `EFI/elvboot/medium` after", which is a warning, not a design.
 
-The design came out of asking what each step returns, not what it does.
+The design came out of asking what each step is FOR, not how it is done.
 A function that takes the user's letter and gives it back unchanged
 computes nothing; the information is in the other one, the card's byte.
-And a check that returns "ok" or "error" is a shell idiom, not a function
-of this tool: a combinator returns the next command line. So the way onto
-a medium is one line, and the batches that write read like this:
+And a precondition is not checked, it is established: an idempotent act
+mounts, and there is no question left to ask. A batch names its
+preconditions in one line and then its tasks:
 
 ```
 $ ./elebake.sh stage push illyria-boot a
+"$ELEBAKE_CONTEXT_SCRIPT" stage medium ensure 'illyria-boot' 'a'
 "$ELEBAKE_CONTEXT_SCRIPT" stage manifest 'illyria-boot'
 "$ELEBAKE_CONTEXT_SCRIPT" stage attest 'illyria-boot'
 "$ELEBAKE_CONTEXT_SCRIPT" stage verify 'illyria-boot'
 "$ELEBAKE_CONTEXT_SCRIPT" stage loader signed 'illyria-boot'
-"$ELEBAKE_CONTEXT_SCRIPT" stage medium ensure 'illyria-boot' 'a'
+"$ELEBAKE_CONTEXT_SCRIPT" stage medium mount 'illyria-boot' 'a'
 "$ELEBAKE_CONTEXT_SCRIPT" stage medium write 'illyria-boot' 'a'
 "$ELEBAKE_CONTEXT_SCRIPT" stage medium release 'illyria-boot' 'a'
 $ ./elebake.sh stage medium write illyria-boot a
@@ -1269,11 +1270,11 @@ $ ./elebake.sh stage medium write illyria-boot a
 "$ELEBAKE_CONTEXT_SCRIPT" stage deploy write 'illyria-boot' 'a'
 ```
 
-`stage medium ensure` is a combinator: what is decidable at generation time
-it decides there -- the stage exists, the medium is registered, the device
-node is present -- and returns an error line, after which every act of the
-batch is dead code. Otherwise it returns the act that settles the rest as
-root:
+`stage medium ensure` is the precondition block, three lines about the
+description and nothing else: the stage exists, the medium is registered,
+its boot tree is bound. Whether the card is in the reader is not a
+question the generator asks any more; the act that mounts answers it when
+it runs, by failing or not:
 
 ```
 $ ./elebake.sh stage medium mount illyria-boot a
@@ -1296,6 +1297,30 @@ ESP stays mounted: that is the postcondition `stage medium write` and
 batch, by hand). `stage medium identify <stage> <medium>` answers the
 everyday question -- which card is in? -- with a read-only mount and no
 decision; with cloned cards any registered letter is a way to the node.
+
+The same shape reached the tree side the day after. `stage medium prepare`
+makes the medium ready for the tree acts whatever state it is in --
+ensure, `stage pool import` (an imported pool is left alone), `stage
+dataset mount` (a mounted dataset is left alone, else mounted and the
+result checked) -- and `stage tree sync` reads: prepare, work, close,
+export. The questions the generator used to put to zfs -- is the pool
+imported, is the dataset mounted, is there a boot/ -- are gone with the
+helper that asked them; the mountpoint is asked of zfs by the act that
+needs it, when it runs. Read-only is a word in the path, `stage pool
+import readonly`, not a mode argument. And the comparison of the card's
+tree with the manifest is an act too, `stage tree findings`, which writes
+what it found as an observation, `media/<medium>/findings`; `stage tree
+matches` and `stage tree judge` read the observation and return the next
+line -- a log line, a note, or `stage tree rollback`, the act that looks
+up the newest snapshot when it runs. Manifest and attestation became
+idempotent on the way (an unchanged manifest is not rewritten, a signature
+newer than the manifest stands), so a batch may simply name them.
+
+What the tool holds itself to since: three function types, batch,
+combinator, terminal, and nothing else -- an architecture test refuses a
+function without a type prefix outside the engine, and a "predicate" in
+predicate.sh that prints, because a predicate answers yes or no and a
+function that prints is a reader or a renderer wearing the wrong coat.
 
 The recorded mountpoint (`stage device ... [<mountpoint>]`, `/mnt` in
 this walk) is not used by any act now; every mount is on the stage's own

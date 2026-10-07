@@ -1,4 +1,8 @@
 #!/bin/sh
+#
+# SPDX-License-Identifier: BSD-2-Clause
+#
+# Copyright (c) 2026 Dr. Johannes Brügmann
 # example-dump.sh -- what "elebake dump" writes: the whole database as one
 # replayable script of context-script lines. This one is the tutorial database
 # of docs/TUTORIAL.md (chapters 1-22), taken after chapter 22, home directory

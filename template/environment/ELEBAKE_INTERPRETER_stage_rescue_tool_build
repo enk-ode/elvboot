@@ -1,0 +1,2 @@
+sh
+# Act terminal of 'stage rescue tool package': make package in the tool's checkout, as the owner.

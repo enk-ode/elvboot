@@ -156,19 +156,13 @@ import_rel() {
         esac
 }
 
-# pool_imported <pool> — is the pool imported right now?
-pool_imported() {
-        zpool list -H -o name "$1" >/dev/null 2>>"$LOG_FILE"
-}
 
 # minimized_keep <record-relative path> -- does a stage element belong to
 # BINARY MANAGEMENT? The definition is template/filter/minimized.keep,
 # matched by template/awk/filter.awk exactly as 'filter minimized' matches
 # the collection; here the element is offered as .staging/_/<path>.
 minimized_keep() {
-        printf '%s\n' "\"\$ELEBAKE_ARCHIVE_BASE\"/.staging/_/$1" \
-        | awk -v strategy=minimized -v drop=/dev/null -v keep="$ELEBAKE_TEMPLATE_DIR/filter/minimized.keep" -f "$ELEBAKE_TEMPLATE_DIR/awk/filter.awk" \
-        | grep -qv '^#'
+        printf '%s\n' "\"\$ELEBAKE_ARCHIVE_BASE\"/.staging/_/$1" | awk -v strategy=minimized -v drop=/dev/null -v keep="$ELEBAKE_TEMPLATE_DIR/filter/minimized.keep" -f "$ELEBAKE_TEMPLATE_DIR/awk/filter.awk" | grep -qv '^#'
 }
 
 # dir_content_ok <path> <policy> -- may the directory hold what it holds?
@@ -183,7 +177,7 @@ dir_content_ok() {
 dir_exec_ok() {
         local probe="$1/.init_exec_test_$$"
         test "$2" != exec && return 0
-        printf '#!/bin/sh\nexit 0\n' > "$probe" && chmod 0700 "$probe" && "$probe" 2>/dev/null
+        printf '#!/bin/sh\nexit 0\n' > "$probe" && chmod 0700 "$probe" && "$probe" >/dev/null 2>&1
         local rc=$?
         rm -f "$probe"
         return $rc
@@ -229,25 +223,6 @@ bootvar_ok() {
         printf '%s\n' "$1" | grep -qx 'Boot[0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f]'
 }
 
-# gpt_label_type <disk> <label> -- the partition type gpart reports for the
-# labelled partition of the disk (empty: no such label, or the disk is absent)
-gpt_label_type() {
-        gpart list "$1" 2>/dev/null | awk -v l="$2" '
-                /^[0-9]+\. Name:/ { lb = "" }
-                /^ *label:/ { lb = $2 }
-                /^ *type:/ { if (lb == l) print $2 }'
-}
-
-# backup_newest <stage> <medium> -- the label of the newest backup record of
-# the medium (by its created field); empty when there is none
-backup_newest() {
-        local r=""
-        for r in "$ELEBAKE_BASE/stage/$1/backup/$2"/*/; do
-                test -f "$r/loader.efi" || continue
-                printf '%s\t%s\n' "$(head -n1 "$r/created" 2>/dev/null)" "$(basename "$r")"
-        done | sort | tail -n1 | cut -f2
-}
-
 # boot_generated <entry> -- a top-level entry of boot/ that a step of the
 # stage generates (never curated, never pruned): the manifest pair, the
 # loader's trust configuration, signed artifacts.
@@ -255,196 +230,12 @@ boot_generated() {
         test "$1" = manifest || test "$1" = manifest.asc || test "$1" = loader.trust.conf || test "${1%.signed}" != "$1"
 }
 
-# manifest_findings <bootdir> <manifest> [<kinds>] -- the findings of a boot
-# tree against its manifest (MISSING, MISMATCH, UNLISTED), one per line,
-# restricted to the space-separated kinds when given
-manifest_findings() {
-        test -f "$2" || return 0
-        boot_tree_findings "$1" "$2" | grep -E "^(${3:-MISSING|MISMATCH|UNLISTED})" | sed 's/  */ /g' | tr ' ' '\t' | sed 's/\t/ /'
-}
-
-# tree_newest_snapshot -- inspection (moved from stage.sh; used by the tree and verify families)
-tree_newest_snapshot() {
-        zfs list -H -t snapshot -o name -s creation -r "$1" 2>/dev/null | grep '@elebake-' | tail -n1
-}
-
-
-# boot_tree_findings -- inspection (moved from stage.sh; used by the tree and verify families)
-boot_tree_findings() {
-        test -f "$2" || return 0
-        local bootdir="$1" man="$2" rel hash have
-        while read -r rel hash; do
-                case "$hash" in sha256=*) ;; *) continue ;; esac
-                if [ ! -f "$bootdir/$rel" ]; then printf 'MISSING  %s\n' "$rel"
-                else
-                        have="sha256=$(sha256 -q "$bootdir/$rel" 2>/dev/null)"
-                        [ "$have" = "$hash" ] || printf 'MISMATCH %s\n' "$rel"
-                fi
-        done 2>/dev/null < "$man"
-        { cd "$bootdir" 2>/dev/null && find . -type f ! -name manifest ! -name manifest.asc; } | sed 's|^\./||' | LC_ALL=C sort | while IFS= read -r rel; do
-                cut -d' ' -f1 "$man" | grep -qxF -- "$rel" || printf 'UNLISTED %s\n' "$rel"
-        done
-}
-
-
 # key_name_ok <name> -- a key record name (one rule with the other record names)
 key_name_ok() { record_name_ok "$1"; }
 
 # keyid_ok <keyid> -- an OpenPGP key id or fingerprint: 8, 16 or 40 hex digits
 keyid_ok() {
         printf '%s\n' "$1" | grep -qxE '[0-9A-Fa-f]{8}|[0-9A-Fa-f]{16}|[0-9A-Fa-f]{40}'
-}
-
-# pkcs11_token_label -- the label of the first token the PKCS#11 module
-# reports right now (empty when none answers)
-pkcs11_token_label() {
-        pkcs11-tool --module "${ELEBAKE_PKCS11_MODULE:-}" -L 2>/dev/null | sed -n 's/^.*token label[ :]*//p' | head -n1
-}
-
-# pkcs11_token_hint -- the staged diagnosis when no token answers: the
-# PC/SC layer is asked layer by layer, configuration lore is mentioned only
-# where the diagnosis points at it (check first, complain second)
-pkcs11_token_hint() {
-        if ! command -v pcscd > /dev/null 2>&1; then
-                printf '%s\n' "pcsc-lite not installed (pkg install pcsc-lite libccid)"
-        elif ! pgrep -q pcscd 2>/dev/null; then
-                printf '%s\n' "pcscd not running (sysrc pcscd_enable=YES; service pcscd start)"
-        elif usbconfig 2>/dev/null | grep -qi nitrokey; then
-                printf '%s\n' "token visible on USB but not via PC/SC -- check pcscd_flags=--disable-polkit (sysrc -n pcscd_flags) and that libccid (not ccid) is installed"
-        else
-                printf '%s\n' "no token on USB (usbconfig) -- insert it"
-        fi
-}
-
-# attest_signer <file> <keyid> [<gnupghome>] -- WHO signed, pinned. gpg
-# --verify exits 0 for a mathematically good signature by ANY key in the
-# keyring, expired and revoked ones included; the question is "did the key
-# I expect sign this?", answered from gpg's status lines:
-#   [GNUPG:] GOODSIG <longid> <uid>              good, key usable
-#   [GNUPG:] EXPKEYSIG / REVKEYSIG / EXPSIG ...  good, but NOT acceptable
-#   [GNUPG:] VALIDSIG <fpr> ... <primary-fpr>    the fingerprints
-# Prints the signing fingerprint and returns 0 when a GOODSIG exists and one
-# of the two VALIDSIG fingerprints ends in the pinned keyid; otherwise prints
-# ONE reason line and returns 1. The pin is at least 16 hex digits -- a short
-# id can be forged in minutes and is refused as a pin.
-attest_signer() {
-        local file="$1" pin="$2" gh="${3:-}" status fpr pfpr
-        pin=$(printf '%s' "$pin" | sed 's/^0[xX]//' | tr 'a-f' 'A-F')
-        case "$pin" in
-                *[!0-9A-F]*|"") printf 'pinned keyid is not hexadecimal: %s\n' "$pin"; return 1 ;;
-        esac
-        [ ${#pin} -ge 16 ] || { printf 'pinned keyid too short (%s digits, need 16+): %s\n' "${#pin}" "$pin"; return 1; }
-        [ -f "$file.asc" ] || { printf 'unsigned: no %s.asc\n' "$file"; return 1; }
-        if [ -n "$gh" ]; then
-                status=$(GNUPGHOME="$gh" gpg --batch --status-fd 1 --verify "$file.asc" "$file" 2>>"${LOG_FILE:-/dev/null}")
-        else
-                status=$(gpg --batch --status-fd 1 --verify "$file.asc" "$file" 2>>"${LOG_FILE:-/dev/null}")
-        fi
-        printf '%s\n' "$status" >>"${LOG_FILE:-/dev/null}"
-        case "$status" in
-                *"[GNUPG:] NO_PUBKEY"*) printf 'signer public key not in the keyring%s\n' "${gh:+ $gh}"; return 1 ;;
-                *"[GNUPG:] BADSIG"*)    printf 'BAD SIGNATURE -- file or signature altered\n'; return 1 ;;
-                *"[GNUPG:] REVKEYSIG"*) printf 'signed by a REVOKED key\n'; return 1 ;;
-                *"[GNUPG:] EXPKEYSIG"*) printf 'signed by an EXPIRED key\n'; return 1 ;;
-                *"[GNUPG:] EXPSIG"*)    printf 'signature itself has expired\n'; return 1 ;;
-                *"[GNUPG:] GOODSIG"*)   ;;
-                *) printf 'no good signature (see the log for gpg status)\n'; return 1 ;;
-        esac
-        fpr=$(printf '%s\n' "$status" | awk '/^\[GNUPG:\] VALIDSIG /{print $3; exit}')
-        pfpr=$(printf '%s\n' "$status" | awk '/^\[GNUPG:\] VALIDSIG /{print $NF; exit}')
-        case "$fpr" in *"$pin") printf '%s\n' "$fpr"; return 0 ;; esac
-        case "$pfpr" in *"$pin") printf '%s\n' "$fpr"; return 0 ;; esac
-        printf 'signed by a DIFFERENT key: %s (expected ...%s)\n' "$fpr" "$pin"
-        return 1
-}
-
-# manifest_tree_findings <manifest> <base> -- the tree under <base> against
-# the manifest, one finding per line (MISSING SYMLINK, RETARGETED, MISSING,
-# CHANGED); nothing when every listed entry is present and identical. Files
-# present but unlisted are not findings -- the base is an extraction directory
-manifest_tree_findings() {
-        local rel="" val="" have=""
-        test -f "$1" || return 0
-        while read -r rel val; do
-                case "$val" in
-                symlink=*)
-                        test -L "$2/$rel" || printf 'MISSING SYMLINK %s\n' "$rel"
-                        test ! -L "$2/$rel" || test "$(readlink "$2/$rel")" = "${val#symlink=}" || printf 'RETARGETED %s\n' "$rel"
-                        ;;
-                sha256=*)
-                        test -f "$2/$rel" || printf 'MISSING %s\n' "$rel"
-                        test ! -f "$2/$rel" || test "$(sha256 -q "$2/$rel" 2>/dev/null)" = "${val#sha256=}" || printf 'CHANGED %s\n' "$rel"
-                        ;;
-                esac
-        done < "$1"
-}
-
-# collection_entry_bad <collection> -- the first entry of a collection that
-# cannot be hashed (whitespace in the path, or neither file nor symlink under
-# the database), with its reason; empty when every entry is hashable
-collection_entry_bad() {
-        local line="" rel=""
-        grep -v '^#' "$1" 2>/dev/null | grep . | while IFS= read -r line; do
-                rel=${line#\"\$ELEBAKE_ARCHIVE_BASE\"/}
-                case "$rel" in *" "*|*"	"*) printf 'whitespace in path: %s\n' "$rel"; break ;; esac
-                test -L "$ELEBAKE_BASE/$rel" || test -f "$ELEBAKE_BASE/$rel" || { printf 'neither file nor symlink: %s\n' "$rel"; break; }
-        done | head -n1
-}
-
-serial_current() {
-        local f="$ELEBAKE_BASE/export/serial" n
-        [ -f "$f" ] && n=$(head -n1 "$f") || n=0
-        case "$n" in ''|*[!0-9]*) n=0 ;; esac
-        printf '%s\n' "$n"
-}
-
-serial_floor() {
-        local fpr="$1" r s floor=0
-        for r in "$ELEBAKE_BASE"/provenance/*/; do
-                [ -f "$r/serial" ] && [ -f "$r/signer" ] || continue
-                [ "$(head -n1 "$r/signer")" = "$fpr" ] || continue
-                s=$(head -n1 "$r/serial")
-                case "$s" in ''|*[!0-9]*) continue ;; esac
-                [ "$s" -gt "$floor" ] && floor=$s
-        done
-        printf '%s\n' "$floor"
-}
-
-dump_header_field() {
-        sed -n "s/^# $2: //p" "$1" | head -n1
-}
-
-
-# intp_var <token> -- the interpreter variable a setintp/getintp token names:
-# a class default from template/tbl/intp.tbl, else the per-function pin
-intp_var() {
-        local var=""
-        var=$(awk -v t="$(printf '%s' "$1" | tr 'A-Z' 'a-z')" '$1 == t { print $2 }' "$ELEBAKE_TEMPLATE_DIR/tbl/intp.tbl" 2>/dev/null)
-        printf '%s\n' "${var:-ELEBAKE_INTERPRETER_$1}"
-}
-
-# env_var_resolve <name> -- the documented variable a 'help env' argument
-# names, by the cascade literal -> ELEBAKE_<name> -> ELEBAKE_INTERPRETER_<name>;
-# empty when none resolves
-env_var_resolve() {
-        local cand=""
-        for cand in "$1" "ELEBAKE_$1" "ELEBAKE_INTERPRETER_$1"; do
-                env_resolve_file "$cand" > /dev/null 2>&1 && printf '%s\n' "$cand" && return 0
-        done
-        return 1
-}
-
-# env_doc_path <var> <layer> -- the file whose lines 2+ document the
-# variable: the shown layer when it documents anything, else the first
-# deeper layer (default, then template) that does; a local override written
-# by setenv carries only the value and must not LOSE the documentation
-env_doc_path() {
-        local layer="" path=""
-        for layer in "$2" default template; do
-                path=$(env_resolve_file "$1" "$layer" 2>/dev/null | sed -n 2p)
-                test -n "$path" && tail -n +2 "$path" | grep -q '[^[:space:]]' && printf '%s\n' "$path" && return 0
-        done
-        env_resolve_file "$1" "$2" 2>/dev/null | sed -n 2p
 }
 
 # trace_verdict <trace> -- the outcome of an invocation from its trace: the
@@ -473,23 +264,18 @@ pin_names_terminal() {
 # expectation? Such a gate has no C form (the loader knows BYTE and SHA256)
 gate_has_string_claim() {
         local c="" m="" d="" p="" e="" ty="" l="" v=""
-        grep . "$ELEBAKE_BASE/foundation/gates/$1/claims" 2>/dev/null | while read -r c; do
+        for c in $(grep . "$ELEBAKE_BASE/foundation/gates/$1/claims" 2>/dev/null); do
                 read -r m d p e 2>/dev/null < "$ELEBAKE_BASE/foundation/claims/$c"
                 read -r ty l v 2>/dev/null < "$ELEBAKE_BASE/foundation/expectations/$e"
-                test "$ty" != string || printf 'string\n'
-        done | grep -q string
+                test "$ty" != string || return 0
+        done
+        return 1
 }
 
 # fnd_expr_ok <when|action> <expression> -- the trigger expression parses
 # (template/awk/when-expr.awk): a catalog name, or and(a,b)/or(a,b)/not(a)
 # for a when, compose(a,b) for an action; no whitespace
 fnd_expr_ok() {
-        awk -v e="$2" -v kind="$1" -v mode=check -f "$ELEBAKE_TEMPLATE_DIR/awk/when-expr.awk" 2>/dev/null
+        awk -v e="$2" -v kind="$1" -v mode=check -f "$ELEBAKE_TEMPLATE_DIR/awk/when-expr.awk" > /dev/null 2>&1
 }
 
-# fnd_expr_render <when|action> <c|sh|leaves> <expression> -- the expression
-# in one of its forms (template/awk/when-expr.awk): the loader's C, the
-# containers' sh, or one catalog name per line
-fnd_expr_render() {
-        awk -v e="$3" -v kind="$1" -v mode="$2" -f "$ELEBAKE_TEMPLATE_DIR/awk/when-expr.awk" 2>/dev/null
-}

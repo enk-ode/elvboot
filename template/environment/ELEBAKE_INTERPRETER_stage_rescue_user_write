@@ -1,0 +1,2 @@
+sudo sh
+# Act terminal of 'stage rescue user mirror': pw -R into the rescue root and the hashes from master.passwd, as root.

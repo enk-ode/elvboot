@@ -1,0 +1,2 @@
+sudo sh
+# Act terminal of 'stage rescue local write': /etc/rc.conf.local of the rescue root, as root.

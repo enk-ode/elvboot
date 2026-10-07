@@ -243,6 +243,10 @@ run_env() {
     passthrough="$passthrough ELEBAKE_DISPLAY_ANSI=\"\$ELEBAKE_DISPLAY_ANSI\""
   fi
 
+  if [ -n "${TERM:-}" ]; then
+    passthrough="$passthrough TERM=\"\$TERM\""	# pinentry of the owner's attest
+  fi
+
   # Get current depth for logging (default to 0)
   local current_depth="${ELEBAKE_TRACE_DEPTH:-0}"
   # Calculate next depth for subprocess
@@ -672,17 +676,30 @@ dispatch() {
 # arity-specific pin ELEBAKE_INTERPRETER_<name><arity>, then the family pin
 # ELEBAKE_INTERPRETER_<name>, then the class default -- by expansion
 pin_of() {
-  local m=${1#___}
+  local m=${1#___} env_args
   m=${m#__}; m=${m#_}
-  eval "PIN=\${ELEBAKE_INTERPRETER_${m}:-}"
-  [ -n "$PIN" ] || eval "PIN=\${ELEBAKE_INTERPRETER_${m%[0-9]}:-}"
-  [ -n "$PIN" ] && return 0
-  case "$1" in
-    ___*) PIN=$ELEBAKE_BATCH_COMBINATOR_INTERPRETER ;;
-    __*)  PIN=$ELEBAKE_COMBINATOR_INTERPRETER ;;
-    _*)   PIN=$ELEBAKE_TERMINAL_INTERPRETER ;;
-    *)    error "Function name without underscore prefix: $1 (check function naming convention)" ;;
-  esac
+  case "$1" in _*) ;; *) error "Function name without underscore prefix: $1 (check function naming convention)" ;; esac
+  env_args=$( [ ! -d "$ELEBAKE_BASE/.env" ] || unset ELEBAKE_CACHE_ENV_ARGS; build_env_args )
+  PIN=$(
+    eval "$env_args"
+    eval "PIN=\${ELEBAKE_INTERPRETER_${m}:-}"
+    [ -n "$PIN" ] || eval "PIN=\${ELEBAKE_INTERPRETER_${m%[0-9]}:-}"
+    [ -n "$PIN" ] || case "$1" in
+      ___*) PIN=$ELEBAKE_BATCH_COMBINATOR_INTERPRETER ;;
+      __*)  PIN=$ELEBAKE_COMBINATOR_INTERPRETER ;;
+      *)    PIN=$ELEBAKE_TERMINAL_INTERPRETER ;;
+    esac
+    printf '%s\n' "$PIN"
+  )
+}
+
+# dump_signature_status <dump> [<gnupghome>] -- gpg's status lines for <dump>.asc
+dump_signature_status() {
+  if test -n "${2:-}"; then
+    GNUPGHOME="$2" gpg --batch --status-fd 1 --verify "$1.asc" "$1" 2>>"${LOG_FILE:-/dev/null}"
+  else
+    gpg --batch --status-fd 1 --verify "$1.asc" "$1" 2>>"${LOG_FILE:-/dev/null}"
+  fi
 }
 
 # lookup_interpreter -- the interpreter of the function call on stdin

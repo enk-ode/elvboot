@@ -1,0 +1,2 @@
+sudo sh
+# Act terminal of 'stage rescue transient write': the rc.d script and the rc.conf.d files into the rescue root, as root.

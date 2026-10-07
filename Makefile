@@ -154,3 +154,55 @@ install: docs/elebake.8
 uninstall:
 	@rm -f ${WRAPPER} ${MANPAGE} ${COMPLETION}
 	@echo "uninstall: ${WRAPPER}, ${MANPAGE} and ${COMPLETION} removed"
+
+# --- stage and package ----------------------------------------------------
+# 'stage' lays this checkout out as the package has it: elebake.sh and its
+# other names, include/ and template/ under ${PKGLIBDIR}, the wrapper in
+# bin/, the manual page, the bash completion, the docs, and VERSION (the
+# commit: from git in a checkout, from the substituted VERSION file in a
+# git archive) -- NOT the development install above (which execs this
+# checkout). The port (port/Makefile) calls 'stage' into its STAGEDIR.
+# 'package' is the self-contained way: the +MANIFEST from the name and the
+# commit count (0.0.<count> until a tag names a release), the plist from the
+# staged tree, 'pkg create' into ${PKGDIR}.
+PKGNAME=	elvboot
+PKGVERSION!=	printf '0.0.%s' "$$(git rev-list --count HEAD 2>/dev/null || echo 0)"
+PKGDIR?=	${.CURDIR}/pkg
+PKGSTAGE?=	${.CURDIR}/pkgstage
+PKGPREFIX?=	/usr/local
+PKGLIBDIR=	${PKGPREFIX}/lib/elebake
+PKGABI!=	pkg config ABI 2>/dev/null || echo unknown
+
+PKGCOMMIT!=	git rev-parse --short HEAD 2>/dev/null || cat VERSION 2>/dev/null || echo unknown
+
+.PHONY: stage package package-clean
+
+stage: docs/elebake.8
+	@mkdir -p ${PKGSTAGE}${PKGPREFIX}/bin ${PKGSTAGE}${PKGLIBDIR}/include ${PKGSTAGE}${PKGLIBDIR}/docs \
+	    ${PKGSTAGE}${PKGPREFIX}/share/man/man8 ${PKGSTAGE}${PKGPREFIX}/share/bash-completion/completions \
+	    ${PKGSTAGE}${PKGPREFIX}/share/doc/${PKGNAME}
+	@install -m 0555 elebake.sh elebake-binary.sh elebake-compile.sh elebake-walkthrough.sh ${PKGSTAGE}${PKGLIBDIR}/
+	@printf '%s\n' '${PKGCOMMIT}' > ${PKGSTAGE}${PKGLIBDIR}/VERSION && chmod 0444 ${PKGSTAGE}${PKGLIBDIR}/VERSION
+	@install -m 0444 include/*.sh ${PKGSTAGE}${PKGLIBDIR}/include/
+	@cp -R template ${PKGSTAGE}${PKGLIBDIR}/
+	@find ${PKGSTAGE}${PKGLIBDIR}/template -type f -exec chmod 0444 {} \; -o -type d -exec chmod 0755 {} \;
+	@install -m 0444 docs/elebake.8 ${PKGSTAGE}${PKGPREFIX}/share/man/man8/
+	@install -m 0444 completion/elebake.bash ${PKGSTAGE}${PKGPREFIX}/share/bash-completion/completions/elebake
+	@install -m 0444 README.md LICENSE docs/TUTORIAL.md docs/ARCHITECTURE.md docs/QUICKSTART.md ${PKGSTAGE}${PKGPREFIX}/share/doc/${PKGNAME}/
+	@printf '#!/bin/sh\n# elebake -- the %s package: the tool under %s\nexec /bin/sh %s/elebake.sh "$$@"\n' \
+	    '${PKGNAME}' '${PKGLIBDIR}' '${PKGLIBDIR}' > ${PKGSTAGE}${PKGPREFIX}/bin/elebake
+	@chmod 0555 ${PKGSTAGE}${PKGPREFIX}/bin/elebake
+
+package: package-clean stage
+	@mkdir -p ${PKGDIR}
+	@printf 'name: "%s"\nversion: "%s"\norigin: "sysutils/%s"\ncomment: "elevated boot: the compiler of a verified-boot trust chain (elebake)"\n' \
+	    '${PKGNAME}' '${PKGVERSION}' '${PKGNAME}' > ${PKGSTAGE}/+MANIFEST
+	@printf 'desc: "elebake builds, signs, attests and deploys a FreeBSD loader that measures the platform it boots on, with the records that judge each boot. BSD-2-Clause."\n' >> ${PKGSTAGE}/+MANIFEST
+	@printf 'maintainer: "dr.johannes.bruegmann@gmail.com"\nwww: "https://github.com/enk-ode/elvboot"\nprefix: "%s"\narch: "%s"\nlicenselogic: "single"\nlicenses: ["BSD2CLAUSE"]\ndeps: { gnupg: { origin: "security/gnupg", version: "0" } }\n' \
+	    '${PKGPREFIX}' '${PKGABI}' >> ${PKGSTAGE}/+MANIFEST
+	@(cd ${PKGSTAGE}${PKGPREFIX} && find . \( -type f -o -type l \) | sed 's|^\./||' | sort) > ${PKGSTAGE}/plist
+	@pkg create -r ${PKGSTAGE} -M ${PKGSTAGE}/+MANIFEST -p ${PKGSTAGE}/plist -o ${PKGDIR}
+	@echo "package: ${PKGDIR}/${PKGNAME}-${PKGVERSION}.pkg ($$(wc -l < ${PKGSTAGE}/plist | tr -d ' ') files)"
+
+package-clean:
+	@test ! -d ${PKGSTAGE} || chmod -R u+w ${PKGSTAGE}; rm -rf ${PKGSTAGE}

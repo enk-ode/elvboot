@@ -1,0 +1,2 @@
+sudo sh
+# Act terminal of 'stage rescue patch apply': the resources hung into the mounted rescue root (nullfs), a one-shot jail on the root, the patch script in it, as root (the script drops to its user itself).

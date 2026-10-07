@@ -1,0 +1,5 @@
+Elevated boot: the compiler of a verified-boot trust chain.
+
+elebake builds, signs, attests and deploys a FreeBSD loader that measures the platform it boots on -- firmware tables, EFI variables, loaded images, TPM counters and PCRs, the boot medium, the disk -- and compares them with what the owner declared. Every command is a generator: it emits the shell it would run; the operator decides what executes.
+
+WWW: https://github.com/enk-ode/elvboot

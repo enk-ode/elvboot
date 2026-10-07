@@ -1,0 +1,2 @@
+sudo sh
+# Act terminal of 'stage rescue package install': pkg --rootdir into the rescue root, as root.

@@ -1,3 +1,3 @@
 sudo sh
-# Act terminal of 'stage rollback': mounts the ESP and writes the reserve loader as root.
-# @see ELEBAKE_INTERPRETER_stage_deploy_write
+# Act terminal of 'stage rollback': writes the reserve loader onto the ESP 'stage medium mount' mounted, as root.
+# @see ELEBAKE_INTERPRETER_stage_medium_mount

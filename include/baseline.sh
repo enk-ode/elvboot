@@ -1004,11 +1004,12 @@ ___stage_policy_leafs3() {
 # @group   provisioning
 # @internal
 # @see     stage policy leafs
+# @env     ELEBAKE_TEMPLATE_DIR  the shipped templates: awk/when-expr.awk compiles the expression
 #@end
 ___stage_trigger_leafs4() {
         local when="" action="" a=""
         read -r when action 2>/dev/null < "$ELEBAKE_BASE/foundation/triggers/$3"
-        for a in $(fnd_expr_render action leaves "$action"); do
+        for a in $(awk -v e="$action" -v kind=action -v mode=leaves -f "$ELEBAKE_TEMPLATE_DIR/awk/when-expr.awk" 2>/dev/null); do
                 printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage action leafs '$1' '$2' '$a' '$4'"
         done
 }

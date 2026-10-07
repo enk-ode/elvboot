@@ -1,0 +1,2 @@
+sudo sh
+# Act terminal of 'stage rescue baseline': every file of the mounted rescue root hashed, as root (the tree holds root-only files).

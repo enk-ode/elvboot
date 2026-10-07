@@ -1,0 +1,2 @@
+sudo sh
+# Act terminal of 'stage rescue card rekey': geli setkey on the medium's rescue partition, as root.

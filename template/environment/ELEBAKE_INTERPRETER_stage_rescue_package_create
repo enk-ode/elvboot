@@ -1,0 +1,2 @@
+sh
+# Act terminal of 'stage rescue package build': pkg create -M into the stage's repository, as the owner.

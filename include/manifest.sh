@@ -59,10 +59,15 @@ __manifest_named1() {
 # @group   database
 # @internal
 # @see     manifest
+# @env     ELEBAKE_ARCHIVE_BASE  the literal every collection entry starts with (expanded where the bundle is built)
 #@end
 __manifest_entries_hashable1() {
-        local bad=""
-        bad=$(collection_entry_bad "$1")
+        local line="" rel="" bad=""
+        bad=$(grep -v '^#' "$1" 2>/dev/null | grep . | while IFS= read -r line; do
+                rel=${line#\"\$ELEBAKE_ARCHIVE_BASE\"/}
+                case "$rel" in *" "*|*"	"*) printf 'whitespace in path: %s\n' "$rel"; break ;; esac
+                test -L "$ELEBAKE_BASE/$rel" || test -f "$ELEBAKE_BASE/$rel" || { printf 'neither file nor symlink: %s\n' "$rel"; break; }
+        done | head -n1)
         if test -z "$bad" && test "$(grep -v "^#" "$1" 2>/dev/null | grep -c .)" -gt 0; then
                 printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'every entry of $1 hashable'"
         else
@@ -177,14 +182,25 @@ __manifest_base_exists1() {
 
 #@help __manifest_tree_matches2
 # @command manifest tree matches <manifest> <base>
-# @summary No finding against the manifest: a log line with the entry count, else an error line carrying the findings
+# @summary No finding against the manifest (the tree under <base> read here, entry by entry): a log line with the entry count, else an error line carrying the findings (MISSING SYMLINK, RETARGETED, MISSING, CHANGED); files present but unlisted are not findings, the base is an extraction directory
 # @group   database
 # @internal
 # @see     manifest match
 #@end
 __manifest_tree_matches2() {
-        local findings=""
-        findings=$(manifest_tree_findings "$1" "$2")
+        local rel="" val="" findings=""
+        findings=$(while read -r rel val; do
+                case "$val" in
+                symlink=*)
+                        test -L "$2/$rel" || printf 'MISSING SYMLINK %s\n' "$rel"
+                        test ! -L "$2/$rel" || test "$(readlink "$2/$rel")" = "${val#symlink=}" || printf 'RETARGETED %s\n' "$rel"
+                        ;;
+                sha256=*)
+                        test -f "$2/$rel" || printf 'MISSING %s\n' "$rel"
+                        test ! -f "$2/$rel" || test "$(sha256 -q "$2/$rel" 2>/dev/null)" = "${val#sha256=}" || printf 'CHANGED %s\n' "$rel"
+                        ;;
+                esac
+        done 2>/dev/null < "$1")
         if test -z "$findings"; then
                 printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" log 'manifest match: $(grep -cE "^[^ ]+ (sha256|symlink)=" "$1" 2>/dev/null) entries, tree matches'"
         else

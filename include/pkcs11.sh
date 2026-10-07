@@ -156,7 +156,7 @@ __pkcs11_bridge_present0() {
 
 #@help __pkcs11_token_answers0
 # @command pkcs11 token answers
-# @summary The functional probe: a token answers via PC/SC (pkcs11-tool -L): a log line with its label, else an error line carrying the staged diagnosis (pcsc-lite, pcscd, --disable-polkit and libccid, or no token on USB)
+# @summary The functional probe: a token answers via PC/SC (pkcs11-tool -L, read here): a log line with its label, else an error line carrying the staged diagnosis, the PC/SC layer asked layer by layer (pcsc-lite, pcscd, --disable-polkit and libccid, or no token on USB)
 # @group   diagnostics
 # @internal
 # @see     pkcs11 prerequisites
@@ -164,12 +164,21 @@ __pkcs11_bridge_present0() {
 # @env     ELEBAKE_PKCS11_MODULE  the module pkcs11-tool asks
 #@end
 __pkcs11_token_answers0() {
-        local tok=""
-        tok=$(pkcs11_token_label)
+        local tok="" why=""
+        tok=$(pkcs11-tool --module "${ELEBAKE_PKCS11_MODULE:-}" -L 2>/dev/null | sed -n 's/^.*token label[ :]*//p' | head -n1)
         if test -n "$tok"; then
                 printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" log 'pkcs11 prerequisites ok (checked at generation time): token $tok via ${ELEBAKE_PKCS11_BRIDGE:-} bridge'"
         else
-                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'pkcs11 prerequisites: no PKCS#11 token reachable' $(sq "$(pkcs11_token_hint)")"
+                if ! command -v pcscd > /dev/null 2>&1; then
+                        why="pcsc-lite not installed (pkg install pcsc-lite libccid)"
+                elif ! pgrep -q pcscd 2>/dev/null; then
+                        why="pcscd not running (sysrc pcscd_enable=YES; service pcscd start)"
+                elif usbconfig 2>/dev/null | grep -qi nitrokey; then
+                        why="token visible on USB but not via PC/SC -- check pcscd_flags=--disable-polkit (sysrc -n pcscd_flags) and that libccid (not ccid) is installed"
+                else
+                        why="no token on USB (usbconfig) -- insert it"
+                fi
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'pkcs11 prerequisites: no PKCS#11 token reachable' $(sq "$why")"
         fi
 }
 

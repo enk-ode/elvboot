@@ -5,7 +5,7 @@
 # changes loader.efi changes PCR 4, so PcrBank falls once and is relearned.
 # Replace daily-v1 and the medium letter with yours.
 
-elebake stage recheckout daily-v1 ptg-15.1-next   # only when the branch moved
+elebake stage recheckout daily-v1 elvboot-dev-15.1   # only when the branch moved
 elebake stage trust daily-v1                      # the fresh worktree has no trust anchor
 elebake stage foundation check daily-v1           # the bindings resolve (stage make renders foundation.c itself, first thing in the build)
 elebake stage site mk daily-v1                    # the baselines into site.mk (and the inventory sets)

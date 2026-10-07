@@ -1,0 +1,2 @@
+# git archive substitutes the commit into VERSION (the package's elebake version outside a checkout)
+VERSION export-subst

@@ -942,7 +942,7 @@ ___stage_attest1() {
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage check stage '$1'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage attest key bound '$1'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage attest key complete '$1'"
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage manifest exists '$1'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage manifest '$1'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage detachsign '$1'"
 }
 
@@ -956,7 +956,11 @@ ___stage_attest1() {
 _stage_detachsign1() {
         local gpgenv=""
         test ! -f "$ELEBAKE_BASE/stage/$1/attest-key/gnupghome" || gpgenv="GNUPGHOME='$(head -n1 "$ELEBAKE_BASE/stage/$1/attest-key/gnupghome")' "
-        emit_note "elebake stage attest '$1' (armored detached signature -> boot/manifest.asc)"
+        emit_note "elebake stage attest '$1' (armored detached signature -> boot/manifest.asc; a signature newer than the manifest stands)"
+        printf '%s\n' "if [ '$ELEBAKE_BASE/stage/$1/boot/manifest.asc' -nt '$ELEBAKE_BASE/stage/$1/boot/manifest' ]; then"
+        printf '%s\n' "        printf '# manifest of stage %s already attested\\n' '$1' >&2"
+        printf '%s\n' "        exit 0"
+        printf '%s\n' "fi"
         printf '%s\n' "rm -f '$ELEBAKE_BASE/stage/$1/boot/manifest.asc'"
         printf '%s\n' "GPG_TTY=\$( { tty </dev/tty; } 2>/dev/null ); export GPG_TTY; ${gpgenv}gpg-connect-agent updatestartuptty /bye >/dev/null 2>&1 || true"
         printf '%s\n' "${gpgenv}gpg --yes --openpgp -a --detach-sign --local-user '$(head -n1 "$ELEBAKE_BASE/stage/$1/attest-key/keyid" 2>/dev/null)' -o '$ELEBAKE_BASE/stage/$1/boot/manifest.asc' '$ELEBAKE_BASE/stage/$1/boot/manifest' || { rm -f '$ELEBAKE_BASE/stage/$1/boot/manifest.asc'; printf '# Error: manifest attestation failed for %s\\n' '$(head -n1 "$ELEBAKE_BASE/stage/$1/attest-key/keyid" 2>/dev/null)' >&2; exit 1; }"
@@ -1002,7 +1006,7 @@ __stage_not_checked_out1() {
 # @summary Replace the stage's worktree by a fresh DETACHED one at <ref>: the toolchain is there, the stage exists and is checked out, the source repo is set; then 'stage worktree remove' (git worktree remove --force and prune, the work link), then 'stage worktree'. The old worktree holds generated files only -- site.mk, secret.mk, foundation.c -- which stage site mk and stage foundation make write again; the build outputs live in destdir/ and obj/ of the stage
 # @group   stage
 # @env     ELEBAKE_FREEBSD_SRC  the source repo the worktree is added from
-# @example elebake stage recheckout daily-v1 ptg-15.1-next^0
+# @example elebake stage recheckout daily-v1 elvboot-dev-15.1^0
 # @see     stage checkout
 # @see     stage site mk
 # @see     stage foundation make
@@ -1464,8 +1468,13 @@ _stage_manifest_write1() {
                 printf '%s sha256=%s\n' "$rel" "$(sha256 -q "$ELEBAKE_BASE/stage/$1/boot/$rel" 2>/dev/null)"
         done
         printf '%s\n' "ELVEOF"
-        printf '%s\n' "mv -f '$ELEBAKE_BASE/stage/$1/boot/manifest.new' '$ELEBAKE_BASE/stage/$1/boot/manifest' && chmod 0644 '$ELEBAKE_BASE/stage/$1/boot/manifest'"
-        printf '%s\n' "printf '# manifest written: %s entries\\n' '$n' >&2"
+        printf '%s\n' "if cmp -s '$ELEBAKE_BASE/stage/$1/boot/manifest.new' '$ELEBAKE_BASE/stage/$1/boot/manifest' 2>/dev/null; then"
+        printf '%s\n' "        rm -f '$ELEBAKE_BASE/stage/$1/boot/manifest.new'"
+        printf '%s\n' "        printf '# manifest unchanged: %s entries\\n' '$n' >&2"
+        printf '%s\n' "else"
+        printf '%s\n' "        mv -f '$ELEBAKE_BASE/stage/$1/boot/manifest.new' '$ELEBAKE_BASE/stage/$1/boot/manifest' && chmod 0644 '$ELEBAKE_BASE/stage/$1/boot/manifest'"
+        printf '%s\n' "        printf '# manifest written: %s entries\\n' '$n' >&2"
+        printf '%s\n' "fi"
 }
 
 #@help ___stage_verify1
@@ -1478,23 +1487,28 @@ _stage_manifest_write1() {
 #@end
 ___stage_verify1() {
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage check stage '$1'"
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage manifest exists '$1'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage manifest '$1'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage verify listed '$1'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage verify unlisted '$1'"
 }
 
 #@help __stage_verify_listed1
 # @command stage verify listed <stage>
-# @summary Direction 1: every manifest entry exists in boot/ and hashes identically: a log line, else an error line carrying the findings (MISSING, MISMATCH)
+# @summary Direction 1: every manifest entry exists in boot/ and hashes identically (boot/ read here, against the manifest): a log line, else an error line carrying the findings (MISSING, MISMATCH)
 # @group   stage
 # @internal
 # @see     stage verify
 #@end
 __stage_verify_listed1() {
-        local findings=""
-        findings=$(manifest_findings "$ELEBAKE_BASE/stage/$1/boot" "$ELEBAKE_BASE/stage/$1/boot/manifest" "MISSING|MISMATCH")
+        local boot="$ELEBAKE_BASE/stage/$1/boot" rel="" hash="" findings=""
+        findings=$(while read -r rel hash; do
+                case "$hash" in sha256=*) ;; *) continue ;; esac
+                if test ! -f "$boot/$rel"; then printf 'MISSING %s\n' "$rel"
+                elif test "sha256=$(sha256 -q "$boot/$rel" 2>/dev/null)" != "$hash"; then printf 'MISMATCH %s\n' "$rel"
+                fi
+        done 2>/dev/null < "$boot/manifest")
         if test -z "$findings"; then
-                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" log 'stage verify $1: $(grep -c sha256= "$ELEBAKE_BASE/stage/$1/boot/manifest" 2>/dev/null) listed entries match'"
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" log 'stage verify $1: $(grep -c sha256= "$boot/manifest" 2>/dev/null) listed entries match'"
         else
                 printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'stage verify $1: listed entries differ' $(sq "$(printf '%s' "$findings" | tr '\n' ';')")"
         fi
@@ -1502,14 +1516,16 @@ __stage_verify_listed1() {
 
 #@help __stage_verify_unlisted1
 # @command stage verify unlisted <stage>
-# @summary Direction 2: every file in boot/ (except the manifest pair) is listed: a log line, else an error line carrying the findings (UNLISTED)
+# @summary Direction 2: every file in boot/ (except the manifest pair) is listed (boot/ walked here): a log line, else an error line carrying the findings (UNLISTED)
 # @group   stage
 # @internal
 # @see     stage verify
 #@end
 __stage_verify_unlisted1() {
-        local findings=""
-        findings=$(manifest_findings "$ELEBAKE_BASE/stage/$1/boot" "$ELEBAKE_BASE/stage/$1/boot/manifest" "UNLISTED")
+        local boot="$ELEBAKE_BASE/stage/$1/boot" findings=""
+        findings=$({ cd "$boot" 2>/dev/null && find . -type f ! -name manifest ! -name manifest.asc; } | sed 's|^\./||' | LC_ALL=C sort | while IFS= read -r rel; do
+                cut -d' ' -f1 "$boot/manifest" 2>/dev/null | grep -qxF -- "$rel" || printf 'UNLISTED %s\n' "$rel"
+        done)
         if test -z "$findings"; then
                 printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" log 'stage verify $1: nothing unlisted in boot/'"
         else
@@ -2215,67 +2231,9 @@ ___stage_collect0() {
         test "${n:-0}" -gt 0 || printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'no stages to collect'"
 }
 
-#@help ___stage_adopt2
-# @command stage adopt <stage> <medium>
-# @summary One-time adoption of a RUNNING boot tree: copies the medium's WHOLE boot/ (cp -a, existing files in the stage's boot/ are overwritten) into the stage -- boot/ becomes the single source of truth, configuration (loader.conf & Co.) included. A batch: pool import (read-only), adopt copy, pool export -- the export runs even when the copy failed (keep-going wrapper), so the pool never stays imported. Compiled parts the medium brings (kernel, loader, lua, defaults) are replaced by the stage's own build the next time 'stage include' runs, so adopt BEFORE include or run include again after it; 'stage filter orphaned' then lists what the medium brought that nothing curates -- the owner decides about each such file
-# @group   stage
-# @param   medium  a registered medium with its boot tree bound (stage device, stage boot tree)
-# @example elebake stage adopt daily-v1 a
-# @see     stage adopt copy
-# @see     stage include
-# @see     stage filter orphaned
-#@end
-___stage_adopt2() {
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage pool import '$1' '$2' ro"
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage adopt copy '$1' '$2'"
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage pool export '$1' '$2'"
-}
 
-#@help ___stage_tree_work2
-# @command stage tree work <stage> <medium>
-# @summary The fail-fast core of 'stage tree sync': snapshot, copy, verify (its pin forces ELEBAKE_BATCH_KEEP_GOING=0 so a failing step stops HERE, while the enclosing sync keeps going into close and export)
-# @group   deploy
-# @internal
-# @see     stage tree sync
-#@end
-___stage_tree_work2() {
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage tree snapshot '$1' '$2'"
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage tree copy '$1' '$2'"
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage tree verify '$1' '$2'"
-}
 
-#@help ___stage_tree_sync2
-# @command stage tree sync <stage> <medium>
-# @summary Write the stage's boot/ tree onto the medium's dataset: pool import, then snapshot + copy + verify (fail-fast), then close (rollback if the tree is not the manifest) and pool export -- close and export ALWAYS run (keep-going wrapper), so a failed sync never leaves the pool imported or the medium half-written
-# @group   deploy
-# @example elebake stage tree sync daily-v1 a
-# @see     stage tree work
-# @see     stage tree close
-# @see     stage deploy
-#@end
-___stage_tree_sync2() {
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage pool import '$1' '$2' rw"
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage tree work '$1' '$2'"
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage tree close '$1' '$2'"
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage pool export '$1' '$2'"
-}
 
-#@help ___stage_medium_ready2
-# @command stage medium ready <stage> <medium>
-# @summary The preconditions of every act on a medium's boot tree, checked at generation: the stage exists, the medium is registered, its boot tree is bound, the device node is present, the GPT label is there. Which card is in is not decidable here: 'stage medium ensure' settles it, as root, before any write
-# @group   deploy
-# @internal
-# @see     stage pool import
-# @see     stage tree sync
-# @see     stage adopt
-#@end
-___stage_medium_ready2() {
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage check stage '$1'"
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage medium exists '$1' '$2'"
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage boot tree exists '$1' '$2'"
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage medium present '$1' '$2'"
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage medium labeled '$1' '$2'"
-}
 
 #@help __stage_medium_exists2
 # @command stage medium exists <stage> <medium>
@@ -2312,7 +2270,7 @@ __stage_boot_tree_exists2() {
 # @summary The medium's device node is a character device right now: a comment line, else an error line (insert the medium)
 # @group   deploy
 # @internal
-# @see     stage medium ready
+# @see     stage medium mount
 #@end
 __stage_medium_present2() {
         if test -c "$(head -n1 "$ELEBAKE_BASE/stage/$1/media/$2/node" 2>/dev/null)"; then
@@ -2322,120 +2280,16 @@ __stage_medium_present2() {
         fi
 }
 
-#@help __stage_medium_labeled2
-# @command stage medium labeled <stage> <medium>
-# @summary The bound GPT label exists as /dev/gpt/<label>: a comment line, else an error line (wrong medium?)
-# @group   deploy
-# @internal
-# @see     stage medium ready
-#@end
-__stage_medium_labeled2() {
-        if test -c "/dev/gpt/$(head -n1 "$ELEBAKE_BASE/stage/$1/media/$2/gptlabel" 2>/dev/null)"; then
-                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'gpt label $(head -n1 "$ELEBAKE_BASE/stage/$1/media/$2/gptlabel" 2>/dev/null) present'"
-        else
-                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'stage $1: no such gpt label: /dev/gpt/$(head -n1 "$ELEBAKE_BASE/stage/$1/media/$2/gptlabel" 2>/dev/null) (wrong medium $2?)'"
-        fi
-}
 
-#@help ___stage_pool_import3
-# @command stage pool import <stage> <medium> <rw|ro>
-# @summary Import the medium's pool from its GPT label (confined: no device scan), rooted under $ELEBAKE_ROOT/mnt/<stage>-<medium>, and mount the boot dataset: the medium ready, the mode rw or ro, the pool not imported yet; then 'stage pool mount'
-# @group   deploy
-# @param   rw|ro  writable (tree sync) or read-only (adopt)
-# @example elebake stage pool import daily-v1 a rw
-# @see     stage pool export
-# @see     stage tree sync
-# @see     stage adopt
-#@end
-___stage_pool_import3() {
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage pool mode valid '$3'"
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage medium ready '$1' '$2'"
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage pool exported '$1' '$2'"
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage pool mount '$1' '$2' '$3'"
-}
 
-#@help __stage_pool_mode_valid1
-# @command stage pool mode valid <mode>
-# @summary The mode is rw or ro: a comment line, else an error line
-# @group   deploy
-# @internal
-# @see     stage pool import
-#@end
-__stage_pool_mode_valid1() {
-        if test "$1" = rw || test "$1" = ro; then
-                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'pool mode $1'"
-        else
-                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'stage pool import: mode must be rw or ro, got $1'"
-        fi
-}
 
-#@help __stage_pool_exported2
-# @command stage pool exported <stage> <medium>
-# @summary The medium's pool is not imported right now: a comment line, else an error line
-# @group   deploy
-# @internal
-# @see     stage pool import
-#@end
-__stage_pool_exported2() {
-        if ! pool_imported "$(sed -n 1p "$ELEBAKE_BASE/stage/$1/media/$2/dataset" 2>/dev/null | cut -d/ -f1)"; then
-                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'pool $(sed -n 1p "$ELEBAKE_BASE/stage/$1/media/$2/dataset" 2>/dev/null | cut -d/ -f1) not imported'"
-        else
-                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'stage pool import $1: pool $(sed -n 1p "$ELEBAKE_BASE/stage/$1/media/$2/dataset" 2>/dev/null | cut -d/ -f1) is already imported (stage pool export $1 $2, or zpool export)'"
-        fi
-}
 
-#@help _stage_pool_mount3
-# @command stage pool mount <stage> <medium> <rw|ro>
-# @summary Act terminal: the altroot directory, zpool import from /dev/gpt/<label> (readonly for ro) rooted there, zfs mount of pool and boot dataset; run as root
-# @group   deploy
-# @internal
-# @see     stage pool import
-#@end
-_stage_pool_mount3() {
-        local label="" ds="" pool="" alt="" ro=""
-        label=$(head -n1 "$ELEBAKE_BASE/stage/$1/media/$2/gptlabel" 2>/dev/null)
-        ds=$(head -n1 "$ELEBAKE_BASE/stage/$1/media/$2/dataset" 2>/dev/null)
-        pool=${ds%%/*}
-        alt="$ELEBAKE_ROOT/mnt/$1-$2"
-        test "$3" != ro || ro="-o readonly=on "
-        emit_note "elebake stage pool import '$1' medium '$2' ($pool from /dev/gpt/$label, $3, altroot $alt)"
-        printf '%s\n' "$MODIFY_DIR_CREATE '$alt'"
-        printf '%s\n' "zpool import -d '/dev/gpt/$label' ${ro}-R '$alt' -N '$pool' || { printf '# Error: cannot import pool %s from /dev/gpt/%s\\n' '$pool' '$label' >&2; exit 1; }"
-        printf '%s\n' "zfs mount '$pool' 2>/dev/null; zfs mount '$ds' || { zpool export '$pool'; printf '# Error: cannot mount %s\\n' '$ds' >&2; exit 1; }"
-        printf '%s\n' "printf '# pool %s imported (%s), %s mounted\\n' '$pool' '$3' '$ds' >&2"
-}
 
-#@help ___stage_pool_export2
-# @command stage pool export <stage> <medium>
-# @summary Unmount and export the medium's pool and remove the altroot: the medium ready, then 'stage pool release' (a pool that is not imported is a note, not an error, so the closing line of a batch is always safe). Its pin forces fail-fast inside, whatever the enclosing batch keeps going
-# @group   deploy
-# @example elebake stage pool export daily-v1 a
-# @see     stage pool import
-# @see     stage tree sync
-#@end
-___stage_pool_export2() {
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage medium ready '$1' '$2'"
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage pool release '$1' '$2'"
-}
 
-#@help __stage_pool_release2
-# @command stage pool release <stage> <medium>
-# @summary The pool is imported: rewrite to 'stage pool unmount', else a note line (nothing to do)
-# @group   deploy
-# @internal
-# @see     stage pool export
-#@end
-__stage_pool_release2() {
-        if pool_imported "$(sed -n 1p "$ELEBAKE_BASE/stage/$1/media/$2/dataset" 2>/dev/null | cut -d/ -f1)"; then
-                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage pool unmount '$1' '$2'"
-        else
-                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" note 'stage pool export $1: pool $(sed -n 1p "$ELEBAKE_BASE/stage/$1/media/$2/dataset" 2>/dev/null | cut -d/ -f1) is not imported -- nothing to do'"
-        fi
-}
 
 #@help _stage_pool_unmount2
 # @command stage pool unmount <stage> <medium>
-# @summary Act terminal: zfs umount of dataset and pool, zpool export in five bounded attempts (a fresh pool can be transiently busy), the altroot removed; run as root
+# @summary Act terminal (root): a pool that is not imported is nothing to do (idempotent); else zfs umount of dataset and pool, zpool export in five bounded attempts (a fresh pool can be transiently busy), the altroot removed
 # @group   deploy
 # @internal
 # @see     stage pool export
@@ -2446,23 +2300,397 @@ _stage_pool_unmount2() {
         pool=${ds%%/*}
         alt="$ELEBAKE_ROOT/mnt/$1-$2"
         emit_note "elebake stage pool export '$1' medium '$2' ($pool)"
+        printf '%s\n' "zpool list -H -o name '$pool' >/dev/null 2>&1 || { printf '# pool %s is not imported -- nothing to do\\n' '$pool' >&2; exit 0; }"
         printf '%s\n' "zfs umount '$ds' 2>/dev/null; zfs umount '$pool' 2>/dev/null"
         printf '%s\n' "zpool export '$pool' 2>/dev/null || { sleep 1; zpool export '$pool' 2>/dev/null; } || { sleep 1; zpool export '$pool' 2>/dev/null; } || { sleep 1; zpool export '$pool' 2>/dev/null; } || { sleep 1; zpool export '$pool'; } || { printf '# Error: pool %s still busy after 5 attempts -- export manually: zpool export %s\\n' '$pool' '$pool' >&2; exit 1; }"
         printf '%s\n' "rmdir '$alt' 2>/dev/null || true"
         printf '%s\n' "printf '# pool %s exported\\n' '$pool' >&2"
 }
 
-#@help ___stage_tree_snapshot2
-# @command stage tree snapshot <stage> <medium>
-# @summary Snapshot the medium's boot dataset (elebake-<stamp>) before it is rewritten: the medium ready, the pool imported; then 'stage tree snap', then 'stage tree prune' (the older elebake-* snapshots beyond ELEBAKE_SNAPSHOT_KEEP go)
+
+#@help ___stage_medium_ensure2
+# @command stage medium ensure <stage> <medium>
+# @summary The preconditions of everything that touches a medium, as the description states them: the stage exists, the medium is registered (stage device), its boot tree is bound (stage boot tree). Whether the card is in the reader or carries the letter is not a question here: the acts that mount answer it when they run
 # @group   deploy
+# @internal
+# @see     stage medium prepare
+# @see     stage medium mount
+#@end
+___stage_medium_ensure2() {
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage check stage '$1'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage medium exists '$1' '$2'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage boot tree exists '$1' '$2'"
+}
+
+#@help ___stage_medium_prepare2
+# @command stage medium prepare <stage> <medium>
+# @summary Make the medium ready for the tree acts, whatever state it is in: the description checked (stage medium ensure), the pool imported writable (stage pool import), the boot dataset mounted (stage dataset mount) -- every act idempotent, so the line may stand in every batch that needs the tree
+# @group   deploy
+# @internal
+# @see     stage medium ensure
+# @see     stage pool import
+# @see     stage dataset mount
+#@end
+___stage_medium_prepare2() {
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage medium ensure '$1' '$2'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage pool import '$1' '$2'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage dataset mount '$1' '$2'"
+}
+
+#@help ___stage_medium_prepare_readonly2
+# @command stage medium prepare readonly <stage> <medium>
+# @summary Make the medium ready for reading its tree, whatever state it is in: the description checked, the pool imported read-only (stage pool import readonly), the boot dataset mounted
+# @group   deploy
+# @internal
+# @see     stage medium prepare
+# @see     stage pool import readonly
+#@end
+___stage_medium_prepare_readonly2() {
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage medium ensure '$1' '$2'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage pool import readonly '$1' '$2'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage dataset mount '$1' '$2'"
+}
+
+#@help ___stage_pool_import2
+# @command stage pool import <stage> <medium>
+# @summary Import the medium's pool writable, from its GPT label (confined: no device scan), rooted under $ELEBAKE_ROOT/mnt/<stage>-<medium>: the description checked, then 'stage pool mount' -- idempotent, an imported pool stays as it is
+# @group   deploy
+# @example elebake stage pool import daily-v1 b
+# @see     stage pool import readonly
+# @see     stage pool export
+# @see     stage pool mount
+#@end
+___stage_pool_import2() {
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage medium ensure '$1' '$2'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage pool mount '$1' '$2'"
+}
+
+#@help ___stage_pool_import_readonly2
+# @command stage pool import readonly <stage> <medium>
+# @summary Import the medium's pool read-only (adopt reads, nothing is written), rooted under $ELEBAKE_ROOT/mnt/<stage>-<medium>: the description checked, then 'stage pool mount readonly' -- idempotent
+# @group   deploy
+# @example elebake stage pool import readonly daily-v1 a
+# @see     stage pool import
+# @see     stage pool mount readonly
+#@end
+___stage_pool_import_readonly2() {
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage medium ensure '$1' '$2'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage pool mount readonly '$1' '$2'"
+}
+
+#@help _stage_pool_mount2
+# @command stage pool mount <stage> <medium>
+# @summary Act terminal (root): an imported pool is left alone (idempotent); else the altroot directory, zpool import from /dev/gpt/<label> rooted there, zfs mount of pool and boot dataset -- the device not in the reader or the label not there fails here, when it runs
+# @group   deploy
+# @internal
+# @see     stage pool import
+#@end
+_stage_pool_mount2() {
+        local label="" ds="" pool="" alt=""
+        label=$(head -n1 "$ELEBAKE_BASE/stage/$1/media/$2/gptlabel" 2>/dev/null)
+        ds=$(head -n1 "$ELEBAKE_BASE/stage/$1/media/$2/dataset" 2>/dev/null)
+        pool=${ds%%/*}
+        alt="$ELEBAKE_ROOT/mnt/$1-$2"
+        emit_note "elebake stage pool import '$1' medium '$2' ($pool from /dev/gpt/$label, writable, altroot $alt)"
+        printf '%s\n' "zpool list -H -o name '$pool' >/dev/null 2>&1 && exit 0"
+        printf '%s\n' "$MODIFY_DIR_CREATE '$alt'"
+        printf '%s\n' "zpool import -d '/dev/gpt/$label' -R '$alt' -N '$pool' || { printf '# Error: cannot import pool %s from /dev/gpt/%s (medium $2 in the reader?)\\n' '$pool' '$label' >&2; exit 1; }"
+        printf '%s\n' "zfs mount '$pool' 2>/dev/null; zfs mount '$ds' || { zpool export '$pool'; printf '# Error: cannot mount %s\\n' '$ds' >&2; exit 1; }"
+        printf '%s\n' "printf '# pool %s imported at %s\\n' '$pool' '$alt' >&2"
+}
+
+#@help _stage_pool_mount_readonly2
+# @command stage pool mount readonly <stage> <medium>
+# @summary Act terminal (root): an imported pool is left alone (idempotent); else zpool import read-only from /dev/gpt/<label> under the altroot, zfs mount of pool and boot dataset
+# @group   deploy
+# @internal
+# @see     stage pool import readonly
+#@end
+_stage_pool_mount_readonly2() {
+        local label="" ds="" pool="" alt=""
+        label=$(head -n1 "$ELEBAKE_BASE/stage/$1/media/$2/gptlabel" 2>/dev/null)
+        ds=$(head -n1 "$ELEBAKE_BASE/stage/$1/media/$2/dataset" 2>/dev/null)
+        pool=${ds%%/*}
+        alt="$ELEBAKE_ROOT/mnt/$1-$2"
+        emit_note "elebake stage pool import readonly '$1' medium '$2' ($pool from /dev/gpt/$label, read-only, altroot $alt)"
+        printf '%s\n' "zpool list -H -o name '$pool' >/dev/null 2>&1 && exit 0"
+        printf '%s\n' "$MODIFY_DIR_CREATE '$alt'"
+        printf '%s\n' "zpool import -d '/dev/gpt/$label' -o readonly=on -R '$alt' -N '$pool' || { printf '# Error: cannot import pool %s from /dev/gpt/%s (medium $2 in the reader?)\\n' '$pool' '$label' >&2; exit 1; }"
+        printf '%s\n' "zfs mount '$pool' 2>/dev/null; zfs mount '$ds' || { zpool export '$pool'; printf '# Error: cannot mount %s\\n' '$ds' >&2; exit 1; }"
+        printf '%s\n' "printf '# pool %s imported read-only at %s\\n' '$pool' '$alt' >&2"
+}
+
+#@help _stage_dataset_mount2
+# @command stage dataset mount <stage> <medium>
+# @summary Act terminal (root): the medium's boot dataset mounted -- a mounted dataset is left alone (idempotent), else zfs mount, and the result checked: not mounted afterwards is the error (stage pool import first)
+# @group   deploy
+# @internal
+# @see     stage medium prepare
+#@end
+_stage_dataset_mount2() {
+        local ds=""
+        ds=$(head -n1 "$ELEBAKE_BASE/stage/$1/media/$2/dataset" 2>/dev/null)
+        emit_note "elebake stage dataset mount '$1' medium '$2' ($ds)"
+        printf '%s\n' "[ \"\$(zfs get -H -o value mounted '$ds')\" = yes ] && exit 0"
+        printf '%s\n' "zfs mount '$ds'"
+        printf '%s\n' "if [ \"\$(zfs get -H -o value mounted '$ds')\" != yes ]; then"
+        printf '%s\n' "        printf '# Error: %s is not mounted (stage pool import $1 $2 first)\\n' '$ds' >&2"
+        printf '%s\n' "        exit 1"
+        printf '%s\n' "else"
+        printf '%s\n' "        printf '# mounted %s\\n' '$ds' >&2"
+        printf '%s\n' "fi"
+}
+
+#@help ___stage_pool_export2
+# @command stage pool export <stage> <medium>
+# @summary Unmount the boot dataset and export the medium's pool (the reverse of stage pool import): the description checked, then 'stage pool unmount' -- idempotent, a pool that is not imported is nothing to do
+# @group   deploy
+# @example elebake stage pool export daily-v1 b
+# @see     stage pool import
+#@end
+___stage_pool_export2() {
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage medium ensure '$1' '$2'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage pool unmount '$1' '$2'"
+}
+
+#@help ___stage_tree_sync2
+# @command stage tree sync <stage> <medium>
+# @summary Write the stage's boot/ tree onto the medium's dataset: the medium prepared (pool imported, dataset mounted), then snapshot + copy + verify (fail-fast), then close (rollback if the tree is not the manifest) and pool export -- close and export ALWAYS run (the batch keeps going), so the medium is never left half-written or imported
+# @group   deploy
+# @example elebake stage tree sync daily-v1 b
+# @see     stage medium prepare
+# @see     stage tree work
+# @see     stage tree close
+# @see     stage push
+#@end
+___stage_tree_sync2() {
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage medium prepare '$1' '$2'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage tree work '$1' '$2'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage tree close '$1' '$2'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage pool export '$1' '$2'"
+}
+
+#@help ___stage_tree_work2
+# @command stage tree work <stage> <medium>
+# @summary The fail-fast core of 'stage tree sync': snapshot, copy, verify -- the first failure stops it, and 'stage tree close' judges what is left
+# @group   deploy
+# @internal
 # @see     stage tree sync
 #@end
+___stage_tree_work2() {
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage tree snapshot '$1' '$2'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage tree copy '$1' '$2'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage tree verify '$1' '$2'"
+}
+
+#@help ___stage_tree_snapshot2
+# @command stage tree snapshot <stage> <medium>
+# @summary Snapshot the medium's boot dataset (elebake-<stamp>) before it is rewritten: the medium prepared, then 'stage tree snap', then 'stage tree prune' (the older elebake-* snapshots beyond ELEBAKE_SNAPSHOT_KEEP go)
+# @group   deploy
+# @example elebake stage tree snapshot daily-v1 b
+# @see     stage tree snap
+# @see     stage tree prune
+#@end
 ___stage_tree_snapshot2() {
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage medium ready '$1' '$2'"
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage pool imported '$1' '$2'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage medium prepare '$1' '$2'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage tree snap '$1' '$2'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage tree prune '$1' '$2'"
+}
+
+#@help ___stage_tree_copy2
+# @command stage tree copy <stage> <medium>
+# @summary Replace the boot/ tree on the medium with the stage's boot/: the medium prepared, the manifest written and attested (both idempotent), then 'stage tree write'
+# @group   deploy
+# @example elebake stage tree copy daily-v1 b
+# @see     stage tree write
+# @see     stage tree verify
+#@end
+___stage_tree_copy2() {
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage medium prepare '$1' '$2'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage manifest '$1'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage attest '$1'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage tree write '$1' '$2'"
+}
+
+#@help _stage_tree_write2
+# @command stage tree write <stage> <medium>
+# @summary Act terminal (root): the mounted dataset's boot/ replaced by the stage's boot/ (rm -rf, mkdir, cp -a); the mountpoint is asked of zfs when the act runs, never at generation
+# @group   deploy
+# @internal
+# @see     stage tree copy
+#@end
+_stage_tree_write2() {
+        local ds=""
+        ds=$(head -n1 "$ELEBAKE_BASE/stage/$1/media/$2/dataset" 2>/dev/null)
+        emit_note "elebake stage tree copy '$1' medium '$2' (boot/ -> $ds:/boot)"
+        printf '%s\n' "mp=\$(zfs get -H -o value mountpoint '$ds' 2>/dev/null)"
+        printf '%s\n' "[ -d \"\$mp\" ] || { printf '# Error: %s is not mounted (stage medium prepare $1 $2 first)\\n' '$ds' >&2; exit 1; }"
+        printf '%s\n' "rm -rf \"\$mp/boot\" && mkdir \"\$mp/boot\" && cp -a '$ELEBAKE_BASE/stage/$1/boot/.' \"\$mp/boot/\" || { printf '# Error: tree copy failed (stage tree close rolls back to the snapshot)\\n' >&2; exit 1; }"
+        printf '%s\n' "printf '# tree copied to %s\\n' \"\$mp/boot\" >&2"
+}
+
+#@help ___stage_tree_verify2
+# @command stage tree verify <stage> <medium>
+# @summary Inspect the boot tree on the medium against the stage's manifest, both directions: the medium prepared, the manifest written, the findings taken (stage tree findings), then 'stage tree matches' -- a finding fails the command
+# @group   deploy
+# @example elebake stage tree verify daily-v1 b
+# @see     stage tree findings
+# @see     stage tree matches
+#@end
+___stage_tree_verify2() {
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage medium prepare '$1' '$2'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage manifest '$1'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage tree findings '$1' '$2'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage tree matches '$1' '$2'"
+}
+
+#@help _stage_tree_findings2
+# @command stage tree findings <stage> <medium>
+# @summary Act terminal (root): the tree on the mounted dataset compared with the stage's manifest when the act runs -- every manifest entry present with its hash, nothing unlisted -- and the findings (MISSING, MISMATCH, UNLISTED, one per line, none when the tree is the manifest) written as the observation media/<medium>/findings, which 'stage tree matches' and 'stage tree judge' read
+# @group   deploy
+# @internal
+# @see     stage tree verify
+# @see     stage tree close
+#@end
+_stage_tree_findings2() {
+        local ds="" man="$ELEBAKE_BASE/stage/$1/boot/manifest" out="$ELEBAKE_BASE/stage/$1/media/$2/findings"
+        ds=$(head -n1 "$ELEBAKE_BASE/stage/$1/media/$2/dataset" 2>/dev/null)
+        emit_note "elebake stage tree findings '$1' medium '$2' ($ds:/boot against boot/manifest -> media/$2/findings)"
+        printf '%s\n' "[ -f '$man' ] || { printf '# Error: no boot/manifest (stage manifest $1 first)\\n' >&2; exit 1; }"
+        printf '%s\n' "mp=\$(zfs get -H -o value mountpoint '$ds' 2>/dev/null)"
+        printf '%s\n' "[ -d \"\$mp/boot\" ] || { printf '# Error: no boot/ under %s (not mounted, or not a boot dataset?)\\n' \"\$mp\" >&2; exit 1; }"
+        printf '%s\n' ": > '$out.new'"
+        printf '%s\n' "while read -r rel hash; do"
+        printf '%s\n' "        case \"\$hash\" in sha256=*) ;; *) continue ;; esac"
+        printf '%s\n' "        if [ ! -f \"\$mp/boot/\$rel\" ]; then printf 'MISSING  %s\\n' \"\$rel\""
+        printf '%s\n' "        elif [ \"sha256=\$(sha256 -q \"\$mp/boot/\$rel\")\" != \"\$hash\" ]; then printf 'MISMATCH %s\\n' \"\$rel\""
+        printf '%s\n' "        fi"
+        printf '%s\n' "done < '$man' >> '$out.new'"
+        printf '%s\n' "( cd \"\$mp/boot\" && find . -type f ! -name manifest ! -name manifest.asc ) | sed 's|^\\./||' | LC_ALL=C sort | while IFS= read -r rel; do"
+        printf '%s\n' "        cut -d' ' -f1 '$man' | grep -qxF -- \"\$rel\" || printf 'UNLISTED %s\\n' \"\$rel\""
+        printf '%s\n' "done >> '$out.new'"
+        printf '%s\n' "mv -f '$out.new' '$out' && chown '$(id -un)' '$out' 2>/dev/null"
+        printf '%s\n' "printf '# findings of medium $2: %s\\n' \"\$(wc -l < '$out' | tr -d ' ')\" >&2"
+}
+
+#@help __stage_tree_matches2
+# @command stage tree matches <stage> <medium>
+# @summary The observation media/<medium>/findings is empty: a log line with the entry count, else an error line carrying the findings; no observation is the error that names 'stage tree findings'
+# @group   deploy
+# @internal
+# @see     stage tree verify
+# @see     stage tree findings
+#@end
+__stage_tree_matches2() {
+        local f="$ELEBAKE_BASE/stage/$1/media/$2/findings"
+        if ! test -f "$f"; then
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'stage tree verify $1: no findings for medium $2 (stage tree findings $1 $2 first)'"
+        elif ! test -s "$f"; then
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" log 'stage tree verify $1: $(grep -c sha256= "$ELEBAKE_BASE/stage/$1/boot/manifest" 2>/dev/null) entries on medium $2 match the manifest, nothing unlisted'"
+        else
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'stage tree verify $1: the tree on medium $2 is not the manifest' $(sq "$(tr '\n' ';' < "$f")")"
+        fi
+}
+
+#@help ___stage_tree_close2
+# @command stage tree close <stage> <medium>
+# @summary Leave the medium consistent: the medium prepared, the findings taken (stage tree findings), then 'stage tree judge' -- a tree that IS the manifest stays (the snapshot kept as history), a tree that is not goes back to the newest elebake snapshot
+# @group   deploy
+# @example elebake stage tree close daily-v1 b
+# @see     stage tree findings
+# @see     stage tree judge
+#@end
+___stage_tree_close2() {
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage medium prepare '$1' '$2'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage tree findings '$1' '$2'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage tree judge '$1' '$2'"
+}
+
+#@help __stage_tree_judge2
+# @command stage tree judge <stage> <medium>
+# @summary The observation media/<medium>/findings is empty: a note line (the tree is the manifest, kept), else rewrite to 'stage tree rollback'; no observation is the error that names 'stage tree findings'
+# @group   deploy
+# @internal
+# @see     stage tree close
+# @see     stage tree rollback
+#@end
+__stage_tree_judge2() {
+        local f="$ELEBAKE_BASE/stage/$1/media/$2/findings"
+        if ! test -f "$f"; then
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'stage tree close $1: no findings for medium $2 (stage tree findings $1 $2 first)'"
+        elif ! test -s "$f"; then
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" note 'stage tree close $1: tree on medium $2 is the manifest -- kept'"
+        else
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage tree rollback '$1' '$2'"
+        fi
+}
+
+#@help _stage_tree_rollback2
+# @command stage tree rollback <stage> <medium>
+# @summary Act terminal (root): the findings as comment lines, the newest elebake-* snapshot of the dataset looked up when the act runs, zfs rollback to it; no such snapshot is the error (repair by hand: stage tree copy, or restore the dataset)
+# @group   deploy
+# @internal
+# @see     stage tree judge
+#@end
+_stage_tree_rollback2() {
+        local ds="" f="$ELEBAKE_BASE/stage/$1/media/$2/findings"
+        ds=$(head -n1 "$ELEBAKE_BASE/stage/$1/media/$2/dataset" 2>/dev/null)
+        emit_note "stage tree close '$1': tree on medium '$2' is NOT the manifest -- rolling back $ds to its newest elebake snapshot"
+        printf '%s\n' "sed 's/^/# /' '$f' >&2"
+        printf '%s\n' "snap=\$(zfs list -H -t snapshot -o name -s creation -r '$ds' 2>/dev/null | grep '@elebake-' | tail -n1)"
+        printf '%s\n' "if [ -z \"\$snap\" ]; then"
+        printf '%s\n' "        printf '# Error: tree on medium $2 differs and there is no elebake snapshot to go back to (repair by hand: stage tree copy $1 $2, or restore the dataset)\\n' >&2"
+        printf '%s\n' "        exit 1"
+        printf '%s\n' "fi"
+        printf '%s\n' "zfs rollback \"\$snap\" || { printf '# Error: rollback to %s failed -- the medium is inconsistent, do not boot it\\n' \"\$snap\" >&2; exit 1; }"
+        printf '%s\n' "printf '# rolled back %s to %s\\n' '$ds' \"\$snap\" >&2"
+}
+
+#@help ___stage_adopt2
+# @command stage adopt <stage> <medium>
+# @summary Take the boot tree FROM the medium into the stage's boot/ (the reverse direction: a card you trust becomes the description): the medium prepared read-only, then 'stage adopt copy', then pool export
+# @group   deploy
+# @example elebake stage adopt daily-v1 a
+# @see     stage adopt copy
+# @see     stage medium prepare readonly
+#@end
+___stage_adopt2() {
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage medium prepare readonly '$1' '$2'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage adopt copy '$1' '$2'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage pool export '$1' '$2'"
+}
+
+#@help ___stage_adopt_copy2
+# @command stage adopt copy <stage> <medium>
+# @summary The copy step of 'stage adopt': the medium prepared read-only, then 'stage adopt take'
+# @group   deploy
+# @internal
+# @see     stage adopt
+# @see     stage adopt take
+#@end
+___stage_adopt_copy2() {
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage medium prepare readonly '$1' '$2'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage adopt take '$1' '$2'"
+}
+
+#@help _stage_adopt_take2
+# @command stage adopt take <stage> <medium>
+# @summary Act terminal (root): cp -a of the mounted dataset's boot/ into the stage's boot/, ownership back to the operator, the adoption noted in the stage's metadata; the mountpoint and the file count are asked when the act runs -- no boot/ on the dataset is the error
+# @group   deploy
+# @internal
+# @see     stage adopt copy
+#@end
+_stage_adopt_take2() {
+        local ds=""
+        ds=$(head -n1 "$ELEBAKE_BASE/stage/$1/media/$2/dataset" 2>/dev/null)
+        emit_note "elebake stage adopt '$1' (medium '$2': $ds:/boot -> boot/)"
+        printf '%s\n' "mp=\$(zfs get -H -o value mountpoint '$ds' 2>/dev/null)"
+        printf '%s\n' "[ -d \"\$mp/boot\" ] || { printf '# Error: no boot/ under %s (not mounted, or not a boot dataset?)\\n' \"\$mp\" >&2; exit 1; }"
+        printf '%s\n' "n=\$(find \"\$mp/boot\" -type f | wc -l | tr -d ' ')"
+        printf '%s\n' "cp -a \"\$mp/boot/.\" '$ELEBAKE_BASE/stage/$1/boot/' || { printf '# Error: copy failed\\n' >&2; exit 1; }"
+        printf '%s\n' "chown -R '$(id -un)' '$ELEBAKE_BASE/stage/$1/boot' 2>/dev/null || true"
+        printf '%s\n' "echo 'adopted=$ds via gpt/$(sed -n 1p "$ELEBAKE_BASE/stage/$1/media/$2/gptlabel" 2>/dev/null) (medium $2)' >> '$ELEBAKE_BASE/stage/$1/metadata'"
+        printf '%s\n' "printf '# adopted %s files from %s into boot/ of stage %s\\n' \"\$n\" '$ds' '$1' >&2"
 }
 
 #@help _stage_tree_prune2
@@ -2480,20 +2708,6 @@ _stage_tree_prune2() {
         printf '%s\n' "zfs list -H -t snapshot -o name -s creation '$ds' 2>/dev/null | grep '@elebake-' | awk -v keep='$keep' '{ a[NR] = \$0 } END { for (i = 1; i <= NR - keep; i++) print a[i] }' | while read -r s; do zfs destroy \"\$s\" || printf '# Warning: cannot destroy %s\\n' \"\$s\" >&2; done; :"
 }
 
-#@help __stage_pool_imported2
-# @command stage pool imported <stage> <medium>
-# @summary The medium's pool is imported: a comment line, else an error line (stage pool import first)
-# @group   deploy
-# @internal
-# @see     stage pool import
-#@end
-__stage_pool_imported2() {
-        if pool_imported "$(sed -n 1p "$ELEBAKE_BASE/stage/$1/media/$2/dataset" 2>/dev/null | cut -d/ -f1)"; then
-                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'pool $(sed -n 1p "$ELEBAKE_BASE/stage/$1/media/$2/dataset" 2>/dev/null | cut -d/ -f1) imported'"
-        else
-                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'stage $1: pool $(sed -n 1p "$ELEBAKE_BASE/stage/$1/media/$2/dataset" 2>/dev/null | cut -d/ -f1) is not imported (stage pool import $1 $2 rw first)'"
-        fi
-}
 
 #@help _stage_tree_snap2
 # @command stage tree snap <stage> <medium>
@@ -2509,233 +2723,20 @@ _stage_tree_snap2() {
         printf '%s\n' "zfs snapshot '$snap' || { printf '# Error: cannot snapshot %s\\n' '$snap' >&2; exit 1; }"
 }
 
-#@help ___stage_tree_copy2
-# @command stage tree copy <stage> <medium>
-# @summary Replace the boot/ tree on the MOUNTED dataset with the stage's boot/: the medium ready, the stage's manifest attested, the dataset mounted and a boot dataset; then 'stage tree write'
-# @group   deploy
-# @see     stage tree sync
-# @see     stage manifest
-# @see     stage attest
-#@end
-___stage_tree_copy2() {
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage medium ready '$1' '$2'"
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage manifest attested '$1'"
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage dataset mounted '$1' '$2'"
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage dataset boots '$1' '$2'"
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage tree write '$1' '$2'"
-}
 
-#@help __stage_manifest_attested1
-# @command stage manifest attested <stage>
-# @summary boot/manifest and boot/manifest.asc are there: a comment line, else an error line (stage manifest + stage attest first)
-# @group   deploy
-# @internal
-# @see     stage manifest
-# @see     stage attest
-#@end
-__stage_manifest_attested1() {
-        if test -f "$ELEBAKE_BASE/stage/$1/boot/manifest" && test -f "$ELEBAKE_BASE/stage/$1/boot/manifest.asc"; then
-                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'stage $1 manifest attested'"
-        else
-                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'stage $1: boot/manifest(.asc) missing (stage manifest + stage attest first)'"
-        fi
-}
 
-#@help __stage_manifest_exists1
-# @command stage manifest exists <stage>
-# @summary boot/manifest is there: a comment line, else an error line (stage manifest first)
-# @group   deploy
-# @internal
-# @see     stage manifest
-#@end
-__stage_manifest_exists1() {
-        if test -f "$ELEBAKE_BASE/stage/$1/boot/manifest"; then
-                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'stage $1 has a manifest'"
-        else
-                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'stage $1: no boot/manifest (stage manifest first)'"
-        fi
-}
 
-#@help __stage_dataset_mounted2
-# @command stage dataset mounted <stage> <medium>
-# @summary The medium's boot dataset is mounted right now (a generation-time fact after stage pool import): a comment line, else an error line
-# @group   deploy
-# @internal
-# @see     stage pool import
-#@end
-__stage_dataset_mounted2() {
-        if pool_mountpoint "$(sed -n 1p "$ELEBAKE_BASE/stage/$1/media/$2/dataset" 2>/dev/null)" > /dev/null; then
-                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'dataset $(sed -n 1p "$ELEBAKE_BASE/stage/$1/media/$2/dataset" 2>/dev/null) mounted'"
-        else
-                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'stage $1: $(sed -n 1p "$ELEBAKE_BASE/stage/$1/media/$2/dataset" 2>/dev/null) is not mounted (stage pool import $1 $2 first)'"
-        fi
-}
 
-#@help __stage_dataset_boots2
-# @command stage dataset boots <stage> <medium>
-# @summary The mounted dataset carries a boot/ directory: a comment line, else an error line (not a boot dataset?)
-# @group   deploy
-# @internal
-# @see     stage dataset mounted
-#@end
-__stage_dataset_boots2() {
-        if test -d "$(pool_mountpoint "$(sed -n 1p "$ELEBAKE_BASE/stage/$1/media/$2/dataset" 2>/dev/null)")/boot"; then
-                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'dataset of medium $2 has boot/'"
-        else
-                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'stage $1: no boot/ under $(pool_mountpoint "$(sed -n 1p \"$ELEBAKE_BASE/stage/$1/media/$2/dataset\" 2>/dev/null)") -- not a boot dataset?'"
-        fi
-}
 
-#@help _stage_tree_write2
-# @command stage tree write <stage> <medium>
-# @summary Act terminal: rm -rf, mkdir and cp -a of the stage's boot/ onto the mounted dataset's boot/; run as root
-# @group   deploy
-# @internal
-# @see     stage tree copy
-#@end
-_stage_tree_write2() {
-        local mp=""
-        mp=$(pool_mountpoint "$(sed -n 1p "$ELEBAKE_BASE/stage/$1/media/$2/dataset" 2>/dev/null)")
-        emit_note "elebake stage tree copy '$1' medium '$2' (boot/ -> $mp/boot)"
-        printf '%s\n' "rm -rf '$mp/boot' && mkdir '$mp/boot' && cp -a '$ELEBAKE_BASE/stage/$1/boot/.' '$mp/boot/' || { printf '# Error: tree copy failed (stage tree close rolls back to the snapshot)\\n' >&2; exit 1; }"
-        printf '%s\n' "printf '# tree copied to %s\\n' '$mp/boot' >&2"
-}
 
-#@help ___stage_tree_verify2
-# @command stage tree verify <stage> <medium>
-# @summary Inspect the boot tree ON the mounted medium against the stage's manifest at generation time, both directions: the medium ready, the manifest there, the dataset mounted; then 'stage tree matches' -- a finding fails the command
-# @group   deploy
-# @see     stage tree sync
-# @see     stage verify
-#@end
-___stage_tree_verify2() {
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage medium ready '$1' '$2'"
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage manifest exists '$1'"
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage dataset mounted '$1' '$2'"
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage tree matches '$1' '$2'"
-}
 
-#@help __stage_tree_matches2
-# @command stage tree matches <stage> <medium>
-# @summary Every manifest entry is on the medium with its hash and nothing unlisted is there: a log line, else an error line carrying the findings (MISSING, MISMATCH, UNLISTED)
-# @group   deploy
-# @internal
-# @see     stage tree verify
-#@end
-__stage_tree_matches2() {
-        local findings=""
-        findings=$(boot_tree_findings "$(pool_mountpoint "$(sed -n 1p "$ELEBAKE_BASE/stage/$1/media/$2/dataset" 2>/dev/null)")/boot" "$ELEBAKE_BASE/stage/$1/boot/manifest")
-        if test -z "$findings"; then
-                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" log 'stage tree verify $1: $(grep -c sha256= "$ELEBAKE_BASE/stage/$1/boot/manifest" 2>/dev/null) entries on medium $2 match the manifest, nothing unlisted'"
-        else
-                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'stage tree verify $1: the tree on medium $2 is not the manifest' $(sq "$(printf '%s' "$findings" | tr '\n' ';')")"
-        fi
-}
 
-#@help ___stage_tree_close2
-# @command stage tree close <stage> <medium>
-# @summary Leave the medium consistent, decided at generation time: the medium ready, then 'stage tree settle' -- a tree that IS the manifest stays (snapshot kept as history), a tree that is not goes back to the newest elebake snapshot; not imported = nothing to do. Its pin forces fail-fast inside, whatever the enclosing batch keeps going
-# @group   deploy
-# @see     stage tree sync
-#@end
-___stage_tree_close2() {
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage medium ready '$1' '$2'"
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage tree settle '$1' '$2'"
-}
 
-#@help __stage_tree_settle2
-# @command stage tree settle <stage> <medium>
-# @summary The pool is imported and the dataset mounted: rewrite to 'stage tree judge', else a note line (nothing to close)
-# @group   deploy
-# @internal
-# @see     stage tree close
-#@end
-__stage_tree_settle2() {
-        if pool_imported "$(sed -n 1p "$ELEBAKE_BASE/stage/$1/media/$2/dataset" 2>/dev/null | cut -d/ -f1)" && pool_mountpoint "$(sed -n 1p "$ELEBAKE_BASE/stage/$1/media/$2/dataset" 2>/dev/null)" > /dev/null; then
-                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage tree judge '$1' '$2'"
-        else
-                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" note 'stage tree close $1: $(sed -n 1p "$ELEBAKE_BASE/stage/$1/media/$2/dataset" 2>/dev/null) is not imported or not mounted -- nothing to close'"
-        fi
-}
 
-#@help __stage_tree_judge2
-# @command stage tree judge <stage> <medium>
-# @summary The tree on the medium IS the stage's manifest (no finding, manifest present): a note line (kept; the newest elebake snapshot stays as history), else rewrite to 'stage tree rollback'
-# @group   deploy
-# @internal
-# @see     stage tree close
-#@end
-__stage_tree_judge2() {
-        local findings=""
-        findings=$(boot_tree_findings "$(pool_mountpoint "$(sed -n 1p "$ELEBAKE_BASE/stage/$1/media/$2/dataset" 2>/dev/null)")/boot" "$ELEBAKE_BASE/stage/$1/boot/manifest" 2>/dev/null)
-        if test -f "$ELEBAKE_BASE/stage/$1/boot/manifest" && test -z "$findings"; then
-                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" note 'stage tree close $1: tree on medium $2 is the manifest -- kept ($(tree_newest_snapshot "$(sed -n 1p \"$ELEBAKE_BASE/stage/$1/media/$2/dataset\" 2>/dev/null)" | sed "s/^$/no snapshot/") stays as history)'"
-        else
-                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage tree rollback '$1' '$2'"
-        fi
-}
 
-#@help __stage_tree_rollback2
-# @command stage tree rollback <stage> <medium>
-# @summary There is an elebake snapshot to go back to: rewrite to 'stage tree revert <stage> <medium> <snapshot>', else an error line (repair by hand)
-# @group   deploy
-# @internal
-# @see     stage tree close
-#@end
-__stage_tree_rollback2() {
-        if test -n "$(tree_newest_snapshot "$(sed -n 1p "$ELEBAKE_BASE/stage/$1/media/$2/dataset" 2>/dev/null)")"; then
-                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage tree revert '$1' '$2' '$(tree_newest_snapshot "$(sed -n 1p \"$ELEBAKE_BASE/stage/$1/media/$2/dataset\" 2>/dev/null)")'"
-        else
-                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'stage tree close $1: tree on medium $2 differs and there is no elebake snapshot to go back to' '(repair by hand: stage tree copy $1 $2, or restore the dataset)'"
-        fi
-}
 
-#@help _stage_tree_revert3
-# @command stage tree revert <stage> <medium> <snapshot>
-# @summary Act terminal: the findings as comment lines, then zfs rollback to the snapshot; run as root
-# @group   deploy
-# @internal
-# @see     stage tree close
-#@end
-_stage_tree_revert3() {
-        emit_note "stage tree close '$1': tree on medium '$2' is NOT the manifest -- rolling back to $3"
-        boot_tree_findings "$(pool_mountpoint "$(sed -n 1p "$ELEBAKE_BASE/stage/$1/media/$2/dataset" 2>/dev/null)")/boot" "$ELEBAKE_BASE/stage/$1/boot/manifest" 2>/dev/null | sed 's/^/# /'
-        printf '%s\n' "zfs rollback '$3' || { printf '# Error: rollback to %s failed -- the medium is inconsistent, do not boot it\\n' '$3' >&2; exit 1; }"
-        printf '%s\n' "printf '# rolled back %s to %s\\n' '$(sed -n 1p "$ELEBAKE_BASE/stage/$1/media/$2/dataset" 2>/dev/null)' '$3' >&2"
-}
 
-#@help ___stage_adopt_copy2
-# @command stage adopt copy <stage> <medium>
-# @summary The copy step of 'stage adopt': the medium ready, the dataset mounted (stage pool import ro first) and a boot dataset; then 'stage adopt take'
-# @group   stage
-# @internal
-# @see     stage adopt
-#@end
-___stage_adopt_copy2() {
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage medium ready '$1' '$2'"
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage dataset mounted '$1' '$2'"
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage dataset boots '$1' '$2'"
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage adopt take '$1' '$2'"
-}
 
-#@help _stage_adopt_take2
-# @command stage adopt take <stage> <medium>
-# @summary Act terminal: cp -a of the mounted dataset's boot/ into the stage's boot/, ownership back to the operator, the adoption noted in the stage's metadata; the file count is a generation-time fact
-# @group   stage
-# @internal
-# @see     stage adopt copy
-#@end
-_stage_adopt_take2() {
-        local mp="" ds="" n=""
-        ds=$(sed -n 1p "$ELEBAKE_BASE/stage/$1/media/$2/dataset" 2>/dev/null)
-        mp=$(pool_mountpoint "$ds")
-        n=$(find "$mp/boot" -type f 2>/dev/null | wc -l | tr -d ' ')
-        emit_note "elebake stage adopt '$1' (medium '$2': $n files from $ds at $mp/boot -> boot/)"
-        printf '%s\n' "cp -a '$mp/boot/.' '$ELEBAKE_BASE/stage/$1/boot/' || { printf '# Error: copy failed\\n' >&2; exit 1; }"
-        printf '%s\n' "chown -R '$(id -un)' '$ELEBAKE_BASE/stage/$1/boot' 2>/dev/null || true"
-        printf '%s\n' "echo 'adopted=$ds via gpt/$(sed -n 1p "$ELEBAKE_BASE/stage/$1/media/$2/gptlabel" 2>/dev/null) (medium $2)' >> '$ELEBAKE_BASE/stage/$1/metadata'"
-        printf '%s\n' "printf '# adopted %s files from %s into boot/ of stage %s\\n' '$n' '$ds' '$1' >&2"
-}
 
 #@help __stage_device3
 # @internal arity-3 sibling of 'stage device': rewrites to the full command with the /mnt default materialized
@@ -2811,22 +2812,39 @@ _stage_medium_record4() {
 
 #@help ___stage_boot_tree4
 # @command stage boot tree <stage> <medium> <gpt-label> <pool/dataset>
-# @summary Register where the medium's boot tree lives (used by stage push/tree sync, adopt, pool import): the stage and the medium exist, the label and the dataset name are well-formed, the label -- when the medium is inserted -- names a freebsd-zfs partition of the medium's disk, never its EFI system partition; then 'stage boot tree record'
+# @summary Register where the medium's boot tree lives (used by stage push/tree sync, adopt, pool import): 'stage boot tree ensure' (the description: stage, medium, a well-formed label and dataset name), then the guarded act -- the World as it is, read here from gpart: the label names a freebsd-zfs partition of the medium's disk, never its EFI system partition: 'stage boot tree record', else an error line. A medium that is not inserted is registered unchecked (a dump replays this command; the batches that need the card check it when they run)
 # @group   deploy
 # @param   gpt-label     GPT label of the pool partition WITHOUT the gpt/ prefix (the tool addresses /dev/gpt/<label>); list the labels of the inserted medium with `ls /dev/gpt` or `gpart show -l daN`
-# @param   pool/dataset  ZFS dataset carrying the boot/ tree (e.g. zkey/boot-illyria); the pool name: `zpool import` (as root, lists importable pools without importing), the dataset: `zfs list -r <pool>` after `stage pool import <stage> <medium> ro`
+# @param   pool/dataset  ZFS dataset carrying the boot/ tree (e.g. zkey/boot-illyria); the pool name: `zpool import` (as root, lists importable pools without importing), the dataset: `zfs list -r <pool>` after `stage pool import readonly <stage> <medium>`
 # @example elebake stage boot tree daily-v1 a zcard zcard/boot
 # @see     stage device
 # @see     stage pool import
 # @see     stage tree sync
 #@end
 ___stage_boot_tree4() {
+        local disk="" type=""
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage boot tree ensure '$1' '$2' '$3' '$4'"
+        disk=$(printf '%s' "$(head -n1 "$ELEBAKE_BASE/stage/$1/media/$2/node" 2>/dev/null)" | sed 's|^/dev/||; s/p[0-9]*$//')
+        type=$(gpart list "$disk" 2>/dev/null | awk -v l="$3" '/^[0-9]+\. Name:/ { lb = "" } /^ *label:/ { lb = $2 } /^ *type:/ { if (lb == l) print $2 }')
+        if ! gpart list "$disk" > /dev/null 2>&1 || test "$type" = freebsd-zfs; then
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage boot tree record '$1' '$2' '$3' '$4'"
+        else
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'stage boot tree: gpt/$3 on $disk is ${type:-no partition labelled so} -- the pool lives on a freebsd-zfs partition (ls /dev/gpt; gpart show -l $disk)'"
+        fi
+}
+
+#@help ___stage_boot_tree_ensure4
+# @command stage boot tree ensure <stage> <medium> <gpt-label> <pool/dataset>
+# @summary The preconditions of 'stage boot tree', all in the description: the stage and the medium exist, the label is a GPT label, the dataset name is <pool>/<dataset>
+# @group   deploy
+# @internal
+# @see     stage boot tree
+#@end
+___stage_boot_tree_ensure4() {
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage check stage '$1'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage medium exists '$1' '$2'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage gpt label valid '$3'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage dataset name valid '$4'"
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage gpt label fits '$1' '$2' '$3'"
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage boot tree record '$1' '$2' '$3' '$4'"
 }
 
 #@help __stage_gpt_label_valid1
@@ -2856,24 +2874,6 @@ __stage_dataset_name_valid1() {
                 printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'dataset $1 valid'"
         else
                 printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'stage boot tree: expected <pool>/<dataset>, got $1'"
-        fi
-}
-
-#@help __stage_gpt_label_fits3
-# @command stage gpt label fits <stage> <medium> <gpt-label>
-# @summary The World as it is (generation time): the medium's disk is absent (adopt and pool import check presence when they need it) or the label names one of ITS partitions of type freebsd-zfs: a comment line, else an error line (no such label, or the wrong partition -- the pool lives on a freebsd-zfs partition, never on the EFI system partition)
-# @group   deploy
-# @internal
-# @see     stage boot tree
-#@end
-__stage_gpt_label_fits3() {
-        local disk="" type=""
-        disk=$(printf '%s' "$(head -n1 "$ELEBAKE_BASE/stage/$1/media/$2/node" 2>/dev/null)" | sed 's|^/dev/||; s/p[0-9]*$//')
-        type=$(gpt_label_type "$disk" "$3")
-        if test "$type" = "" && ! gpart list "$disk" > /dev/null 2>&1 || test "$type" = freebsd-zfs; then
-                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'gpt/$3 fits medium $2'"
-        else
-                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'stage boot tree: gpt/$3 on $disk is $(printf "%s" "${type:-no partition}" | sed "s/^no partition$/no partition labelled so/") -- the pool lives on a freebsd-zfs partition (ls /dev/gpt; gpart show -l $disk)'"
         fi
 }
 
@@ -2907,7 +2907,7 @@ __stage_backup3() {
 
 #@help ___stage_backup4
 # @command stage backup <stage> <medium> [<label> [<description>]]
-# @summary Save the loader currently ON that medium as a backup RECORD backup/<medium>/<label>/ (loader.efi, description, sha256, created, source, by): the stage and the medium exist, the label is a record name and new (a label is unique per medium and immutable), the description given, the device present; then 'stage backup take'. Label defaults to the UTC stamp, description to medium/stage/user
+# @summary Save the loader currently ON that medium as a backup RECORD backup/<medium>/<label>/ (loader.efi, description, sha256, created, source, by): 'stage backup ensure' (the description: stage, medium, a new record name, a description), then the acts -- 'stage medium mount' (the card verified when it runs), 'stage backup take', 'stage medium release'. Label defaults to the UTC stamp, description to medium/stage/user
 # @group   deploy
 # @param   label        record name, [A-Za-z0-9_.-], unique per medium (e.g. before-kernel-update)
 # @param   description  free text a person needs later: WHY this backup exists
@@ -2917,13 +2917,25 @@ __stage_backup3() {
 # @see     stage deploy
 #@end
 ___stage_backup4() {
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage backup ensure '$1' '$2' '$3' $(sq "$4")"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage medium mount '$1' '$2'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage backup take '$1' '$2' '$3' $(sq "$4")"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage medium release '$1' '$2'"
+}
+
+#@help ___stage_backup_ensure4
+# @command stage backup ensure <stage> <medium> <label> <description>
+# @summary The preconditions of 'stage backup', all in the description: the stage and the medium exist, the label is a record name and new (a label is unique per medium and immutable), the description given. Whether the card is in the reader is answered by 'stage medium mount' when it runs
+# @group   deploy
+# @internal
+# @see     stage backup
+#@end
+___stage_backup_ensure4() {
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage check stage '$1'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage medium exists '$1' '$2'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage backup label valid '$3'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage backup description given $(sq "$4")"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage backup new '$1' '$2' '$3'"
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage medium present '$1' '$2'"
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage backup take '$1' '$2' '$3' $(sq "$4")"
 }
 
 #@help __stage_backup_label_valid1
@@ -2974,22 +2986,23 @@ __stage_backup_new3() {
 
 #@help _stage_backup_take4
 # @command stage backup take <stage> <medium> <label> <description>
-# @summary Act terminal: mount the ESP read-only, copy the loader found there into the record with its sha256, description, created, source and by (0700/0600, owned by the operator), umount; run as root
+# @summary Act terminal, on the ESP 'stage medium mount' mounted (stage/<stage>/mnt/<medium>): copy the loader found there into the record with its sha256, description, created, source and by (0700/0600, owned by the operator); an existing record is refused (immutable); run as root
 # @group   deploy
 # @internal
 # @see     stage backup
+# @see     stage medium mount
 #@end
 _stage_backup_take4() {
         local node="" mnt="" rel="" rec=""
         node=$(head -n1 "$ELEBAKE_BASE/stage/$1/media/$2/node" 2>/dev/null); mnt="$ELEBAKE_BASE/stage/$1/mnt/$2"; rel=$(head -n1 "$ELEBAKE_BASE/stage/$1/media/$2/loaderpath" 2>/dev/null)
         rec="$ELEBAKE_BASE/stage/$1/backup/$2/$3"
-        emit_note "elebake stage backup '$1' medium '$2' label '$3' ($node:$rel -> backup/$2/$3/)"
+        emit_note "elebake stage backup take '$1' medium '$2' label '$3' ($node:$rel -> backup/$2/$3/, from the ESP mounted on $mnt)"
+        printf '%s\n' "test -d '$mnt/EFI' || { printf '# Error: medium $2 is not mounted on %s (stage medium mount $1 $2 first)\\n' '$mnt' >&2; exit 1; }"
+        printf '%s\n' "test ! -e '$rec' || { printf '# Error: backup record %s of medium $2 exists (immutable; choose another label)\\n' '$3' >&2; exit 1; }"
+        printf '%s\n' "test -f '$mnt/$rel' || { printf '# Error: no loader on medium $2: %s\\n' '$rel' >&2; exit 1; }"
         printf '%s\n' "$MODIFY_DIR_CREATE '$ELEBAKE_BASE/stage/$1/backup/$2'"
-        printf '%s\n' "mkdir -p '$mnt'"
-        printf '%s\n' "mount -r -t msdosfs '$node' '$mnt' || { printf '# Error: mount failed -- already mounted or device busy? (mount | grep %s)\\n' '$node' >&2; exit 1; }"
-        printf '%s\n' "test -f '$mnt/$rel' || { umount '$mnt'; printf '# Error: no loader on medium %s: %s\\n' '$2' '$rel' >&2; exit 1; }"
         printf '%s\n' "$MODIFY_DIR_CREATE '$rec' && $MODIFY_FILE_PERMS 0700 '$rec'"
-        printf '%s\n' "cp -p '$mnt/$rel' '$rec/loader.efi' || { umount '$mnt' 2>/dev/null; printf '# Error: cannot copy %s into %s\\n' '$mnt/$rel' '$rec' >&2; exit 1; }"
+        printf '%s\n' "cp -p '$mnt/$rel' '$rec/loader.efi' || { printf '# Error: cannot copy %s into %s\\n' '$mnt/$rel' '$rec' >&2; exit 1; }"
         printf '%s\n' "sha256 -q '$rec/loader.efi' > '$rec/sha256'"
         printf '%s\n' "printf '%s\\n' $(sq "$4") > '$rec/description'"
         printf '%s\n' "printf '%s\\n' '$(date -u '+%Y-%m-%dT%H:%M:%SZ')' > '$rec/created'"
@@ -2997,7 +3010,6 @@ _stage_backup_take4() {
         printf '%s\n' "printf '%s\\n' '$(id -un)@$(hostname)' > '$rec/by'"
         printf '%s\n' "$MODIFY_FILE_PERMS 0600 '$rec'/*"
         printf '%s\n' "chown -R '$(id -un)' '$rec' 2>/dev/null || true"
-        printf '%s\n' "umount '$mnt'"
         printf '%s\n' "chown '$(id -un)' '$ELEBAKE_BASE/stage/$1/backup/$2' 2>/dev/null || true"
         printf '%s\n' "printf '# backed up %s (%s) -> backup/%s/%s/ (sha256 %s)\\n' '$rel' '$2' '$2' '$3' \"\$(cat '$rec/sha256')\" >&2"
 }
@@ -3038,24 +3050,27 @@ _stage_backup_table2() {
 
 #@help ___stage_rollback3
 # @command stage rollback <stage> <medium> [<label>]
-# @summary Put a backup back onto the medium -- but FIRST save what is on the medium now as record suspect-<stamp> (quietly: the loader about to be overwritten may be the evidence), then write the named (or newest) backup and verify its hash on the medium
+# @summary Put a backup back onto the medium -- but FIRST save what is on the medium now as record suspect-<stamp> (quietly: the loader about to be overwritten may be the evidence). One line of preconditions, 'stage rollback ensure' (the description: stage, medium, the record present and intact), then the acts on one mount: 'stage medium mount' (the card verified when it runs), 'stage backup take', 'stage rollback write' (the hash verified on the medium), 'stage medium release'
 # @group   deploy
 # @param   label  a backup record of that medium (stage backup list); absent = the newest
 # @example elebake stage rollback daily-v1 a known-good
 # @see     stage backup list
-# @see     stage rollback apply
+# @see     stage rollback ensure
 #@end
 ___stage_rollback3() {
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage backup '$1' '$2' 'suspect-$(date -u '+%Y%m%dT%H%M%SZ')' $(sq "loader found on medium $2 before rollback to '$3' -- keep for analysis")"
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage rollback apply '$1' '$2' '$3'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage rollback ensure '$1' '$2' '$3'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage medium mount '$1' '$2'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage backup take '$1' '$2' 'suspect-$(date -u '+%Y%m%dT%H%M%SZ')' $(sq "loader found on medium $2 before rollback to '$3' -- keep for analysis")"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage rollback write '$1' '$2' '$3'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage medium release '$1' '$2'"
 }
 
 #@help __stage_rollback2
-# @internal arity-2 sibling of 'stage rollback' (stage rollback <stage> <medium>): The newest backup record of the medium (by its created field) exists: rewrite to 'stage rollback <stage> <medium> <newest>', else an error line (no backups, or no such stage)
+# @internal arity-2 sibling of 'stage rollback' (stage rollback <stage> <medium>): the newest backup record of the medium, read here from the records (their created field): rewrite to 'stage rollback <stage> <medium> <newest>', else an error line (no backups, or no such stage)
 #@end
 __stage_rollback2() {
-        local newest=""
-        newest=$(backup_newest "$1" "$2")
+        local r="" newest=""
+        newest=$(for r in "$ELEBAKE_BASE/stage/$1/backup/$2"/*/; do test -f "$r/loader.efi" && printf '%s\t%s\n' "$(head -n1 "$r/created" 2>/dev/null)" "$(basename "$r")"; done | sort | tail -n1 | cut -f2)
         if test -n "$newest"; then
                 printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage rollback '$1' '$2' '$newest'"
         else
@@ -3063,21 +3078,19 @@ __stage_rollback2() {
         fi
 }
 
-#@help ___stage_rollback_apply3
-# @command stage rollback apply <stage> <medium> <label>
-# @summary The write of 'stage rollback': the stage and the medium exist, the label is a record name, the record exists and is intact (its loader.efi matches its recorded sha256 -- a rollback must never put a corrupted reserve on the medium), the device present; then 'stage rollback write'
+#@help ___stage_rollback_ensure3
+# @command stage rollback ensure <stage> <medium> <label>
+# @summary The preconditions of 'stage rollback', all in the description: the stage and the medium exist, the label is a record name, the record exists and is intact (its loader.efi matches its recorded sha256 -- a rollback must never put a corrupted reserve on the medium). Whether the card is in the reader is answered by 'stage medium mount' when it runs
 # @group   deploy
 # @internal
 # @see     stage rollback
 #@end
-___stage_rollback_apply3() {
+___stage_rollback_ensure3() {
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage check stage '$1'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage medium exists '$1' '$2'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage backup label valid '$3'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage backup record exists '$1' '$2' '$3'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage backup record intact '$1' '$2' '$3'"
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage medium present '$1' '$2'"
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage rollback write '$1' '$2' '$3'"
 }
 
 #@help __stage_backup_record_exists3
@@ -3085,7 +3098,7 @@ ___stage_rollback_apply3() {
 # @summary The backup record carries a loader.efi: a comment line, else an error line
 # @group   deploy
 # @internal
-# @see     stage rollback apply
+# @see     stage rollback ensure
 # @see     stage backup list
 #@end
 __stage_backup_record_exists3() {
@@ -3101,7 +3114,7 @@ __stage_backup_record_exists3() {
 # @summary The record's loader.efi hashes to its recorded sha256: a comment line, else an error line (CORRUPT -- the reserve is not trustworthy)
 # @group   deploy
 # @internal
-# @see     stage rollback apply
+# @see     stage rollback ensure
 #@end
 __stage_backup_record_intact3() {
         if test "$(sha256 -q "$ELEBAKE_BASE/stage/$1/backup/$2/$3/loader.efi" 2>/dev/null)" = "$(head -n1 "$ELEBAKE_BASE/stage/$1/backup/$2/$3/sha256" 2>/dev/null)"; then
@@ -3113,23 +3126,21 @@ __stage_backup_record_intact3() {
 
 #@help _stage_rollback_write3
 # @command stage rollback write <stage> <medium> <label>
-# @summary Act terminal: mount the ESP, copy the record's loader.efi onto it, verify its sha256 in place (computed now, baked in), umount, sync; run as root
+# @summary Act terminal, on the ESP 'stage medium mount' mounted (stage/<stage>/mnt/<medium>): copy the record's loader.efi onto it and verify its sha256 in place (computed now, baked in); on a mismatch the medium stays mounted for a look; run as root
 # @group   deploy
 # @internal
-# @see     stage rollback apply
+# @see     stage rollback
+# @see     stage medium mount
 #@end
 _stage_rollback_write3() {
         local node="" mnt="" rel="" want="" bak="$ELEBAKE_BASE/stage/$1/backup/$2/$3/loader.efi"
         node=$(head -n1 "$ELEBAKE_BASE/stage/$1/media/$2/node" 2>/dev/null); mnt="$ELEBAKE_BASE/stage/$1/mnt/$2"; rel=$(head -n1 "$ELEBAKE_BASE/stage/$1/media/$2/loaderpath" 2>/dev/null)
         want=$(sha256 -q "$bak" 2>/dev/null)
-        emit_note "elebake stage rollback '$1' medium '$2' ($node:$rel <- backup/$2/$3/loader.efi, sha256 $want)"
+        emit_note "elebake stage rollback write '$1' medium '$2' ($node:$rel <- backup/$2/$3/loader.efi, sha256 $want, on the ESP mounted on $mnt)"
         emit_note "  $(head -n1 "$ELEBAKE_BASE/stage/$1/backup/$2/$3/description" 2>/dev/null) (created $(head -n1 "$ELEBAKE_BASE/stage/$1/backup/$2/$3/created" 2>/dev/null))"
-        printf '%s\n' "mkdir -p '$mnt'"
-        printf '%s\n' "mount -t msdosfs '$node' '$mnt' || { printf '# Error: mount failed -- already mounted or device busy? (mount | grep %s)\\n' '$node' >&2; exit 1; }"
+        printf '%s\n' "test -d '$mnt/EFI' || { printf '# Error: medium $2 is not mounted on %s (stage medium mount $1 $2 first)\\n' '$mnt' >&2; exit 1; }"
         printf '%s\n' "cp '$bak' '$mnt/$rel'"
         printf '%s\n' "[ \"\$(sha256 -q '$mnt/$rel')\" = '$want' ] || { printf '# Error: hash mismatch after rollback (medium left mounted at %s)\\n' '$mnt' >&2; exit 1; }"
-        printf '%s\n' "umount '$mnt'"
-        printf '%s\n' "sync"
         printf '%s\n' "printf '# rolled back medium %s (%s:%s) from backup/%s/%s/ (sha256 %s)\\n' '$2' '$node' '$rel' '$2' '$3' '$want' >&2"
 }
 
@@ -3145,8 +3156,9 @@ _stage_rollback_write3() {
 #@end
 ___stage_deploy2() {
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage check stage '$1'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage medium exists '$1' '$2'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage loader signed '$1'"
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage medium ensure '$1' '$2'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage medium mount '$1' '$2'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage deploy write '$1' '$2'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage medium release '$1' '$2'"
 }
@@ -3169,7 +3181,7 @@ __stage_loader_signed1() {
 
 #@help _stage_deploy_write2
 # @command stage deploy write <stage> <medium>
-# @summary Act terminal, on the ESP 'stage medium ensure' mounted (stage/<stage>/mnt/<medium>, read-write, the card verified): save the loader found there as the backup record pre-deploy-<stamp> (the same record 'stage backup' writes, labelled by the act that displaced it), copy the signed loader, verify its sha256 in place (the expected hash is computed now and baked in, so the trace shows which loader is meant to land), umount, sync; run as root
+# @summary Act terminal, on the ESP 'stage medium mount' mounted (stage/<stage>/mnt/<medium>, read-write, the card verified): save the loader found there as the backup record pre-deploy-<stamp> (the same record 'stage backup' writes, labelled by the act that displaced it), copy the signed loader, verify its sha256 in place (the expected hash is computed now and baked in, so the trace shows which loader is meant to land), umount, sync; run as root
 # @group   deploy
 # @internal
 # @see     stage deploy
@@ -3180,7 +3192,7 @@ _stage_deploy_write2() {
         want=$(sha256 -q "$src" 2>/dev/null)
         label="pre-deploy-$(date -u '+%Y%m%dT%H%M%SZ')"
         rec="$ELEBAKE_BASE/stage/$1/backup/$2/$label"
-        emit_note "elebake stage deploy '$1' medium '$2' ($node:$rel <- boot/loader.efi.signed, sha256 $want; the ESP mounted by stage medium ensure)"
+        emit_note "elebake stage deploy '$1' medium '$2' ($node:$rel <- boot/loader.efi.signed, sha256 $want; the ESP mounted by stage medium mount)"
         printf '%s\n' "$MODIFY_DIR_CREATE '$ELEBAKE_BASE/stage/$1/backup/$2'"
         printf '%s\n' "test -d '$mnt/EFI' || { printf '# Error: medium $2: the ESP is not mounted on %s (stage medium ensure first)\\n' '$mnt' >&2; exit 1; }"
         printf '%s\n' "if [ -f '$mnt/$rel' ]; then"
@@ -3204,18 +3216,19 @@ _stage_deploy_write2() {
 
 #@help ___stage_push2
 # @command stage push <stage> <medium>
-# @summary Publish the stage: manifest, attest, verify, the signed loader present; then the way onto the medium (stage medium ensure: the ESP mounted read-write and the card proven to be this medium by the letter it carries -- the wrong card is refused before the first write, a fresh card gets its letter with 'stage medium stamp' first), the tree and the loader written (stage medium write), the medium released
+# @summary Publish the stage: the description checked (stage medium ensure), manifest, attest, verify, the signed loader present; then the ESP mounted read-write and the card proven to be this medium by the letter it carries (stage medium mount: the wrong card is refused before the first write, a fresh card gets its letter with 'stage medium stamp' first), the tree and the loader written (stage medium write), the medium released
 # @group   stage
 # @example elebake stage push daily-v1 a
 # @see     stage tree sync
 # @see     stage deploy
 #@end
 ___stage_push2() {
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage medium ensure '$1' '$2'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage manifest '$1'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage attest '$1'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage verify '$1'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage loader signed '$1'"
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage medium ensure '$1' '$2'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage medium mount '$1' '$2'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage medium write '$1' '$2'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage medium release '$1' '$2'"
 }
@@ -3247,7 +3260,6 @@ ___stage_medium_stamp2() {
 ___stage_medium_identify2() {
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage check stage '$1'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage medium exists '$1' '$2'"
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage medium present '$1' '$2'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage medium stamp read '$1' '$2'"
 }
 
@@ -3268,28 +3280,6 @@ _stage_medium_stamp_read2() {
         printf '%s\n' "[ -n \"\$s\" ] && printf '# the card in %s carries stamp %s\\n' '$node' \"\$s\" >&2 || printf '# the card in %s carries no stamp (stage medium stamp writes it)\\n' '$node' >&2"
 }
 
-#@help __stage_medium_ensure2
-# @command stage medium ensure <stage> <medium>
-# @summary The way onto a medium, one line: what is decidable now decides now -- the stage exists, the medium is registered, its device node is present -- else an error line, and every act after it stays dead; otherwise the line is 'stage medium mount', the act that mounts the ESP read-write and proves the card is the medium named. The precondition of 'stage medium write' and 'stage deploy write': the ESP mounted, read-write, verified
-# @group   deploy
-# @internal
-# @see     stage medium mount
-# @see     stage medium write
-# @see     stage medium release
-#@end
-__stage_medium_ensure2() {
-        local node=""
-        node=$(head -n1 "$ELEBAKE_BASE/stage/$1/media/$2/node" 2>/dev/null)
-        if ! test -d "$ELEBAKE_BASE/stage/$1"; then
-                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'stage medium ensure: unknown stage $1'"
-        elif test -z "$node"; then
-                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'stage $1: unknown medium $2 (stage device $1 $2 /dev/<node>)'"
-        elif ! test -c "$node"; then
-                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'stage $1: device not present: $node (insert medium $2 -- checked at generation time)'"
-        else
-                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage medium mount '$1' '$2'"
-        fi
-}
 
 #@help _stage_medium_mount2
 # @command stage medium mount <stage> <medium>
@@ -3361,14 +3351,6 @@ _stage_medium_stamp_write2() {
         printf '%s\n' "printf '# stamped medium %s (%s: EFI/elvboot/medium)\\n' '$2' '$node' >&2"
 }
 
-# pool_mountpoint <dataset> -- prints the mountpoint when the dataset is mounted right now
-
-pool_mountpoint() {
-        local mp=""
-        test "$(zfs get -H -o value mounted "$1" 2>/dev/null)" = yes || return 1
-        mp=$(zfs get -H -o value mountpoint "$1" 2>/dev/null)
-        test -n "$mp" && test "$mp" != - && test "$mp" != legacy && printf '%s\n' "$mp"
-}
 
 #@help ___stage_marker_record3
 # @command stage marker record <stage> <BootXXXX> <filepath>

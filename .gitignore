@@ -3,3 +3,7 @@
 docs/TEST-illyria.md
 # scratch root of 'make man' (help before any database keeps its .tmp under the root)
 .man-root/
+pkg/
+pkgstage/
+port/distinfo
+port/work/

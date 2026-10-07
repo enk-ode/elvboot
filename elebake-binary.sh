@@ -121,15 +121,6 @@ env() {
         eval "${pre# }$cmd"
 }
 
-# env_reload -- after a setenv/unsetenv/cache-place act: every later call
-# of this process sees the environment the act wrote (a child process
-# would have read it at its start).
-env_reload() {
-        local f="$ELEBAKE_BASE/.env/local/ELEBAKE_CACHE_ENV_ARGS"
-        [ -s "$f" ] || return 0
-        eval "export $(cat "$f")"
-}
-
 # only_comments <file> -- the emission is comment lines only (a check
 # that passed, a note): nothing to run, nothing to compile but the text
 only_comments() {
@@ -230,9 +221,6 @@ process_arguments() {
                 fi ;;
         esac
         ELV_DEPTH=$((ELV_DEPTH - 1))
-        case "$name" in
-        _setenv_write2|_unsetenv_erase1|_environment_cache_place0) [ "$ELV_MODE" = run ] && env_reload ;;
-        esac
         ELEBAKE_CONTEXT_CALL=$call       # main reads it after the call
         combine_exit_codes "$bits" "$pe" "$ce" "$pb" "$cb"
 }

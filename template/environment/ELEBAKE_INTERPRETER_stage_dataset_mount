@@ -1,0 +1,3 @@
+sudo sh
+# Act terminal of 'stage dataset mount' (in stage medium prepare): mounts the boot dataset if it is not, as root; idempotent.
+# @see ELEBAKE_INTERPRETER_stage_pool_mount

@@ -879,11 +879,12 @@ ___trigger_show1() {
 # @group   foundation
 # @internal
 # @see     trigger show
+# @env     ELEBAKE_TEMPLATE_DIR  the shipped templates: awk/when-expr.awk compiles the expression
 #@end
 _trigger_render_show1() {
         local when="" action=""
         read -r when action 2>/dev/null < "$ELEBAKE_BASE/foundation/triggers/$1"
-        printf '# %s: FIRE(%s, %s)\n' "$1" "$(fnd_expr_render when c "$when")" "$(fnd_expr_render action c "$action")"
+        printf '# %s: FIRE(%s, %s)\n' "$1" "$(awk -v e="$when" -v kind=when -v mode=c -f "$ELEBAKE_TEMPLATE_DIR/awk/when-expr.awk" 2>/dev/null)" "$(awk -v e="$action" -v kind=action -v mode=c -f "$ELEBAKE_TEMPLATE_DIR/awk/when-expr.awk" 2>/dev/null)"
 }
 
 #@help ___gate_add1

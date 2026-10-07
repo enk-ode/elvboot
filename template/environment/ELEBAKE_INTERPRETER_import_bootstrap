@@ -1,0 +1,5 @@
+sh -e
+# Batch of 'import bootstrap' (import into a database that is not there): its
+# lines are fresh invocations (env -u ...) -- bootstrap, then the pins and the
+# import in the environment of the database just made. No database yet, so no
+# batch ring: plain sh, fail-fast. Set to cat for a dry-run.

@@ -502,11 +502,12 @@ _stage_constant_beacon1() {
 # @group   foundation
 # @internal
 # @see     stage container render constants
+# @env     ELEBAKE_TEMPLATE_DIR  the template directory (awk programs, tables)
 #@end
 _stage_constant_loader_gate1() {
         local bound="" firing="" t="" p="" gate="" when="" action=""
         bound=$(cat "$ELEBAKE_BASE/stage/$1"/phases/* 2>/dev/null)
-        firing=$(for t in "$ELEBAKE_BASE"/foundation/triggers/*; do [ -f "$t" ] || continue; read -r when action 2>/dev/null < "$t"; fnd_expr_render action leaves "$action" | grep -qx handover_act && printf '%s\n' "${t##*/}"; done)
+        firing=$(for t in "$ELEBAKE_BASE"/foundation/triggers/*; do [ -f "$t" ] || continue; read -r when action 2>/dev/null < "$t"; awk -v e="$action" -v kind=action -v mode=leaves -f "$ELEBAKE_TEMPLATE_DIR/awk/when-expr.awk" 2>/dev/null | grep -qx handover_act && printf '%s\n' "${t##*/}"; done)
         p=$(for t in $firing; do grep -lx "trigger $t" "$ELEBAKE_BASE"/foundation/policies/* 2>/dev/null; done | sed "s|.*/||" | grep -Fx "${bound:-/}" | head -1)
         gate=$(sed -n "s/^gate //p" "$ELEBAKE_BASE/foundation/policies/${p:-/}" 2>/dev/null)
         printf 'readonly ELV_GATE_LOADER=%s\n' "$(sq "$gate")"
@@ -875,11 +876,12 @@ _stage_claim_render_diagnose_line1() {
 # @group   foundation
 # @internal
 # @see     stage policy render
+# @env     ELEBAKE_TEMPLATE_DIR  the template directory (awk programs, tables)
 #@end
 _stage_trigger_render1() {
         local when="" action=""
         read -r when action 2>/dev/null < "$ELEBAKE_BASE/foundation/triggers/$1"
-        printf 'if %s; then %s; fi\n' "$(fnd_expr_render when sh "$when")" "$(fnd_expr_render action sh "$action")"
+        printf 'if %s; then %s; fi\n' "$(awk -v e="$when" -v kind=when -v mode=sh -f "$ELEBAKE_TEMPLATE_DIR/awk/when-expr.awk" 2>/dev/null)" "$(awk -v e="$action" -v kind=action -v mode=sh -f "$ELEBAKE_TEMPLATE_DIR/awk/when-expr.awk" 2>/dev/null)"
 }
 
 #@help __stage_checkout_exists1
@@ -1499,13 +1501,14 @@ _stage_phase_render_c_tail0() {
 # @see     policy render c row
 # @see     stage phase render c
 # @see     policy show
+# @env     ELEBAKE_TEMPLATE_DIR  the template directory (awk programs, tables)
 #@end
 _policy_render_c1() {
         local t="" when="" action="" sep=""
         printf '\nPOLICY_TABLE_DEFINE(%s_bindings' "$(printf '%s' "$1" | tr '-' '_')"
         sed -n "s/^trigger //p" "$ELEBAKE_BASE/foundation/policies/$1" 2>/dev/null | while read -r t; do
                 read -r when action 2>/dev/null < "$ELEBAKE_BASE/foundation/triggers/$t"
-                printf ',\n    FIRE(%s, %s)' "$(fnd_expr_render when c "$when")" "$(fnd_expr_render action c "$action")"
+                printf ',\n    FIRE(%s, %s)' "$(awk -v e="$when" -v kind=when -v mode=c -f "$ELEBAKE_TEMPLATE_DIR/awk/when-expr.awk" 2>/dev/null)" "$(awk -v e="$action" -v kind=action -v mode=c -f "$ELEBAKE_TEMPLATE_DIR/awk/when-expr.awk" 2>/dev/null)"
         done
         printf ');\n'
 }

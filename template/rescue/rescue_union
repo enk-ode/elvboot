@@ -1,0 +1,43 @@
+#!/bin/sh
+# rescue_union -- the rescue system is transient: its root is read-only on
+# the card, /tmp is a memory disk (tmpmfs), and the directories named in
+# rescue_union_paths get a writable layer in memory: one tmpfs on
+# /.rescue-union holds an upper layer per path, mounted as unionfs over
+# the read-only directory. What a session writes there is gone at the next
+# boot; the card is the same image after every shutdown. Written into the
+# rescue root by 'elebake stage rescue transient write'. Runs as soon as
+# the root is there, before anything writes to /var (var, random, netif).
+#
+# PROVIDE: rescue_union
+# REQUIRE: FILESYSTEMS
+# BEFORE: var random netif
+# KEYWORD: nojail
+
+. /etc/rc.subr
+
+name="rescue_union"
+desc="writable memory layers over the read-only rescue root"
+rcvar="rescue_union_enable"
+start_cmd="rescue_union_start"
+stop_cmd=":"
+
+load_rc_config $name
+: ${rescue_union_enable:="NO"}
+: ${rescue_union_paths:=""}
+: ${rescue_union_size:="1g"}
+: ${rescue_union_base:="/.rescue-union"}
+
+rescue_union_start()
+{
+	local p u
+	[ -d "$rescue_union_base" ] || { echo "rescue_union: $rescue_union_base missing in the image"; return 1; }
+	mount -t tmpfs -o size=$rescue_union_size tmpfs "$rescue_union_base" || return 1	# tmpfs knows no noatime
+	for p in $rescue_union_paths; do
+		u="$rescue_union_base$p"
+		mkdir -p "$u" || return 1
+		mount -t unionfs "$u" "$p" || return 1
+		echo "rescue_union: $p writable in memory (upper layer $u)"
+	done
+}
+
+run_rc_command "$1"

@@ -27,9 +27,15 @@ Rules (sharp):
   sequence (`check stage`, `check dir`, `check file`, ...); the batch
   machinery owns stop-at-first-failure, so a failed check stops the run
   before the acting terminal fires.
-- Helpers (no leading underscore) are generation-time VALUE functions:
-  pure or read-only World probes. They return values to the generator
-  and never emit shell.
+- Helpers (no leading underscore, include/predicate.sh) are silent
+  predicates: they answer yes or no and never print. A value the
+  generator needs (a serial, a signer, a partition type) is read by a
+  line in the anchor that needs it, and a value several anchors need is
+  read ONCE, at the entry of the command, and handed down as an argument
+  (`restore <dump>` reads the serial, the pinned key, the signer and the
+  signer's floor stage by stage; the batch at the end compares and acts
+  on its arguments). The architecture suite refuses a module function
+  outside the three classes and a predicate that prints.
 
 ## 2. Generation time vs. runtime
 
@@ -130,19 +136,22 @@ complete local override set, restored after the replay is done).
 lineage counter, `# Strategy:` the vocabulary (complete | minimized),
 `# Bundle:` the seal. `restore` refuses at generation time whatever is
 not admissible — unsigned, signed by anyone but the pinned attest key,
-a serial below the signer's floor — and otherwise is `batch` under
-`ELEBAKE_INTERPRETER_restore`, which wraps the executing default with
-`ELEBAKE_BATCH_KEEP_GOING=1`: a re-run's `stage add` conflicts are
-skipped, everything else replays. Replays are fully idempotent (stable
+a serial below the signer's floor — and otherwise replays the dump as
+`batch` with `ELEBAKE_BATCH_KEEP_GOING=0` in front: the replay stops at
+the first failing line, a dump half applied never ends as a success (a
+re-run's `stage add` is idempotent: an existing stage is never
+re-minted). Replays are fully idempotent (stable
 stage ids, no `.staging` orphans, `rm -f` before every file copy). The
 whole transfer — seal, signatures, receipts, the rescue pair — is
 described under `elebake help dump` and `elebake help restore`.
 
-Known property: batch children inherit the bootstrapped environment of
-the outermost call, so a `setenv` inside a replay is effective from the
-NEXT top-level call on — the rebuild lines therefore act on a second
-restore or a manual `stage make`, by design until the engine decision
-(see the review list).
+A pin set inside a replay governs the lines after it in the SAME
+replay: the runner resolves the pin of every call from the environment
+store — the cache file, else the layered scan — never from the
+environment it started with; `environment refresh`, placed by the dump
+after the `setenv` lines of the prologue and of the epilogue, rebuilds
+the cache (`environment cache off`, `environment cache on`) so the calls
+after it find it fresh.
 
 ## 6. Testing
 

@@ -65,7 +65,7 @@ __openpgp_record_complete1() {
 
 #@help _attest_sign2
 # @command attest sign <file> <key>
-# @summary Act terminal: rm -f of a stale signature, GPG_TTY pointed at the terminal for a card's pinentry (the isolated environment carries none and stdin is the emission), gpg --detach-sign with the record's keyid and GNUPGHOME; a failed signature leaves no file
+# @summary Act terminal: rm -f of a stale signature, GPG_TTY pointed at the terminal for a card's pinentry (the isolated environment carries none and stdin is the emission), gpg --detach-sign with the record's keyid (the signature 0600, the pair's files are the owner's alone) and GNUPGHOME; a failed signature leaves no file
 # @group   database
 # @internal
 # @see     attest
@@ -77,6 +77,7 @@ _attest_sign2() {
         printf '%s\n' "rm -f '$1.asc'"
         printf '%s\n' "GPG_TTY=\$( { tty </dev/tty; } 2>/dev/null ); export GPG_TTY; ${gpgenv}gpg-connect-agent updatestartuptty /bye >/dev/null 2>&1 || true"
         printf '%s\n' "${gpgenv}gpg --yes --openpgp -a --detach-sign --local-user '$(head -n1 "$ELEBAKE_BASE/openpgp/$2/keyid" 2>/dev/null)' -o '$1.asc' '$1' || { rm -f '$1.asc'; printf '# Error: attestation failed for %s\\n' '$(head -n1 "$ELEBAKE_BASE/openpgp/$2/keyid" 2>/dev/null)' >&2; exit 1; }"
+        printf '%s\n' "$MODIFY_FILE_PERMS 0600 '$1.asc'"
         printf '%s\n' "printf '# attested %s by %s\\n' '$1' '$(head -n1 "$ELEBAKE_BASE/openpgp/$2/keyid" 2>/dev/null)' >&2"
 }
 
@@ -100,15 +101,43 @@ ___attest_verify2() {
 
 #@help __attest_signer_pinned2
 # @command attest signer pinned <file> <key>
-# @summary The signature is good and made by the pinned key (attest_signer reads gpg's status lines): a log line naming the signer, else an error line with the one reason (unsigned, bad, expired, revoked, a different key, a pin too short)
+# @summary The signature is good and made by the pinned key (the pin a keyid of 16+ hex digits, gpg's status lines read here): a log line naming the signer, else an error line with the one reason (a pin too short, unsigned, bad, expired, revoked, a different key)
 # @group   database
 # @internal
 # @see     attest verify
 #@end
 __attest_signer_pinned2() {
-        local fpr="" why=""
-        why=$(attest_signer "$1" "$(head -n1 "$ELEBAKE_BASE/openpgp/$2/keyid" 2>/dev/null)" "$(head -n1 "$ELEBAKE_BASE/openpgp/$2/gnupghome" 2>/dev/null)") && fpr=$why
-        if test -n "$fpr"; then
+        local keyid="" gh="" status="" fpr="" pfpr="" why=""
+        keyid=$(head -n1 "$ELEBAKE_BASE/openpgp/$2/keyid" 2>/dev/null | sed 's/^0[xX]//' | tr 'a-f' 'A-F')
+        gh=$(head -n1 "$ELEBAKE_BASE/openpgp/$2/gnupghome" 2>/dev/null)
+        case "$keyid" in
+                "") why="pinned keyid missing (openpgp record $2)" ;;
+                *[!0-9A-F]*) why="pinned keyid is not hexadecimal: $keyid" ;;
+                ????????????????*) ;;
+                *) why="pinned keyid too short (${#keyid} digits, need 16+): $keyid" ;;
+        esac
+        if test -n "$why"; then
+                :
+        elif ! test -f "$1.asc"; then
+                why="unsigned: no $1.asc"
+        elif test -n "$gh"; then
+                status=$(GNUPGHOME="$gh" gpg --batch --status-fd 1 --verify "$1.asc" "$1" 2>>"${LOG_FILE:-/dev/null}")
+        else
+                status=$(gpg --batch --status-fd 1 --verify "$1.asc" "$1" 2>>"${LOG_FILE:-/dev/null}")
+        fi
+        printf '%s\n' "$status" >>"${LOG_FILE:-/dev/null}"
+        fpr=$(printf '%s\n' "$status" | awk '/^\[GNUPG:\] VALIDSIG /{print $3; exit}')
+        pfpr=$(printf '%s\n' "$status" | awk '/^\[GNUPG:\] VALIDSIG /{print $NF; exit}')
+        test -n "$why" || case "$status" in
+                *"[GNUPG:] NO_PUBKEY"*) why="signer public key not in the keyring${gh:+ $gh}" ;;
+                *"[GNUPG:] BADSIG"*)    why="BAD SIGNATURE -- file or signature altered" ;;
+                *"[GNUPG:] REVKEYSIG"*) why="signed by a REVOKED key" ;;
+                *"[GNUPG:] EXPKEYSIG"*) why="signed by an EXPIRED key" ;;
+                *"[GNUPG:] EXPSIG"*)    why="signature itself has expired" ;;
+                *"[GNUPG:] GOODSIG"*)   case "$fpr|$pfpr|" in *"$keyid|"*) ;; *) why="signed by a DIFFERENT key: $fpr (expected ...$keyid)" ;; esac ;;
+                *) why="no good signature (see the log for gpg status)" ;;
+        esac
+        if test -z "$why"; then
                 printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" log 'attest verify: $1 signed by $fpr (record $2)'"
         else
                 printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error $(sq "attest verify: $why") '(file $1, expected signer: openpgp record $2)'"

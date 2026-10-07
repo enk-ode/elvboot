@@ -258,14 +258,15 @@ __stage_claim_diagnose_ensure3() {
 # @example elebake stage trigger ensure daily-v1 earlboot react-halt
 # @see     stage when exists in earlboot
 # @see     stage action exists in earlboot
+# @env     ELEBAKE_TEMPLATE_DIR  the shipped templates: awk/when-expr.awk compiles the expression
 #@end
 ___stage_trigger_ensure3() {
         local when="" action="" w="" a=""
         read -r when action 2>/dev/null < "$ELEBAKE_BASE/foundation/triggers/$3"
-        for w in $(fnd_expr_render when leaves "$when"); do
+        for w in $(awk -v e="$when" -v kind=when -v mode=leaves -f "$ELEBAKE_TEMPLATE_DIR/awk/when-expr.awk" 2>/dev/null); do
                 printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage when exists in '$2' '$1' '$w'"
         done
-        for a in $(fnd_expr_render action leaves "$action"); do
+        for a in $(awk -v e="$action" -v kind=action -v mode=leaves -f "$ELEBAKE_TEMPLATE_DIR/awk/when-expr.awk" 2>/dev/null); do
                 printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage action exists in '$2' '$1' '$a'"
         done
 }
@@ -461,11 +462,12 @@ ___stage_gate_baselines_report2() {
 # @group   foundation
 # @internal
 # @see     stage demands
+# @env     ELEBAKE_TEMPLATE_DIR  the shipped templates: awk/when-expr.awk compiles the expression
 #@end
 ___stage_trigger_baselines_report2() {
         local when="" action="" a=""
         read -r when action 2>/dev/null < "$ELEBAKE_BASE/foundation/triggers/$2"
-        for a in $(fnd_expr_render action leaves "$action"); do
+        for a in $(awk -v e="$action" -v kind=action -v mode=leaves -f "$ELEBAKE_TEMPLATE_DIR/awk/when-expr.awk" 2>/dev/null); do
                 printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage demands '$1' '$a'"
         done
 }
