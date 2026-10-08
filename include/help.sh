@@ -390,7 +390,9 @@ ___help_manual_part1() {
 # @env     ELEBAKE_TEMPLATE_DIR  where template/manual lives
 #@end
 __help_manual_part_exists1() {
-        if record_name_ok "$1" && test -f "$ELEBAKE_TEMPLATE_DIR/manual/$1.md"; then
+        local ok=yes
+        case "$1" in ""|.|..|*[!A-Za-z0-9_.-]*) ok=no ;; esac
+        if test "$ok" = yes && test -f "$ELEBAKE_TEMPLATE_DIR/manual/$1.md"; then
                 printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'manual part $1 shipped'"
         else
                 printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'help manual part: template/manual/$1.md missing (or not a part name)'"

@@ -4,8 +4,8 @@
 # description on a second machine. The rescue root is ONE dataset on the
 # production pool (zroot/ROOT/rescue: mountpoint /, canmount noauto -- a boot
 # environment bectl sees), built here in phases by 'stage rescue build'
-# (package install, config mirror, local write, user mirror, transient
-# write, patch apply, baseline), snapshotted here, and sent to a GELI
+# (package install, kernel mirror, config mirror, local write, user
+# mirror, transient write, patch apply, baseline), snapshotted here, and sent to a GELI
 # partition of every boot medium (the card) by zfs send. The rescue is
 # FINISHED, not a kit: the databases are built INTO the image by the
 # recorded patches -- a patch is a script, a user and a resource directory
@@ -36,11 +36,18 @@ elebake stage rescue config add daily-v1 /var/unbound
 elebake stage rescue config add daily-v1 /etc/ssh             # ... the host keys too: the same identity. NEVER seed.gpg: the card carries revocable secrets only, the seed stays on zroot
 elebake stage rescue config add daily-v1 /usr/local/etc/cups
 elebake stage rescue local add daily-v1 'sshd_enable="NO"'    # what the rescue keeps different (rc.conf.local)
+elebake stage rescue local add daily-v1 'kldxref_enable="NO"'  # /boot stays read-only: no linker.hints at boot
+elebake stage rescue local add daily-v1 'entropy_file="NO"'    # the root stays read-only: no seed file at /entropy ...
+elebake stage rescue local add daily-v1 'entropy_boot_file="NO"'  # ... nor at /boot/entropy (the hardware sources feed the pool)
 elebake stage rescue user add daily-v1 brj                    # read from this machine's passwd; the hash follows at mirror
 elebake stage rescue user add daily-v1 root                   # root's password only
 elebake stage rescue transient add daily-v1 /home             # the rescue is transient: these get a memory layer at boot ...
 elebake stage rescue transient add daily-v1 /etc
 elebake stage rescue transient add daily-v1 /var              # ... (rc.d rescue_union, tmpmfs; the root itself is read-only on the card)
+elebake stage rescue transient add daily-v1 /root             # root's home, the shell history
+elebake stage rescue transient add daily-v1 /usr/local/etc    # cupsd rewrites printers.conf there
+elebake stage rescue transient add daily-v1 /usr/local/var    # the run state of cups, dbus, pcscd
+elebake stage rescue transient add daily-v1 /compat/linux/tmp # the Linuxolator's tmp
 elebake stage rescue patch add daily-v1 elvboot /usr/local/lib/elebake/template/rescue/elvboot-import-db-patch.sh brj           # the databases, built into the image as brj by the image's own tools (the script paths are paths IN the image: the template tree of each tool's package) ...
 elebake stage rescue patch add daily-v1 vpn-switch /usr/local/lib/vpn-switch/template/rescue/vpn-switch-import-db-patch.sh brj  # ... from the pairs under ~/.elebake/db/.resource/<name>/
 elebake stage rescue card add daily-v1 b da1p3                # the medium's rescue partition (stage device b first)
@@ -55,16 +62,15 @@ elebake stage rescue dataset open daily-v1                    # mounted for edit
 elebake stage rescue tool package daily-v1 elvboot            # the two tools as packages into the stage's repository
 elebake stage rescue tool package daily-v1 vpn-switch
 elebake stage rescue package build daily-v1                   # +MANIFEST rendered, pkg create, pkg repo
-elebake stage rescue build daily-v1                           # package install, config mirror, local write, user mirror, transient write, patch apply, baseline (minutes; the baseline signs)
+elebake stage rescue build daily-v1                           # package install, kernel mirror, config mirror, local write, user mirror, transient write, patch apply, baseline (minutes; the baseline signs)
 elebake stage rescue dataset close daily-v1
 elebake stage rescue snapshot daily-v1                        # <dataset>@daily-v1-<stamp>, recorded -- the image the baseline describes
 
-sudo mount -t tmpfs -o size=64m tmpfs /tmp/ram && sudo chown $(id -un) /tmp/ram
-elebake stage rescue passphrase daily-v1                      # the rescue passphrase (hidden, twice) -> /tmp/ram/auth-rescue.txt
+elebake stage rescue passphrase daily-v1                      # the rescue passphrase (hidden, twice) -> .ram/auth-rescue.txt; opens the RAM disk
 elebake stage rescue card init daily-v1 b                     # ONCE per card: geli (passphrase + key file), zeros, pool with ROOT, exported (minutes)
 elebake stage rescue push daily-v1 b                          # the whole root the first time, bootfs set, root read-only, verified by snapshot GUID
 elebake stage rescue verify daily-v1 b                        # GUID, read-only, and the tree against the signed baseline (nothing missing, changed or unlisted)
-rm -P /tmp/ram/auth-rescue.txt && cd / && sudo umount /tmp/ram
+elebake ram close                                         # the passphrase file wiped, the RAM disk gone
 elebake stage rescue status daily-v1
 
 # The second card: stage rescue card add daily-v1 a da1p3, card init a, push a.

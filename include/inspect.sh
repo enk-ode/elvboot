@@ -19,11 +19,13 @@
 # @see     last
 #@end
 _last0() {
-        local f="" n=0
+        local f="" n=0 bits="" verdict=""
         printf '# last invocations (newest first) -- view one: elebake last <n> | sh\n'
         for f in $(ls -t "$ELEBAKE_BASE"/.log/*/*.trace 2>/dev/null | head -10); do
                 n=$((n + 1))
-                printf '# %2d  %-9s %s %s  %s (%s lines)\n' "$n" "$(trace_verdict "$f")" "$(basename "$(dirname "$f")")" "$(basename "$f" | cut -d. -f1)" "$(basename "$f" | sed 's/^[0-9.]*_*//;s/\.trace$//')" "$(wc -l < "$f" | tr -d ' ')"
+                bits=$(grep -o 'final EXIT_BITS: [0-9.]*' "$f" 2>/dev/null | tail -n1 | sed 's/.*: //')
+                case "$bits" in ''|0|0.0|0.0.0) verdict=ok ;; *) verdict="FAIL($bits)" ;; esac
+                printf '# %2d  %-9s %s %s  %s (%s lines)\n' "$n" "$verdict" "$(basename "$(dirname "$f")")" "$(basename "$f" | cut -d. -f1)" "$(basename "$f" | sed 's/^[0-9.]*_*//;s/\.trace$//')" "$(wc -l < "$f" | tr -d ' ')"
         done
         test "${n:-0}" -gt 0 || printf '# (no traces -- is ELEBAKE_RETENTION_DAYS_TRACE > 0?)\n'
 }

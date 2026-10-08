@@ -16,14 +16,13 @@ elebake stage rescue dataset open daily-v1
 elebake stage rescue tool package daily-v1 elvboot            # when a tool's checkout moved on
 elebake stage rescue tool package daily-v1 vpn-switch
 elebake stage rescue package build daily-v1                   # the meta package of the next serial
-elebake stage rescue build daily-v1                           # package install, config mirror, local write, user mirror, transient write, patch apply, baseline
+elebake stage rescue build daily-v1                           # package install, kernel mirror (the stage's kernel, the one the medium boots), config mirror, local write, user mirror, transient write, patch apply, baseline
 elebake stage rescue dataset close daily-v1
 elebake stage rescue snapshot daily-v1
 
-sudo mount -t tmpfs -o size=64m tmpfs /tmp/ram && sudo chown $(id -un) /tmp/ram
 elebake stage rescue passphrase daily-v1
 elebake stage rescue push daily-v1 b                          # the increment since the card's receipt
 elebake stage rescue push daily-v1 a
 elebake stage rescue verify daily-v1 b
-rm -P /tmp/ram/auth-rescue.txt && cd / && sudo umount /tmp/ram
+elebake ram close
 elebake stage rescue show daily-v1                            # the cards' receipts

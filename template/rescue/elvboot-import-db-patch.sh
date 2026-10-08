@@ -40,4 +40,6 @@ test -r "$res/signer.asc" || { printf '%s: no %s/signer.asc -- the public key of
 test -x /usr/local/bin/elebake || { printf '%s: no /usr/local/bin/elebake in the image (the elvboot package installed?)\n' "$me" >&2; exit 1; }
 rm -rf "$home/.elebake"	# the database of the image IS the dump: never a union with a previous build
 printf '%s: elebake import as %s (home %s)\n' "$me" "$user" "$home" >&2
-exec su -l "$user" -c "gpg --batch --quiet --import '$res/signer.asc' && elebake import '$res/dump.sh' '$res/bundle.tar.gz'"
+su -l "$user" -c "gpg --batch --quiet --import '$res/signer.asc' && elebake import '$res/dump.sh' '$res/bundle.tar.gz'"; rc=$?
+su -l "$user" -c "gpgconf --kill all" 2>/dev/null
+exit $rc

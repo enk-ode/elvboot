@@ -102,7 +102,7 @@ __macro_rewrite5() {
 #@end
 __macro_store5() {
         local all="$2 $3 $4 $5"
-        if test -n "$1" && test "${1#[0-9]}" = "$1" && test "${1%%*[!A-Z0-9_]*}" = "$1" && { test "$5" = - || { test -n "$5" && test "${5#[0-9]}" = "$5" && test "${5%%*[!A-Z0-9_]*}" = "$5"; }; } && test "${all%%*\'*}" = "$all"; then
+        if test -n "$1" && test "${1#[0-9]}" = "$1" && test "${1%%*[!A-Z0-9_]*}" = "$1" && { test "$5" = - || test -n "$5" && test "${5#[0-9]}" = "$5" && test "${5%%*[!A-Z0-9_]*}" = "$5"; } && test "${all%%*\'*}" = "$all"; then
                 printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" macro record '$1' '$2' '$3' '$4' '$5'"
         else
                 printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'macro add: invalid macro name or field (the stem and the defined name are C macro names (A-Z, 0-9, _; '-' derives), fields without single quotes): $1 $2 $3 $4 $5'"

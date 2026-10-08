@@ -4027,7 +4027,6 @@ ___stage_dump_boot_skeleton1() {
 # @internal
 # @see     stage dump minimized
 # @env     ELEBAKE_ARCHIVE_BASE  the prefix the emitted paths are written against
-# @env     ELEBAKE_TEMPLATE_DIR  the shipped filter tables: filter/minimized.keep decides what travels
 #@end
 ___stage_dump_boot_minimized1() {
         local dir="" f="" rel=""

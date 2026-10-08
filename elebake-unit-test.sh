@@ -138,6 +138,8 @@ unit_signed_dump() {
 }
 
 test_summary() {
+  local gh
+  for gh in "$TEST_BASE_DIR"/gh-*; do [ -d "$gh" ] && GNUPGHOME="$gh" gpgconf --kill all 2>/dev/null; done
   local total=$((TESTS_PASSED + TESTS_FAILED))
   echo ""
   echo "========================================"
@@ -467,6 +469,22 @@ test_restore_keep_going() {
     pass "the line before the failing one replayed, the line after it not, the exit reports the failure"
   else
     fail "restore after the failing line (rc=$rc A=$(head -1 "$TEST_DIR/.env/local/ELEBAKE_UNIT_A" 2>/dev/null) B=$(head -1 "$TEST_DIR/.env/local/ELEBAKE_UNIT_B" 2>/dev/null))"
+  fi
+}
+
+test_export_twice_same_paths() {
+  test_header "export: a second export into the same paths succeeds -- the earlier signature is void, not an obstacle"
+  test_setup
+  unit_attest_key unit-attest || return 0
+  local d="$TEST_BASE_DIR/export-twice-$TESTS_RUN" rc=0 out
+  mkdir -p "$d"
+  run_elebake export redacted "$d/dump.sh" "$d/bundle.tar.gz" > /dev/null 2>&1 || rc=$?
+  [ "$rc" -eq 0 ] && [ -f "$d/dump.sh.asc" ] || { fail "first export failed (rc=$rc)"; return 0; }
+  out=$(run_elebake export redacted "$d/dump.sh" "$d/bundle.tar.gz" 2>&1) || rc=$?
+  if [ "$rc" -eq 0 ] && [ -f "$d/dump.sh.asc" ] && ! printf '%s\n' "$out" | grep -q "already attested"; then
+    pass "the second export wrote dump, signature and bundle anew"
+  else
+    fail "second export: rc=$rc $(printf '%s\n' "$out" | grep -i 'error' | head -2 | tr '\n' ' ')"
   fi
 }
 
@@ -928,6 +946,20 @@ EOF
     pass "an interpreter killed by SIGTERM is reported as a signal death and stops the batch"
   else
     fail "signal death: rc=$rc b=$(cat "$b" 2>/dev/null) $(printf '%s\n' "$out" | grep -i "signal\|failed" | head -3)"
+  fi
+}
+
+test_environment_scan_ignores_stray_files() {
+  test_header "environment scan: a stray .new or backup file under .env/ is no variable"
+  test_setup
+  printf 'x\n' > "$TEST_DIR/.env/local/ELEBAKE_CACHE_ENV_ARGS.new"
+  printf 'y\n' > "$TEST_DIR/.env/local/ELEBAKE_EDITOR~"
+  run_elebake environment cache off > /dev/null 2>&1
+  if out=$(run_elebake environment cache on 2>&1) && ! printf '%s\n' "$out" | grep -q "eval:" \
+     && ! grep -q "ELEBAKE_CACHE_ENV_ARGS.new\|ELEBAKE_EDITOR~" "$TEST_DIR/.env/local/ELEBAKE_CACHE_ENV_ARGS"; then
+    pass "the cache rebuilt without the stray names"
+  else
+    fail "stray files reached the scan: $(printf '%s\n' "$out" | head -2 | tr '\n' ' ')"
   fi
 }
 
@@ -2984,6 +3016,82 @@ test_stage_baseline_records() {
   fi
 }
 
+test_stage_witness_records() {
+  test_header "stage witness: add/show/drop, validation, immutability, dump; measure, check and site mk render from the receipts"
+  test_setup
+  run_elebake stage add unitwt > /dev/null 2>&1
+  if [ -z "$(run_elebake stage site mk witnesses unitwt)" ] && run_elebake stage witness measure unitwt 2>&1 | grep -q "records no witness"; then
+    pass "site mk witnesses prints nothing and measure refuses without a witness"
+  else
+    fail "without witnesses: $(run_elebake stage witness measure unitwt 2>&1 | head -2)"
+  fi
+  run_elebake stage witness add unitwt zcard-b da1p3 > /dev/null
+  run_elebake stage witness add unitwt zempty nda1p1 > /dev/null
+  local sid; sid=$(basename "$(readlink "$TEST_DIR/stage/unitwt")")
+  if [ "$(cat "$TEST_DIR/.staging/$sid/witness/zcard-b")" = "da1p3" ] && [ "$(cat "$TEST_DIR/.staging/$sid/witness/zempty")" = "nda1p1" ] \
+     && run_elebake stage witness add unitwt zcard-b da1p3 | grep -q "already on da1p3" \
+     && run_elebake stage witness add unitwt zcard-b da2p3 2>&1 | grep -q "is on da1p3, not da2p3" \
+     && [ "$(cat "$TEST_DIR/.staging/$sid/witness/zcard-b")" = "da1p3" ]; then
+    pass "witness add records name and partition, the same again is a note, another partition is refused"
+  else
+    fail "witness add: $(run_elebake stage witness add unitwt zcard-b da2p3 2>&1 | head -2)"
+  fi
+  if run_elebake stage witness add unitwt bad/name da1p3 2>&1 | grep -q "a record name" \
+     && run_elebake stage witness add unitwt ok bogus 2>&1 | grep -q "GPT partition name"; then
+    pass "name and partition are validated"
+  else
+    fail "validation: $(run_elebake stage witness add unitwt ok bogus 2>&1 | head -2)"
+  fi
+  if run_elebake stage witness show unitwt | grep -q "#   zcard-b: da1p3 -- no receipt yet" \
+     && run_elebake stage dump unitwt | grep -q "stage witness add 'unitwt' 'zempty' 'nda1p1'"; then
+    pass "witness show lists the records without receipts, the dump replays them"
+  else
+    fail "show/dump: $(run_elebake stage witness show unitwt)"
+  fi
+  r=$(run_elebake stage witness labels unitwt zcard-b)
+  if printf '%s\n' "$r" | grep -q "geli dump '/dev/da1p3'" && printf '%s\n' "$r" | grep -q "diskinfo '/dev/da1p3'" \
+     && printf '%s\n' "$r" | grep -q "dd if='/dev/da1p3' bs=\"\$bss\" count=\"\$n\"" && printf '%s\n' "$r" | grep -q "| sha256 -q )" \
+     && printf '%s\n' "$r" | grep -q "dps=\$((bss - alen)); dps=\$((dps - dps % 16)); bps=" \
+     && printf '%s\n' "$r" | grep -q "a=\$((media - media % 262144))" \
+     && printf '%s\n' "$r" | grep -q ">> '$TEST_DIR/stage/unitwt/witness-receipts/zcard-b'"; then
+    pass "witness labels renders the geometry from geli dump and diskinfo, the three dd regions, the receipt"
+  else
+    fail "witness labels: $r"
+  fi
+  if run_elebake stage witness compare unitwt zcard-b | grep -q "has no receipt"; then
+    pass "compare without a receipt is an error"
+  else
+    fail "compare without receipt: $(run_elebake stage witness compare unitwt zcard-b | head -2)"
+  fi
+  if run_elebake stage witness lines unitwt | grep -q "no receipt for zcard-b zempty"; then
+    pass "site mk witnesses stops without receipts"
+  else
+    fail "lines without receipts: $(run_elebake stage witness lines unitwt)"
+  fi
+  mkdir -p "$TEST_DIR/.staging/$sid/witness-receipts"
+  printf '%s\n' "2026-10-07T18:00:00Z 8253fe40-b99f-11f1-95ad-d49390579fa5 1111111111111111111111111111111111111111111111111111111111111111" "2026-10-08T06:00:00Z 8253fe40-b99f-11f1-95ad-d49390579fa5 2222222222222222222222222222222222222222222222222222222222222222" > "$TEST_DIR/.staging/$sid/witness-receipts/zcard-b"
+  printf '%s\n' "2026-10-07T18:00:00Z 86e09ab0-b99f-11f1-95ad-d49390579fa5 3333333333333333333333333333333333333333333333333333333333333333" > "$TEST_DIR/.staging/$sid/witness-receipts/zempty"
+  if run_elebake stage site mk witnesses unitwt | grep -qx 'CFLAGS+= -DLOADER_TRUST_WITNESS_LABELS=\\"zcard-b:8253fe40-b99f-11f1-95ad-d49390579fa5:2222222222222222222222222222222222222222222222222222222222222222,zempty:86e09ab0-b99f-11f1-95ad-d49390579fa5:3333333333333333333333333333333333333333333333333333333333333333\\"' \
+     && run_elebake stage witness show unitwt | grep -q "#   zcard-b: da1p3 -- 2026-10-08T06:00:00Z 8253fe40-b99f-11f1-95ad-d49390579fa5 2222"; then
+    pass "site mk witnesses renders the last receipt of every witness in record order; show prints it"
+  else
+    fail "lines: $(run_elebake stage site mk witnesses unitwt 2>&1)"
+  fi
+  r=$(run_elebake stage witness compare unitwt zcard-b)
+  if printf '%s\n' "$r" | grep -q "if \[ \"\$d\" = '2222222222222222222222222222222222222222222222222222222222222222' \]; then printf '# witness %s: unchanged since %s\\\\n' 'zcard-b' '2026-10-08T06:00:00Z'"; then
+    pass "witness compare judges the digest against the last receipt"
+  else
+    fail "compare: $r"
+  fi
+  run_elebake stage witness drop unitwt zcard-b > /dev/null
+  if [ ! -f "$TEST_DIR/.staging/$sid/witness/zcard-b" ] && [ ! -f "$TEST_DIR/.staging/$sid/witness-receipts/zcard-b" ] \
+     && run_elebake stage witness drop unitwt zcard-b 2>&1 | grep -q "no witness zcard-b"; then
+    pass "witness drop removes the record and its receipts, a second drop is an error"
+  else
+    fail "drop: $(run_elebake stage witness drop unitwt zcard-b 2>&1)"
+  fi
+}
+
 test_stage_disks_records() {
   test_header "stage disks: add/show/drop, validation, dump; site mk disks silent without records"
   test_setup
@@ -3416,8 +3524,8 @@ test_stage_rescue_family() {
   mkdir -p "$TEST_BASE_DIR/mnt/unitr-rescue/usr/local/lib/unit/template/rescue" && printf '#!/bin/sh\nexit 0\n' > "$TEST_BASE_DIR/mnt/unitr-rescue/usr/local/lib/unit/template/rescue/unit-patch.sh"
   r=$(run_elebake stage rescue patch run unitr unitp)
   if printf '%s\n' "$r" | grep -q "mount -t nullfs -o ro '$TEST_DIR/.resource/unitp' '$TEST_BASE_DIR/mnt/unitr-rescue/mnt/patch' || exit 1" \
-     && printf '%s\n' "$r" | grep -q "jail -c path='$TEST_BASE_DIR/mnt/unitr-rescue' ip4=disable ip6=disable exec.clean=1 command=/bin/sh '/usr/local/lib/unit/template/rescue/unit-patch.sh' 'root' /mnt/patch; rc=\$?" \
-     && printf '%s\n' "$r" | grep -q "umount '$TEST_BASE_DIR/mnt/unitr-rescue/mnt/patch'; rmdir" \
+     && printf '%s\n' "$r" | grep -q "jail -c name='elebake-unitr-patch' path='$TEST_BASE_DIR/mnt/unitr-rescue' ip4=disable ip6=disable exec.clean=1 command=/bin/sh '/usr/local/lib/unit/template/rescue/unit-patch.sh' 'root' /mnt/patch; rc=\$?" \
+     && printf '%s\n' "$r" | grep -q "jail -r 'elebake-unitr-patch' 2>/dev/null; umount '$TEST_BASE_DIR/mnt/unitr-rescue/mnt/patch'; rmdir" \
      && ! run_elebake stage rescue patch complete unitr unitp 2>&1 | grep -q "Error"; then
     pass "patch run: the resources hung into the root read-only, a one-shot jail on the root, sh <script> <user> /mnt/patch in it, the mount taken down (cat-pinned here)"
   else
@@ -3429,6 +3537,19 @@ test_stage_rescue_family() {
     pass "patch apply and build need the mounted root"
   else
     fail "patch apply/build without the root: $(run_elebake stage rescue build unitr 2>&1 | head -2)"
+  fi
+  if run_elebake stage rescue kernel mirror unitr 2>&1 | grep -q "not mounted" \
+     && run_elebake stage boot file exists unitr kernel/kernel 2>&1 | grep -q "no such file in boot/: kernel/kernel"; then
+    pass "kernel mirror needs the mounted root and the kernel in the stage's boot tree"
+  else
+    fail "kernel mirror checks: $(run_elebake stage rescue kernel mirror unitr 2>&1 | head -3)"
+  fi
+  r=$(run_elebake stage rescue kernel copy unitr 2>&1)
+  if printf '%s\n' "$r" | grep -q "rm -rf '$TEST_BASE_DIR/mnt/unitr-rescue/boot/kernel' && cp -a '$TEST_DIR/stage/unitr/boot/kernel' '$TEST_BASE_DIR/mnt/unitr-rescue/boot/kernel' && chown -R root:wheel" \
+     && ! run_elebake stage rescue manifest render unitr 2>/dev/null | grep -q "FreeBSD-kernel-generic"; then
+    pass "kernel copy replaces the root's /boot/kernel by the stage's boot/kernel; the meta package names no kernel"
+  else
+    fail "kernel copy: $r"
   fi
   r=$(ELEBAKE_INTERPRETER_stage_rescue_dataset_mounted=cat run_elebake stage rescue patch apply unitr 2>&1)
   run_elebake stage rescue patch drop unitr unitp > /dev/null 2>&1
@@ -3552,6 +3673,34 @@ test_stage_rescue_family() {
     pass "show names what a card received"
   else
     fail "show receipt: $(run_elebake stage rescue show unitr | grep card)"
+  fi
+}
+
+test_ram_family() {
+  test_header "ram open/close: the RAM disk under the database, mounted for its owner, wiped and released"
+  test_setup
+  run_elebake setenv ELEBAKE_INTERPRETER_ram_mount cat > /dev/null 2>&1
+  run_elebake setenv ELEBAKE_INTERPRETER_ram_umount cat > /dev/null 2>&1
+  local o own
+  own=$(stat -f %u:%g "$TEST_DIR/.env/default")
+  o=$(run_elebake ram open 2>&1)
+  if printf '%s\n' "$o" | grep -q "mount -t tmpfs -o size=64m,mode=0700,uid=${own%%:*},gid=${own#*:} tmpfs '$TEST_DIR/.ram'" \
+     && printf '%s\n' "$o" | grep -q "chown '$own' '$TEST_DIR/.ram'"; then
+    pass "ram open mounts a tmpfs at <database>/.ram for the database's owner, mode 0700"
+  else
+    fail "ram open: $(printf '%s\n' "$o" | head -3 | tr '\n' ' ')"
+  fi
+  run_elebake setenv ELEBAKE_INTERPRETER_ram_close0 cat > /dev/null 2>&1
+  if run_elebake ram close 2>&1 | grep -q "comment 'no RAM disk at $TEST_DIR/.ram'"; then
+    pass "ram close without a mount says so"
+  else
+    fail "ram close: $(run_elebake ram close 2>&1 | head -2 | tr '\n' ' ')"
+  fi
+  run_elebake setenv ELEBAKE_TPM_WORKDIR /tmp/elebake-unit-ram-$TESTS_RUN > /dev/null 2>&1
+  if run_elebake ram open 2>&1 | grep -q "tmpfs '/tmp/elebake-unit-ram-$TESTS_RUN'"; then
+    pass "an absolute ELEBAKE_TPM_WORKDIR is taken as it is"
+  else
+    fail "absolute workdir ignored: $(run_elebake ram open 2>&1 | head -2 | tr '\n' ' ')"
   fi
 }
 
@@ -4652,6 +4801,7 @@ main() {
   should_run_test test_dump_version_header
   should_run_test test_restore_keep_going
   should_run_test test_restore_pin_in_prologue
+  should_run_test test_export_twice_same_paths
   should_run_test test_help_env_cascade
   should_run_test test_complete_candidates
   should_run_test test_error_and_log
@@ -4663,6 +4813,7 @@ main() {
   should_run_test test_stage_unkey_and_attest
   should_run_test test_batch_fail_fast_default
   should_run_test test_batch_exit_survives_a_closed_pipe
+  should_run_test test_environment_scan_ignores_stray_files
   should_run_test test_batch_pin_governs_next_line
   should_run_test test_binary_runs_in_one_process
   should_run_test test_compile_writes_the_script
@@ -4700,11 +4851,13 @@ main() {
   should_run_test test_foundation_prereqs_arrays
   should_run_test test_stage_baseline_records
   should_run_test test_stage_disks_records
+  should_run_test test_stage_witness_records
   should_run_test test_stage_kenv_require_loaderconf
   should_run_test test_expectation_key
   should_run_test test_stage_inventory
   should_run_test test_gate_add_plain
   should_run_test test_stage_require_boot_leafs
+  should_run_test test_ram_family
   should_run_test test_stage_tpm_family
   should_run_test test_import_bootstrap
   should_run_test test_stage_rescue_family

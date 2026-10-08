@@ -660,7 +660,7 @@ ___stage_rescue_dataset_close1() {
 
 #@help _stage_rescue_dataset_umount1
 # @command stage rescue dataset umount <stage>
-# @summary Act terminal (root): umount of the devfs and the rescue root
+# @summary Act terminal (root): a jail left on the root is removed (its processes with it), then the umount of a patch mount, the devfs and the rescue root
 # @group   provisioning
 # @internal
 # @see     stage rescue dataset close
@@ -668,7 +668,8 @@ ___stage_rescue_dataset_close1() {
 _stage_rescue_dataset_umount1() {
         local alt="$ELEBAKE_ROOT/mnt/$1-rescue"
         emit_note "stage rescue dataset close '$1': $alt"
-        printf '%s\n' "umount '$alt/dev' 2>/dev/null; umount '$alt' || exit 1"
+        printf '%s\n' "for j in \$(jls -h jid path 2>/dev/null | awk -v p='$alt' '\$2 == p { print \$1 }'); do jail -r \"\$j\"; done"
+        printf '%s\n' "umount '$alt/mnt/patch' 2>/dev/null; umount '$alt/dev' 2>/dev/null; umount '$alt' || exit 1"
 }
 
 #@help __stage_rescue_list_filled2
@@ -802,13 +803,14 @@ __stage_rescue_baseline_present1() {
 # @command stage rescue passphrase <stage>
 # @summary Read the rescue passphrase hidden, twice, into <workdir>/auth-rescue.txt on the RAM disk (geli init -J and geli attach -j take the file; it is what the owner types at the rescue boot): the stage exists, the work directory is a mounted RAM disk; then 'stage rescue passphrase read'
 # @group   deploy
-# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the file lives on (default /tmp/ram)
+# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the file lives on (default .ram under the database)
 # @example elebake stage rescue passphrase daily-v1
 # @see     stage rescue card init
+# @see     ram close
 #@end
 ___stage_rescue_passphrase1() {
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage check stage '$1'"
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage tpm workdir ready"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" ram open"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage rescue passphrase read '$1'"
 }
 
@@ -817,11 +819,11 @@ ___stage_rescue_passphrase1() {
 # @summary Act terminal: the script that reads the passphrase twice on /dev/tty with echo off, refuses empty or differing entries, and writes it to <workdir>/auth-rescue.txt (0600) -- the passphrase never reaches argv
 # @group   deploy
 # @internal
-# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the file lives on (default /tmp/ram)
+# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the file lives on (default .ram under the database)
 # @see     stage rescue passphrase
 #@end
 _stage_rescue_passphrase_read1() {
-        local d="${ELEBAKE_TPM_WORKDIR:-/tmp/ram}"
+        local d="$(ram_dir)"
         cat <<EOF
 { : < /dev/tty; } 2>/dev/null || { printf '# Error: %s\\n' 'stage rescue passphrase: needs a terminal to read the passphrase hidden' >&2; exit 1; }
 printf 'rescue passphrase of the cards of %s (hidden): ' '$1' > /dev/tty; stty -echo < /dev/tty; IFS= read -r a < /dev/tty; stty echo < /dev/tty; printf '\\n' > /dev/tty
@@ -836,11 +838,11 @@ EOF
 # @summary <workdir>/auth-rescue.txt is there (stage rescue passphrase read it): a comment line, else an error line
 # @group   deploy
 # @internal
-# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the file lives on (default /tmp/ram)
+# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the file lives on (default .ram under the database)
 # @see     stage rescue passphrase
 #@end
 __stage_rescue_passphrase_present0() {
-        local d="${ELEBAKE_TPM_WORKDIR:-/tmp/ram}"
+        local d="$(ram_dir)"
         if test -s "$d/auth-rescue.txt"; then
                 printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'rescue passphrase present on $d'"
         else
@@ -852,7 +854,7 @@ __stage_rescue_passphrase_present0() {
 # @command stage rescue card init <stage> <medium>
 # @summary Prepare a medium's rescue partition, once: GELI (AES-XTS 256, HMAC/SHA256, BOOT, NODELETE, slot 0 = the rescue passphrase together with the key file, its own master key), every sector written (HMAC needs it), the pool created on it with ROOT below, exported again: the stage exists, the medium is inserted, the partition, the pool and the key file are recorded, the passphrase file is there; then 'stage rescue card geli' and 'stage rescue card pool'
 # @group   deploy
-# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the passphrase file lives on (default /tmp/ram)
+# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the passphrase file lives on (default .ram under the database)
 # @example elebake stage rescue card init daily-v1 b
 # @see     stage rescue card add
 # @see     stage rescue keyfile add
@@ -874,10 +876,10 @@ ___stage_rescue_card_init2() {
 # @summary Act terminal (root): geli init of the medium's rescue partition (-e AES-XTS -l 256 -a HMAC/SHA256 -s 4096 -b -T, PBKDF2 iterations as zroot, the passphrase from the file AND the recorded key file), attach, dd of zeros over the whole provider (ENOSPC ends it), the provider left attached for the pool
 # @group   deploy
 # @internal
-# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the passphrase file lives on (default /tmp/ram)
+# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the passphrase file lives on (default .ram under the database)
 #@end
 _stage_rescue_card_geli2() {
-        local part="" key="" d="${ELEBAKE_TPM_WORKDIR:-/tmp/ram}"
+        local part="" key="" d="$(ram_dir)"
         part=$(sed -n 1p "$ELEBAKE_BASE/stage/$1/rescue/cards/$2" 2>/dev/null)
         key="$ELEBAKE_BASE/stage/$1/boot$(sed -n 's|^/boot||p' "$ELEBAKE_BASE/stage/$1/rescue/keyfile" 2>/dev/null)"	# the loader's path, in the stage's boot tree
         emit_note "stage rescue card init '$1' medium '$2': geli on /dev/$part (passphrase + $key), then zeros over the whole provider (minutes)"
@@ -909,7 +911,7 @@ _stage_rescue_card_pool2() {
 # @command stage rescue card open <stage> <medium>
 # @summary Attach the medium's rescue partition (passphrase and key file) and import its pool without mounting (altroot $ELEBAKE_ROOT/mnt/<stage>-rescue-<medium>): the stage exists, the medium is inserted, the partition, the pool and the key file are recorded, the passphrase file is there; then 'stage rescue card attach'
 # @group   deploy
-# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the passphrase file lives on (default /tmp/ram)
+# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the passphrase file lives on (default .ram under the database)
 # @example elebake stage rescue card open daily-v1 b
 # @see     stage rescue card close
 #@end
@@ -928,11 +930,11 @@ ___stage_rescue_card_open2() {
 # @summary Act terminal (root): geli attach with the passphrase file and the key file, zpool import -f -N of the recorded pool from the provider under the altroot (-f: a rescue boot leaves the pool in use by the rescue hostid; the key opened it, the GUID is checked after)
 # @group   deploy
 # @internal
-# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the passphrase file lives on (default /tmp/ram)
+# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the passphrase file lives on (default .ram under the database)
 # @see     stage rescue card open
 #@end
 _stage_rescue_card_attach2() {
-        local part="" pool="" key="" alt="" d="${ELEBAKE_TPM_WORKDIR:-/tmp/ram}"
+        local part="" pool="" key="" alt="" d="$(ram_dir)"
         part=$(sed -n 1p "$ELEBAKE_BASE/stage/$1/rescue/cards/$2" 2>/dev/null)
         pool=$(sed -n 1p "$ELEBAKE_BASE/stage/$1/rescue/pool" 2>/dev/null)
         key="$ELEBAKE_BASE/stage/$1/boot$(sed -n 's|^/boot||p' "$ELEBAKE_BASE/stage/$1/rescue/keyfile" 2>/dev/null)"	# the loader's path, in the stage's boot tree
@@ -976,7 +978,7 @@ _stage_rescue_card_detach2() {
 # @command stage rescue push <stage> <medium>
 # @summary Send the recorded snapshot to the medium's card: the stage exists, the snapshot is recorded, the card opens (stage rescue card open), the stream goes (the whole tree the first time, the increment since what the card holds after), bootfs is set, the root on the card is set read-only (the rescue is transient), the snapshot on the card is verified against the source, the receipt is recorded, the card closes
 # @group   deploy
-# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the passphrase file lives on (default /tmp/ram)
+# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the passphrase file lives on (default .ram under the database)
 # @example elebake stage rescue push daily-v1 b
 # @see     stage rescue snapshot
 # @see     stage rescue verify
@@ -1087,7 +1089,7 @@ _stage_rescue_card_check2() {
 # @command stage rescue verify <stage> <medium>
 # @summary Check a card against the baseline without sending, three questions: does the card hold the recorded snapshot (GUID) with a read-only root, is the baseline manifest signed by the pinned key, and is the tree on the card exactly the baseline (every entry present and unchanged, nothing beyond it) -- the stage exists, the snapshot is recorded, the baseline is there and verified, the card opens, the root is mounted read-only, the tree is checked, the root is unmounted, the card closes. Anything found is an error naming it
 # @group   deploy
-# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the passphrase file lives on (default /tmp/ram)
+# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the passphrase file lives on (default .ram under the database)
 # @env     ELEBAKE_ARCHIVE_ATTEST_KEY  the pinned attest key: the baseline signature is checked against it
 # @example elebake stage rescue verify daily-v1 b
 # @see     stage rescue push
@@ -1489,7 +1491,7 @@ ___stage_rescue_package_build1() {
 
 #@help _stage_rescue_manifest_render1
 # @command stage rescue manifest render <stage>
-# @summary Text terminal: the +MANIFEST (UCL) of the meta package -- name, version = the next export serial, origin sysutils/<name>, arch of this machine, the dependencies: FreeBSD-set-base, FreeBSD-kernel-generic and every recorded tool with origin and version -- a tool the stage built itself read from its package file in repo/All (pkg query -F), every other as this machine's repositories report it now; a tool neither knows ends the render
+# @summary Text terminal: the +MANIFEST (UCL) of the meta package -- name, version = the next export serial, origin sysutils/<name>, arch of this machine, the dependencies: FreeBSD-set-base and every recorded tool (the kernel is not a dependency: 'stage rescue kernel mirror' takes the stage's) with origin and version -- a tool the stage built itself read from its package file in repo/All (pkg query -F), every other as this machine's repositories report it now; a tool neither knows ends the render
 # @group   deploy
 # @internal
 # @see     stage rescue package build
@@ -1502,7 +1504,7 @@ _stage_rescue_manifest_render1() {
         printf 'desc: "A meta package without files: its dependencies are the rescue system of stage %s -- the base sets, the tools, elvboot and vpn-switch. Built by elebake stage rescue package build (serial %s)."\n' "$1" "$serial"
         printf 'maintainer: "%s@%s"\nwww: "https://github.com/enk-ode/elvboot"\nprefix: "/usr/local"\narch: "%s"\nlicenselogic: "single"\nlicenses: ["BSD2CLAUSE"]\n' "$(id -un)" "$(hostname)" "$(pkg config ABI 2>/dev/null)"
         printf 'deps: {\n'
-        for t in $(printf '%s\n' FreeBSD-set-base FreeBSD-kernel-generic $(grep . "$ELEBAKE_BASE/stage/$1/rescue/tools" 2>/dev/null) | awk '!seen[$0]++'); do	# the base sets once, even when recorded as tools
+        for t in $(printf '%s\n' FreeBSD-set-base $(grep . "$ELEBAKE_BASE/stage/$1/rescue/tools" 2>/dev/null) | awk '!seen[$0]++'); do	# the base sets once, even when recorded as tools
                 # a tool this stage built itself (tool package) is read from its package file in repo/All --
                 # the stage repository has no catalogue this user could query; everything else from the machine's repositories
                 f=$(ls -t "$repo/All/$t"-[0-9]*.pkg 2>/dev/null | head -n1)	# the newest build (by time: 0.0.102 sorts before 0.0.98 by name)
@@ -1549,7 +1551,7 @@ _stage_rescue_repo_index1() {
 
 #@help ___stage_rescue_package_install1
 # @command stage rescue package install <stage>
-# @summary Install the meta package into the mounted rescue root -- and with it the base sets, the kernel, every tool, elvboot and vpn-switch, from this machine's repositories and the stage's: the stage exists, the root is mounted, the package is built; then 'stage rescue package pkg'
+# @summary Install the meta package into the mounted rescue root -- and with it the base sets, every tool, elvboot and vpn-switch, from this machine's repositories and the stage's: the stage exists, the root is mounted, the package is built; then 'stage rescue package pkg'
 # @group   deploy
 # @example elebake stage rescue package install daily-v1
 # @see     stage rescue package build
@@ -1701,14 +1703,44 @@ _stage_rescue_patch_run2() {
         user=${rec%%:*}; script=${rec#*:}; mnt="$alt/mnt/patch"
         emit_note "stage rescue patch run '$1' '$2': jail on $alt, sh $script $user /mnt/patch (resources $ELEBAKE_BASE/.resource/$2)"
         printf '%s\n' "$MODIFY_DIR_CREATE '$mnt' && mount -t nullfs -o ro '$ELEBAKE_BASE/.resource/$2' '$mnt' || exit 1"
-        printf '%s\n' "jail -c path='$alt' ip4=disable ip6=disable exec.clean=1 command=/bin/sh '$script' '$user' /mnt/patch; rc=\$?"
-        printf '%s\n' "umount '$mnt'; rmdir '$mnt'; test \"\$rc\" = 0 || { printf '# Error: stage rescue patch %s: the script failed (exit %s)\\n' '$2' \"\$rc\" >&2; exit 1; }"
+        printf '%s\n' "jail -c name='elebake-$1-patch' path='$alt' ip4=disable ip6=disable exec.clean=1 command=/bin/sh '$script' '$user' /mnt/patch; rc=\$?"
+        printf '%s\n' "jail -r 'elebake-$1-patch' 2>/dev/null; umount '$mnt'; rmdir '$mnt'; test \"\$rc\" = 0 || { printf '# Error: stage rescue patch %s: the script failed (exit %s)\\n' '$2' \"\$rc\" >&2; exit 1; }"
         printf '%s\n' "printf '# rescue: patch %s applied inside %s as %s\\n' '$2' '$alt' '$user' >&2"
+}
+
+#@help ___stage_rescue_kernel_mirror1
+# @command stage rescue kernel mirror <stage>
+# @summary Take the kernel of the stage's boot tree over into the mounted rescue root: the stage exists, the root is mounted, boot/kernel/kernel is in the stage; then 'stage rescue kernel copy'. The root runs the kernel the medium boots -- the one the pair carries, redacted or full -- whether 'stage include' took it from the package under /boot or 'stage build kernel' baked it from the fork; so what rc loads at run time (kld_list, the Linuxolator's fdescfs) was built with the kernel that runs. The package's copy under /boot/kernel goes.
+# @group   deploy
+# @example elebake stage rescue kernel mirror daily-v1
+# @see     stage include
+# @see     stage build kernel
+# @see     stage rescue build
+#@end
+___stage_rescue_kernel_mirror1() {
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage check stage '$1'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage rescue dataset mounted '$1'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage boot file exists '$1' kernel/kernel"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage rescue kernel copy '$1'"
+}
+
+#@help _stage_rescue_kernel_copy1
+# @command stage rescue kernel copy <stage>
+# @summary Act terminal (root): <root>/boot/kernel replaced by a copy of the stage's boot/kernel (cp -a, then root:wheel), the version line of the copied kernel on stderr
+# @group   deploy
+# @internal
+# @see     stage rescue kernel mirror
+#@end
+_stage_rescue_kernel_copy1() {
+        local alt="$ELEBAKE_ROOT/mnt/$1-rescue"
+        emit_note "stage rescue kernel mirror '$1': boot/kernel of the stage into $alt/boot/kernel"
+        printf '%s\n' "rm -rf '$alt/boot/kernel' && cp -a '$ELEBAKE_BASE/stage/$1/boot/kernel' '$alt/boot/kernel' && chown -R root:wheel '$alt/boot/kernel' || exit 1"
+        printf '%s\n' "printf '# rescue: kernel of stage %s mirrored into %s: %s\\n' '$1' '$alt/boot/kernel' \"\$(strings -n 20 '$alt/boot/kernel/kernel' | grep -m1 '@(#)FreeBSD')\" >&2"
 }
 
 #@help ___stage_rescue_build1
 # @command stage rescue build <stage>
-# @summary Build the opened rescue root, in phases: the stage exists, the root is mounted; then 'stage rescue package install' (the meta package and everything it names), 'config mirror', 'local write', 'user mirror', 'transient write', 'patch apply' (the databases, built into the image by the recorded patches) and, last, 'baseline' (the signed manifest of the finished tree). Before: dataset open and package build; after: dataset close and snapshot
+# @summary Build the opened rescue root, in phases: the stage exists, the root is mounted; then 'stage rescue package install' (the meta package and everything it names), 'kernel mirror' (the stage's kernel over the package's), 'config mirror', 'local write', 'user mirror', 'transient write', 'patch apply' (the databases, built into the image by the recorded patches) and, last, 'baseline' (the signed manifest of the finished tree). Before: dataset open and package build; after: dataset close and snapshot
 # @group   deploy
 # @example elebake stage rescue build daily-v1
 # @see     stage rescue dataset open
@@ -1720,6 +1752,7 @@ ___stage_rescue_build1() {
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage check stage '$1'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage rescue dataset mounted '$1'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage rescue package install '$1'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage rescue kernel mirror '$1'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage rescue config mirror '$1'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage rescue local write '$1'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage rescue user mirror '$1'"
@@ -1733,7 +1766,7 @@ ___stage_rescue_build1() {
 # @completion old-keyfile files
 # @summary After a rotation of the key file (zroot.key): set slot 0 of the medium's rescue partition to the rescue passphrase and the NEW recorded key file, opening it with the passphrase and the OLD one: the stage exists, the medium is inserted, the partition and the key file are recorded, the passphrase file is there; then 'stage rescue card setkey'
 # @group   deploy
-# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the passphrase file lives on (default /tmp/ram)
+# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the passphrase file lives on (default .ram under the database)
 # @example elebake stage rescue card rekey daily-v1 b /tmp/ram/zroot.key.old
 # @see     stage rescue keyfile add
 #@end
@@ -1752,10 +1785,10 @@ ___stage_rescue_card_rekey3() {
 # @summary Act terminal (root): geli setkey -n 0 with -j <passphrase> -k <old> as the opening pair and -J <passphrase> -K <new> as the new one
 # @group   deploy
 # @internal
-# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the passphrase file lives on (default /tmp/ram)
+# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the passphrase file lives on (default .ram under the database)
 #@end
 _stage_rescue_card_setkey3() {
-        local part="" key="" d="${ELEBAKE_TPM_WORKDIR:-/tmp/ram}"
+        local part="" key="" d="$(ram_dir)"
         part=$(sed -n 1p "$ELEBAKE_BASE/stage/$1/rescue/cards/$2" 2>/dev/null)
         key="$ELEBAKE_BASE/stage/$1/boot$(sed -n 's|^/boot||p' "$ELEBAKE_BASE/stage/$1/rescue/keyfile" 2>/dev/null)"
         emit_note "stage rescue card rekey '$1' medium '$2': slot 0 of /dev/$part from $3 to $key (passphrase unchanged)"

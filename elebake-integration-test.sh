@@ -720,6 +720,8 @@ EOF
 }
 
 summary() {
+  local gh
+  for gh in "$TEST_BASE_DIR"/*/gh; do [ -d "$gh" ] && GNUPGHOME="$gh" gpgconf --kill all 2>/dev/null; done
   echo ""
   echo "========================================"
   echo "Integration Test Summary"

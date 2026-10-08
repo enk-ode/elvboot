@@ -1,4 +1,6 @@
-/tmp/ram
-# The RAM disk the stage tpm family works on: the secret, the auth hashes
-# and the session contexts never touch a disk. Must be a mount point
-# (stage tpm workdir ready): sudo mount -t tmpfs -o size=64m tmpfs /tmp/ram
+.ram
+# The RAM disk the tpm and rescue families work on: secrets, auth hashes,
+# session contexts and the rescue passphrase never touch a disk. Relative
+# to the database (.ram) or absolute. 'elebake ram open' mounts a tmpfs of
+# 64 MiB there, owned by the database's owner; 'elebake ram close' wipes
+# and unmounts it. stage rescue passphrase opens it itself.

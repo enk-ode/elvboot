@@ -30,11 +30,11 @@ elebake stage kenv add daily-v1 loader.trust.firmware.moving.var ea1fcaee-3a77-4
 # or the acts print their script instead of running it.
 elebake setenv ELEBAKE_INTERPRETER_stage_tpm_anchor_make 'sudo sh'
 elebake setenv ELEBAKE_INTERPRETER_stage_medium_stamp_write 'sudo sh'
-sudo mount -t tmpfs -o size=64m tmpfs /tmp/ram && sudo chown $(id -un) /tmp/ram
-gpg --decrypt ~/.local/share/hkdf-tree/seed.gpg | hkdf-tree show --config ~/.config/hkdf-tree/inventory.yaml --entry enk-ode/illyria/tpm-hierarchy-v1 | base64 -d | hexdump -ve '1/1 "%02x"' > /tmp/ram/auth-hierarchy.hex    # the TPM's owner password (workflow tpm-seal): the indices are defined as the owner
+elebake ram open
+gpg --decrypt ~/.local/share/hkdf-tree/seed.gpg | hkdf-tree show --config ~/.config/hkdf-tree/inventory.yaml --entry enk-ode/illyria/tpm-hierarchy-v1 | base64 -d | hexdump -ve '1/1 "%02x"' > ~/.elebake/db/.ram/auth-hierarchy.hex    # the TPM's owner password (workflow tpm-seal): the indices are defined as the owner
 elebake stage tpm anchor daily-v1
 elebake stage tpm status daily-v1
-cd / && sudo umount /tmp/ram
+elebake ram close
 
 # --- the loader: recordlock takes the four, tellwatch the three tells ---
 elebake expectation add storage-gap byte StorageGap 1

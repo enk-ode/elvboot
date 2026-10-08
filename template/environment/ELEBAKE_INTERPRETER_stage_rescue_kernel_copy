@@ -1,0 +1,2 @@
+sudo sh
+# Act terminal of 'stage rescue kernel mirror': the stage's boot/kernel over the rescue root's; sudo sh so it copies as root.

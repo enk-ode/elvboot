@@ -262,7 +262,9 @@ ___provenance_import2() {
 # @see     provenance import
 #@end
 __provenance_id_valid1() {
-        if record_name_ok "$1"; then
+        local ok=yes
+        case "$1" in ""|.|..|*[!A-Za-z0-9_.-]*) ok=no ;; esac
+        if test "$ok" = yes; then
                 printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'receipt id $1 valid'"
         else
                 printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'provenance import: invalid receipt id $1'"

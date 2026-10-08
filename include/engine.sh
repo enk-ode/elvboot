@@ -107,7 +107,7 @@ build_env_args_full() {
     for varfile in "$env_base/local"/*; do
       [ -f "$varfile" ] || continue
       varname=${varfile##*/}
-      [ "$varname" != "ELEBAKE_CACHE_ENV_ARGS" ] || continue
+      case "$varname" in *[!A-Za-z0-9_]*|ELEBAKE_CACHE_ENV_ARGS*) continue ;; esac
       IFS= read -r value < "$varfile" || value=""
       should_skip_env_value "$value" && continue
       seen_vars="$seen_vars $varname "
@@ -118,6 +118,7 @@ build_env_args_full() {
     for varfile in "$env_base/default"/*; do
       [ -f "$varfile" ] || continue
       varname=${varfile##*/}
+      case "$varname" in *[!A-Za-z0-9_]*|ELEBAKE_CACHE_ENV_ARGS*) continue ;; esac
       if [ "$varname" = "ELEBAKE_BASE" ]; then
         display_warning "ELEBAKE_BASE found in .env files but will be ignored (must be set via environment)" >&2
         continue
@@ -145,6 +146,7 @@ build_env_args_template() {
   for varfile in "$ELEBAKE_TEMPLATE_DIR/environment"/ELEBAKE_* "$ELEBAKE_TEMPLATE_DIR/environment/PATH"; do
     [ -f "$varfile" ] || continue
     varname=${varfile##*/}
+    case "$varname" in *[!A-Za-z0-9_]*|ELEBAKE_CACHE_ENV_ARGS*) continue ;; esac
     case "$varname" in ELEBAKE_PROFILE_*|ELEBAKE_CACHE_ENV_ARGS|ELEBAKE_BASE) continue ;; esac
     IFS= read -r value < "$varfile" || value=""
     should_skip_env_value "$value" && continue
@@ -700,6 +702,14 @@ dump_signature_status() {
   else
     gpg --batch --status-fd 1 --verify "$1.asc" "$1" 2>>"${LOG_FILE:-/dev/null}"
   fi
+}
+
+# ram_dir -- the RAM disk of the database: ELEBAKE_TPM_WORKDIR, absolute or
+# relative to the database (the shipped default .ram)
+ram_dir() {
+  local d="${ELEBAKE_TPM_WORKDIR:-.ram}"
+  case "$d" in /*) ;; *) d="$ELEBAKE_BASE/$d" ;; esac
+  printf '%s\n' "$d"
 }
 
 # lookup_interpreter -- the interpreter of the function call on stdin
@@ -1688,7 +1698,7 @@ main() {
     # line 'bootstrap name valid' records the same rule), the directory
     # made 0700 (what 'bootstrap scaffold' ensures again). Neither TMPDIR
     # nor /tmp: an implicit default, and a foreign directory.
-    database_name_ok "${2:-}" || error "bootstrap: <name> is a plain database name -- no slash, not db: ${2:-(missing)} (e.g. production)"
+    { test -n "${2:-}" && test "${2#*/}" = "$2" && test "$2" != db; } || error "bootstrap: <name> is a plain database name -- no slash, not db: ${2:-(missing)} (e.g. production)"
     ELEBAKE_BASE="$ELEBAKE_ROOT/$2"
     if [ ! -d "$ELEBAKE_BASE" ]; then
       $MODIFY_DIR_CREATE "$ELEBAKE_BASE" && $MODIFY_FILE_PERMS 0700 "$ELEBAKE_BASE"

@@ -956,7 +956,7 @@ desktop received them:
 elebake bootstrap probe minimal
 elebake openpgp add archive 7CD2BCDFF6D8567A
 elebake setenv ELEBAKE_ARCHIVE_ATTEST_KEY archive
-elebake import /tmp/ram/dump.sh /tmp/ram/7.tar.gz
+elebake import ~/.elebake/db/.ram/dump.sh ~/.elebake/db/.ram/7.tar.gz
 ```
 
 Four serials it took, and each one paid for itself:
@@ -1318,9 +1318,9 @@ newer than the manifest stands), so a batch may simply name them.
 
 What the tool holds itself to since: three function types, batch,
 combinator, terminal, and nothing else -- an architecture test refuses a
-function without a type prefix outside the engine, and a "predicate" in
-predicate.sh that prints, because a predicate answers yes or no and a
-function that prints is a reader or a renderer wearing the wrong coat.
+function without a type prefix outside the engine. A yes/no question is
+asked inside the combinator that rewrites on its answer; a function that
+prints is a reader or a renderer wearing the wrong coat.
 
 The recorded mountpoint (`stage device ... [<mountpoint>]`, `/mnt` in
 this walk) is not used by any act now; every mount is on the stage's own
@@ -1397,10 +1397,10 @@ elebake stage tpm duress count daily-v1           # the counter's new value -> c
 elebake stage tpm duress count record daily-v1
 elebake stage tpm seal read daily-v1 duress       # the passphrase for the trial PolicySecret
 elebake stage tpm policy daily-v1
-elebake stage tpm seal daily-v1 owner /tmp/ram/secret.bin
-elebake stage tpm seal daily-v1 duress /tmp/ram/zempty.bin
-elebake stage tpm probe daily-v1 owner /tmp/ram/secret.bin
-elebake stage tpm probe daily-v1 duress /tmp/ram/zempty.bin
+elebake stage tpm seal daily-v1 owner ~/.elebake/db/.ram/secret.bin
+elebake stage tpm seal daily-v1 duress ~/.elebake/db/.ram/zempty.bin
+elebake stage tpm probe daily-v1 owner ~/.elebake/db/.ram/secret.bin
+elebake stage tpm probe daily-v1 duress ~/.elebake/db/.ram/zempty.bin
 elebake stage tpm clean
 elebake stage loaderconf mk daily-v1              # the new sealed value rides on the medium
 elebake stage include daily-v1

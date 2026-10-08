@@ -1,0 +1,2 @@
+sudo sh
+# Act terminal of 'stage witness measure': raw device reads and geli dump; sudo sh so it measures and writes the receipt.

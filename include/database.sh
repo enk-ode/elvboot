@@ -41,7 +41,7 @@ ___bootstrap2() {
 # @see     bootstrap
 #@end
 __bootstrap_name_valid1() {
-        if database_name_ok "$1"; then
+        if test -n "$1" && test "${1#*/}" = "$1" && test "$1" != db; then
                 printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'database name $1 valid'"
         else
                 printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'bootstrap: <name> is a plain database name -- no slash, not db: $1 (e.g. production)'"
@@ -101,9 +101,10 @@ _bootstrap_link2() {
 # @internal
 # @see     bootstrap
 # @see     environment init
+# @env     ELEBAKE_TEMPLATE_DIR  the shipped profiles: environment/ELEBAKE_PROFILE_<PROFILE>
 #@end
 __environment_profile_valid1() {
-        if profile_ok "$1"; then
+        if test -f "$ELEBAKE_TEMPLATE_DIR/environment/ELEBAKE_PROFILE_$(printf '%s' "$1" | tr '[:lower:]' '[:upper:]')"; then
                 printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'profile $1 shipped'"
         else
                 printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'unknown profile $1 (minimal | all)'"
@@ -149,7 +150,14 @@ __database_dir_ensure4() {
 # @see     database dir ensure
 #@end
 __database_dir_validate4() {
-        if test -d "$ELEBAKE_BASE/$1" && dir_content_ok "$ELEBAKE_BASE/$1" "$4" && dir_exec_ok "$ELEBAKE_BASE/$1" "$3"; then
+        local ok=yes probe="$ELEBAKE_BASE/$1/.init_exec_test_$$"
+        test -d "$ELEBAKE_BASE/$1" || ok=no
+        test "$4" = operational || test -z "$(ls -A "$ELEBAKE_BASE/$1" 2>/dev/null)" || ok=no
+        if test "$ok" = yes && test "$3" = exec; then
+                printf '#!/bin/sh\nexit 0\n' > "$probe" && chmod 0700 "$probe" && "$probe" >/dev/null 2>&1 || ok=no
+                rm -f "$probe"
+        fi
+        if test "$ok" = yes; then
                 printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" database dir validated '$1' '$2'"
         else
                 printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'database init: $1 exists but is not a directory, not empty (policy $4) or mounted noexec (flag $3) -- remove or fix it and run init again'"
@@ -212,23 +220,25 @@ ___environment_init1() {
 # @env     ELEBAKE_INTERPRETER_<function>  the pins the profile installs; a default pin the profile no longer lists is removed
 #@end
 _environment_install1() {
-        local var="" f=""
+        local var="" f="" prof="" stem=""
         for var in $(head -1 "$ELEBAKE_TEMPLATE_DIR/environment/ELEBAKE_PROFILE_$(printf '%s' "$1" | tr '[:lower:]' '[:upper:]')" 2>/dev/null); do
                 printf '%s\n' "$MODIFY_FILE_COPY_FORCE '$ELEBAKE_TEMPLATE_DIR/environment/$var' '$ELEBAKE_BASE/.env/default/$var'"
                 printf '%s\n' "$MODIFY_FILE_PERMS 0600 '$ELEBAKE_BASE/.env/default/$var'"
         done
         printf '%s\n' "$MODIFY_FILE_COPY_FORCE '$ELEBAKE_TEMPLATE_DIR/environment/ELEBAKE_PROFILE_$(printf '%s' "$1" | tr '[:lower:]' '[:upper:]')' '$ELEBAKE_BASE/.env/default/ELEBAKE_PROFILE_$(printf '%s' "$1" | tr '[:lower:]' '[:upper:]')'"
         printf '%s\n' "$MODIFY_FILE_PERMS 0600 '$ELEBAKE_BASE/.env/default/ELEBAKE_PROFILE_$(printf '%s' "$1" | tr '[:lower:]' '[:upper:]')'"
+        prof="$ELEBAKE_TEMPLATE_DIR/environment/ELEBAKE_PROFILE_$(printf '%s' "$1" | tr '[:lower:]' '[:upper:]')"
         for f in "$ELEBAKE_BASE"/.env/default/ELEBAKE_INTERPRETER_*; do
                 test -f "$f" || continue
-                pin_listed "${f##*/}" "$1" && continue
+                head -1 "$prof" 2>/dev/null | tr ' ' '\n' | grep -qx "${f##*/}" && continue
                 printf '%s\n' "$MODIFY_FILE_REMOVE '$f'"
                 emit_note "removed the stale default pin ${f##*/} (the profile no longer lists it)"
         done
         for f in "$ELEBAKE_BASE"/.env/local/ELEBAKE_INTERPRETER_*; do
                 test -f "$f" || continue
-                pin_listed "${f##*/}" "$1" && continue
-                pin_names_terminal "${f##*/}" && continue
+                head -1 "$prof" 2>/dev/null | tr ' ' '\n' | grep -qx "${f##*/}" && continue
+                stem=${f##*/}; stem=${stem#ELEBAKE_INTERPRETER_}
+                printf '%s\n' $ANCHOR_FUNCTIONS | grep -qE "^_${stem}[0-9]*$" && continue
                 emit_note "local pin ${f##*/} names no terminal of this version (a rename? it may bind a batch or combinator now) -- check: unsetenv ${f##*/}"
         done
         printf '%s\n' "$MODIFY_FILE_REMOVE '$ELEBAKE_BASE/.env/local/ELEBAKE_CACHE_ENV_ARGS' 2>/dev/null || true"
@@ -2082,12 +2092,25 @@ __export_pair5() {
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" export pair '$1' '$2' '$3' '$4' '$5' '$cur'"
 }
 
+#@help _export_fresh1
+# @command export fresh <dump>
+# @summary Act terminal (owner): the detached signature of an earlier export at this path goes -- the dump is written anew and that signature is void (seal and attest refuse a dump that carries one)
+# @group   database
+# @internal
+# @see     export
+#@end
+_export_fresh1() {
+        printf '%s\n' "$MODIFY_FILE_REMOVE '$1.asc' 2>/dev/null || true"
+        emit_note "export: a signature of an earlier export at $1 is void"
+}
+
 #@help ___export_pair6
 # @internal the export with the serial read: dump, collect, filter, manifest attest, bundle, seal, attest, provenance serial
 #@end
 ___export_pair6() {
         local work="$ELEBAKE_BASE/export" key="${ELEBAKE_ARCHIVE_ATTEST_KEY:-}"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" archive key pinned"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" export fresh '$3'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" dump '$1' '$5' '$6' > '$3'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" collect '$5' > '$work/collection.raw'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" filter '$2' '$work/collection.raw' '$work/collection'"

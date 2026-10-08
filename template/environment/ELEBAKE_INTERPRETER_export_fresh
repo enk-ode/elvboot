@@ -1,0 +1,3 @@
+sh
+# Act terminal of 'export': removes the signature of an earlier export at the same path; sh so it acts.
+# @see ELEBAKE_INTERPRETER_seal_write

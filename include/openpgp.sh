@@ -49,7 +49,7 @@ ___openpgp_add3() {
 # @see     openpgp add
 #@end
 __openpgp_keyid_valid1() {
-        if keyid_ok "$1"; then
+        if printf '%s\n' "$1" | grep -qxE '[0-9A-Fa-f]{8}|[0-9A-Fa-f]{16}|[0-9A-Fa-f]{40}'; then
                 printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'keyid $1 valid'"
         else
                 printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'openpgp add: keyid must be hex (16 digits, or the 40-digit fingerprint): $1'"

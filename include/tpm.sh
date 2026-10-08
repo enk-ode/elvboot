@@ -85,7 +85,7 @@
 # @command stage tpm key <stage>
 # @summary Make the storage key the loader's sessions salt to persistent under loader.trust.tpm.key.handle: the stage exists, the leaf is set, the work directory is a mounted RAM disk; then 'stage tpm key make' (createprimary from the owner seed -- the same key every time on the same TPM -- evictcontrol, readpublic: the name's digest is what stage baseline learn takes from loader.trust.tpm.key.sha256 after the first boot)
 # @group   provisioning
-# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the contexts live on (default /tmp/ram)
+# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the contexts live on (default .ram under the database)
 # @example elebake stage tpm key daily-v1
 # @see     stage tpm policy
 # @see     stage baseline learn
@@ -118,16 +118,114 @@ __stage_tpm_leaf_set2() {
 # @summary The work directory ELEBAKE_TPM_WORKDIR is a mount point (a RAM disk, so nothing lands on a disk): a comment line, else an error line with the mount command
 # @group   provisioning
 # @internal
-# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the contexts live on (default /tmp/ram)
+# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the contexts live on (default .ram under the database)
 # @see     stage tpm key
 #@end
 __stage_tpm_workdir_ready0() {
-        local d="${ELEBAKE_TPM_WORKDIR:-/tmp/ram}"
+        local d="$(ram_dir)"
         if mount | grep -q " on $d "; then
                 printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'work directory $d is mounted'"
         else
-                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'stage tpm: $d is not a mount point (sudo mount -t tmpfs -o size=64m tmpfs $d && sudo chown \$(id -un) $d)'"
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'stage tpm: $d is not a mount point (elebake ram open)'"
         fi
+}
+
+#@help __ram_open0
+# @command ram open
+# @summary The RAM disk of the database (ELEBAKE_TPM_WORKDIR, default .ram under the database) is mounted: a comment line; else rewrite to 'ram mount'. What the tpm and rescue families keep there -- secrets, auth hashes, session contexts, the rescue passphrase -- never touches a disk
+# @group   provisioning
+# @env     ELEBAKE_TPM_WORKDIR  the RAM disk, absolute or relative to the database (default .ram)
+# @example elebake ram open
+# @see     ram close
+# @see     ram mount
+#@end
+__ram_open0() {
+        local d
+        d=$(ram_dir)
+        if mount | grep -q " on $d "; then
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'RAM disk $d is mounted'"
+        else
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" ram mount"
+        fi
+}
+
+#@help _ram_mount0
+# @command ram mount
+# @summary Act terminal (root): the directory and a tmpfs of 64 MiB on it, owned by the database's owner with mode 0700 -- the mount options carry the owner, nothing to chown afterwards
+# @group   provisioning
+# @internal
+# @env     ELEBAKE_TPM_WORKDIR  the RAM disk (default .ram under the database)
+# @see     ram open
+#@end
+_ram_mount0() {
+        local d owner uid gid
+        d=$(ram_dir)
+        owner=$($EXAMINE_FILE_OWNER "$ELEBAKE_BASE/.env/default" 2>/dev/null)
+        owner=${owner:-$(id -u):$(id -g)}
+        uid=${owner%%:*}; gid=${owner#*:}
+        printf '%s\n' "$MODIFY_DIR_CREATE '$d' && chmod 0700 '$d' && chown '${uid:-0}:${gid:-0}' '$d'"
+        printf '%s\n' "mount -t tmpfs -o size=64m,mode=0700,uid=${uid:-0},gid=${gid:-0} tmpfs '$d'"
+        emit_note "RAM disk mounted at $d (64 MiB, owner $owner)"
+}
+
+#@help __ram_close0
+# @command ram close
+# @summary The RAM disk is mounted: rewrite to 'ram release' (every file overwritten and removed, the tmpfs unmounted, the directory gone); else a comment line
+# @group   provisioning
+# @env     ELEBAKE_TPM_WORKDIR  the RAM disk (default .ram under the database)
+# @example elebake ram close
+# @see     ram open
+#@end
+__ram_close0() {
+        local d
+        d=$(ram_dir)
+        if mount | grep -q " on $d "; then
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" ram release"
+        else
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'no RAM disk at $d'"
+        fi
+}
+
+#@help ___ram_release0
+# @command ram release
+# @summary Wipe, then unmount: 'ram wipe', 'ram umount'
+# @group   provisioning
+# @internal
+# @see     ram close
+#@end
+___ram_release0() {
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" ram wipe"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" ram umount"
+}
+
+#@help _ram_wipe0
+# @command ram wipe
+# @summary Act terminal (owner): every file on the RAM disk overwritten and removed (rm -P)
+# @group   provisioning
+# @internal
+# @env     ELEBAKE_TPM_WORKDIR  the RAM disk (default .ram under the database)
+# @see     ram release
+#@end
+_ram_wipe0() {
+        local d
+        d=$(ram_dir)
+        printf '%s\n' "find '$d' -type f -exec rm -P {} +"
+        emit_note "RAM disk $d wiped"
+}
+
+#@help _ram_umount0
+# @command ram umount
+# @summary Act terminal (root): the tmpfs unmounted, the directory removed
+# @group   provisioning
+# @internal
+# @env     ELEBAKE_TPM_WORKDIR  the RAM disk (default .ram under the database)
+# @see     ram release
+#@end
+_ram_umount0() {
+        local d
+        d=$(ram_dir)
+        printf '%s\n' "umount '$d' && rmdir '$d'"
+        emit_note "RAM disk $d released"
 }
 
 #@help _stage_tpm_key_make1
@@ -135,11 +233,11 @@ __stage_tpm_workdir_ready0() {
 # @summary Act terminal (root): tpm2_createprimary (owner hierarchy, RSA, sha256), the old entry under the handle evicted, the new one persisted, readpublic of the name; prints the name's 32-byte digest as hex
 # @group   provisioning
 # @internal
-# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the contexts live on (default /tmp/ram)
+# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the contexts live on (default .ram under the database)
 # @see     stage tpm key
 #@end
 _stage_tpm_key_make1() {
-        local d="${ELEBAKE_TPM_WORKDIR:-/tmp/ram}" h=""
+        local d="$(ram_dir)" h=""
         h=$(sed -n 1p "$ELEBAKE_BASE/stage/$1/kenv/loader.trust.tpm.key.handle" 2>/dev/null)
         emit_note "stage tpm key '$1': storage key -> $h"
         cat <<EOF
@@ -159,7 +257,7 @@ EOF
 # @command stage tpm policy <stage>
 # @summary Write the two policies the sealed objects are created under, on the RAM disk: owner.policy (PolicyPCR over loader.trust.tpm.keyfile.pcrs, PolicyAuthValue, PolicyNV duress.count.nv == duress.count.sealed, authorized by the index itself), duress.policy (PolicySecret against duress.nv, PolicyPCR). First the checks (stage tpm policy check), then the operands, then one trial session per role; the trial PolicySecret counts the PIN index, so pinCount is written back to 0 at the end
 # @group   provisioning
-# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the contexts live on (default /tmp/ram)
+# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the contexts live on (default .ram under the database)
 # @example elebake stage tpm policy daily-v1
 # @see     stage tpm duress
 # @see     stage tpm seal
@@ -211,11 +309,11 @@ __stage_tpm_count_sealed_valid1() {
 # @summary Act terminal: the PolicyNV operand as a file on the work directory -- sealed8.bin (the 8 bytes of loader.trust.tpm.duress.count.sealed, rendered here as octal escapes: nothing is converted at run time)
 # @group   provisioning
 # @internal
-# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the contexts live on (default /tmp/ram)
+# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the contexts live on (default .ram under the database)
 # @see     stage tpm policy
 #@end
 _stage_tpm_policy_operands1() {
-        local d="${ELEBAKE_TPM_WORKDIR:-/tmp/ram}" sealed="" oct="" pair=""
+        local d="$(ram_dir)" sealed="" oct="" pair=""
         sealed=$(sed -n 1p "$ELEBAKE_BASE/stage/$1/kenv/loader.trust.tpm.duress.count.sealed" 2>/dev/null)
         for pair in $(printf '%s' "$sealed" | sed 's/../& /g'); do
                 oct="$oct\\$(printf '%03o' "0x$pair")"
@@ -232,11 +330,11 @@ EOF
 # @summary Act terminal (root): a trial session -- tpm2_policypcr over the stage's PCR list, tpm2_policyauthvalue, tpm2_policynv == sealed8.bin over duress.count.nv (the index itself authorizes the read) -- the digest written to <workdir>/owner.policy, the session flushed
 # @group   provisioning
 # @internal
-# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the contexts live on (default /tmp/ram)
+# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the contexts live on (default .ram under the database)
 # @see     stage tpm policy
 #@end
 _stage_tpm_policy_make_role_owner1() {
-        local d="${ELEBAKE_TPM_WORKDIR:-/tmp/ram}" pcrs="" pin="" cnt=""
+        local d="$(ram_dir)" pcrs="" pin="" cnt=""
         pcrs=$(sed -n 1p "$ELEBAKE_BASE/stage/$1/kenv/loader.trust.tpm.keyfile.pcrs" 2>/dev/null)
         pin=$(sed -n 1p "$ELEBAKE_BASE/stage/$1/kenv/loader.trust.tpm.duress.nv" 2>/dev/null)
         cnt=$(sed -n 1p "$ELEBAKE_BASE/stage/$1/kenv/loader.trust.tpm.duress.count.nv" 2>/dev/null)
@@ -259,11 +357,11 @@ EOF
 # @summary Act terminal (root): a trial session -- tpm2_policysecret against duress.nv with the auth in <workdir>/auth-duress.hex (this counts pinCount: stage tpm policy writes it back), tpm2_policypcr over the stage's list -- the digest written to <workdir>/duress.policy, the session flushed
 # @group   provisioning
 # @internal
-# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the contexts live on (default /tmp/ram)
+# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the contexts live on (default .ram under the database)
 # @see     stage tpm policy
 #@end
 _stage_tpm_policy_make_role_duress1() {
-        local d="${ELEBAKE_TPM_WORKDIR:-/tmp/ram}" pcrs="" pin=""
+        local d="$(ram_dir)" pcrs="" pin=""
         pcrs=$(sed -n 1p "$ELEBAKE_BASE/stage/$1/kenv/loader.trust.tpm.keyfile.pcrs" 2>/dev/null)
         pin=$(sed -n 1p "$ELEBAKE_BASE/stage/$1/kenv/loader.trust.tpm.duress.nv" 2>/dev/null)
         emit_note "stage tpm policy '$1' duress: PolicySecret($pin) + PolicyPCR sha256:$pcrs -> $d/duress.policy"
@@ -284,11 +382,11 @@ EOF
 # @summary <workdir>/auth-<role>.hex and .bin are there (stage tpm seal read left them): a comment line, else an error line naming the act that reads the passphrase
 # @group   provisioning
 # @internal
-# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the contexts live on (default /tmp/ram)
+# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the contexts live on (default .ram under the database)
 # @see     stage tpm policy
 #@end
 __stage_tpm_auth_present1() {
-        local d="${ELEBAKE_TPM_WORKDIR:-/tmp/ram}"
+        local d="$(ram_dir)"
         if test -s "$d/auth-$1.hex" && test -s "$d/auth-$1.bin"; then
                 printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'auth of $1 present on $d'"
         else
@@ -301,11 +399,11 @@ __stage_tpm_auth_present1() {
 # @summary <workdir>/auth-hierarchy.hex is there (32 bytes from the owner's seed as 64 hex characters, workflow tpm-seal puts it on the RAM disk): a comment line, else an error line -- every act that defines, evicts or writes as the owner passes it
 # @group   provisioning
 # @internal
-# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the contexts live on (default /tmp/ram)
+# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the contexts live on (default .ram under the database)
 # @see     stage tpm hierarchy
 #@end
 __stage_tpm_hierarchy_present0() {
-        local d="${ELEBAKE_TPM_WORKDIR:-/tmp/ram}"
+        local d="$(ram_dir)"
         if test -s "$d/auth-hierarchy.hex"; then
                 printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'hierarchy password present on $d'"
         else
@@ -317,7 +415,7 @@ __stage_tpm_hierarchy_present0() {
 # @command stage tpm hierarchy
 # @summary Set the owner and the lockout password of the TPM to the 32 bytes <workdir>/auth-hierarchy.hex spells, once, from empty: the work directory is a mounted RAM disk, the file is there; then 'stage tpm hierarchy set'. Every later act that defines, evicts or writes as the owner passes the file; the boot path needs none of it (the loader and earlboot authorize through the indices themselves). Lost: the firmware's TPM clear, then everything anew
 # @group   provisioning
-# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the contexts live on (default /tmp/ram)
+# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the contexts live on (default .ram under the database)
 # @example elebake stage tpm hierarchy
 # @see     stage tpm key
 # @see     stage tpm status
@@ -333,11 +431,11 @@ ___stage_tpm_hierarchy0() {
 # @summary Act terminal (root): tpm2_changeauth of the owner hierarchy and of the lockout hierarchy from the empty password to the file's bytes (a hierarchy that has one already refuses: change it by hand, the old file as --object-auth), tpm2_getcap as the receipt
 # @group   provisioning
 # @internal
-# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the contexts live on (default /tmp/ram)
+# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the contexts live on (default .ram under the database)
 # @see     stage tpm hierarchy
 #@end
 _stage_tpm_hierarchy_set0() {
-        local d="${ELEBAKE_TPM_WORKDIR:-/tmp/ram}"
+        local d="$(ram_dir)"
         emit_note "stage tpm hierarchy: owner and lockout password from $d/auth-hierarchy.hex"
         cat <<EOF
 export TPM2TOOLS_TCTI=device:/dev/tpm0
@@ -352,7 +450,7 @@ EOF
 # @command stage tpm seal <stage> <owner|duress> <secret-file>
 # @summary Seal the secret into the persistent object of the role: owner -- the first handle of loader.trust.tpm.keyfile.handles, under owner.policy, with the owner passphrase's sha256 as auth value (read hidden twice); duress -- the second handle, under duress.policy, no auth value (the PIN index proves the passphrase). The stage exists, the role's prerequisites hold (stage tpm seal check role), the passphrase is read where the role has one, the object is created, loaded, persisted. The owner's secret is the production root's key file; the duress one is the decoy root's key file
 # @group   provisioning
-# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the contexts live on (default /tmp/ram)
+# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the contexts live on (default .ram under the database)
 # @example elebake stage tpm seal daily-v1 owner /tmp/ram/secret.bin
 # @example elebake stage tpm seal daily-v1 duress /tmp/ram/zempty.bin
 # @see     stage tpm policy
@@ -464,11 +562,11 @@ __stage_tpm_seal_read_role2() {
 # @summary Act terminal (root): tpm2_create under the parent loader.trust.tpm.key.handle with owner.policy and the auth value from <workdir>/auth-owner.bin (fixedtpm|fixedparent|adminwithpolicy|noda -- a typo must not lock the TPM), the old object under the first handle of keyfile.handles evicted, the new one loaded and persisted; the transient objects flushed after every step, the pub/priv/ctx files wiped
 # @group   provisioning
 # @internal
-# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the contexts live on (default /tmp/ram)
+# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the contexts live on (default .ram under the database)
 # @see     stage tpm seal
 #@end
 _stage_tpm_seal_object_role_owner2() {
-        local d="${ELEBAKE_TPM_WORKDIR:-/tmp/ram}" parent="" h=""
+        local d="$(ram_dir)" parent="" h=""
         parent=$(sed -n 1p "$ELEBAKE_BASE/stage/$1/kenv/loader.trust.tpm.key.handle" 2>/dev/null)
         h=$(sed -n 1p "$ELEBAKE_BASE/stage/$1/kenv/loader.trust.tpm.keyfile.handles" 2>/dev/null | cut -d' ' -f1)
         emit_note "stage tpm seal '$1' owner: object $h under $parent, owner.policy, auth value from auth-owner.bin"
@@ -492,11 +590,11 @@ EOF
 # @summary Act terminal (root): tpm2_create under the parent loader.trust.tpm.key.handle with duress.policy and no auth value (fixedtpm|fixedparent|adminwithpolicy|noda), the old object under the second handle of keyfile.handles evicted, the new one loaded and persisted; the transient objects flushed after every step, the pub/priv/ctx files wiped
 # @group   provisioning
 # @internal
-# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the contexts live on (default /tmp/ram)
+# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the contexts live on (default .ram under the database)
 # @see     stage tpm seal
 #@end
 _stage_tpm_seal_object_role_duress2() {
-        local d="${ELEBAKE_TPM_WORKDIR:-/tmp/ram}" parent="" h=""
+        local d="$(ram_dir)" parent="" h=""
         parent=$(sed -n 1p "$ELEBAKE_BASE/stage/$1/kenv/loader.trust.tpm.key.handle" 2>/dev/null)
         h=$(sed -n 1p "$ELEBAKE_BASE/stage/$1/kenv/loader.trust.tpm.keyfile.handles" 2>/dev/null | cut -d' ' -f2)
         emit_note "stage tpm seal '$1' duress: object $h under $parent, duress.policy, no auth value"
@@ -547,11 +645,11 @@ __stage_tpm_secret_readable1() {
 # @summary <workdir>/<role>.policy is there (stage tpm policy wrote it): a comment line, else an error line
 # @group   provisioning
 # @internal
-# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the contexts live on (default /tmp/ram)
+# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the contexts live on (default .ram under the database)
 # @see     stage tpm seal
 #@end
 __stage_tpm_policy_present1() {
-        local d="${ELEBAKE_TPM_WORKDIR:-/tmp/ram}"
+        local d="$(ram_dir)"
         if test -s "$d/$1.policy"; then
                 printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'policy $d/$1.policy present'"
         else
@@ -564,11 +662,11 @@ __stage_tpm_policy_present1() {
 # @summary Act terminal: the script that reads the role's passphrase twice on /dev/tty with echo off, refuses empty or differing entries, hashes it with sha256 and writes the hex to <workdir>/auth-<role>.hex (the probe's hex: form) and the raw bytes to auth-<role>.bin (tpm2_create's file: form) -- the passphrase never leaves the script
 # @group   provisioning
 # @internal
-# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the contexts live on (default /tmp/ram)
+# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the contexts live on (default .ram under the database)
 # @see     stage tpm seal
 #@end
 _stage_tpm_seal_read2() {
-        local d="${ELEBAKE_TPM_WORKDIR:-/tmp/ram}"
+        local d="$(ram_dir)"
         cat <<EOF
 { : < /dev/tty; } 2>/dev/null || { printf '# Error: %s\\n' 'stage tpm seal: needs a terminal to read the passphrase hidden' >&2; exit 1; }
 printf 'passphrase of the %s object for %s (hidden): ' '$2' '$1' > /dev/tty; stty -echo < /dev/tty; IFS= read -r a < /dev/tty; stty echo < /dev/tty; printf '\\n' > /dev/tty
@@ -582,7 +680,7 @@ EOF
 # @command stage tpm counter <stage>
 # @summary Define the increment-only counters: loader.trust.tpm.counter.nv (the loader raises it when the duress object opened) and, when the stage names it, loader.trust.halt.nv (earlboot raises it before a shutdown it was bound to; the loader's HaltQuiet claim reads it against the learned halt.expected): the stage exists, the counter leaf is set, the work directory ready; then 'stage tpm counter make' (policy = PolicyCommandCode NV_Increment, attributes nt=counter|policywrite|authread|no_da: anyone reads the number, nobody lowers it -- the trace of a duress boot, of a halt)
 # @group   provisioning
-# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the contexts live on (default /tmp/ram)
+# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the contexts live on (default .ram under the database)
 # @example elebake stage tpm counter daily-v1
 # @see     stage tpm seal
 #@end
@@ -599,11 +697,11 @@ ___stage_tpm_counter1() {
 # @summary Act terminal (root): a trial session with tpm2_policycommandcode TPM2_CC_NV_Increment written to <workdir>/nvinc.policy, tpm2_nvdefine of the 8-byte counter under that policy, tpm2_nvreadpublic as the receipt
 # @group   provisioning
 # @internal
-# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the contexts live on (default /tmp/ram)
+# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the contexts live on (default .ram under the database)
 # @see     stage tpm counter
 #@end
 _stage_tpm_counter_make1() {
-        local d="${ELEBAKE_TPM_WORKDIR:-/tmp/ram}" nv="" halt=""
+        local d="$(ram_dir)" nv="" halt=""
         nv=$(sed -n 1p "$ELEBAKE_BASE/stage/$1/kenv/loader.trust.tpm.counter.nv" 2>/dev/null)
         halt=$(sed -n 1p "$ELEBAKE_BASE/stage/$1/kenv/loader.trust.halt.nv" 2>/dev/null)
         emit_note "stage tpm counter '$1': NV index $nv (duress)${halt:+, $halt (halt)}, increment-only; an index already defined is kept, one without a value is initialized (a counter reads TPM_RC_NV_UNINITIALIZED until its first increment)"
@@ -632,7 +730,7 @@ EOF
 # @command stage tpm duress <stage>
 # @summary Define the duress index loader.trust.tpm.duress.nv, a TPM_NT_PIN_PASS index whose authValue is the duress passphrase's sha256 (the same form the objects take): the stage exists, the leaf is set, the work directory ready; the passphrase is read hidden twice (stage tpm seal read <stage> duress, auth-duress.hex/.bin on the RAM disk -- stage tpm policy needs it for the trial PolicySecret), then 'stage tpm duress make'. The index reads pinCount || pinLimit; every duress unseal (PolicySecret) counts pinCount up, and pinLimit 0xffffffff never spends it: the decoy opens again and again, the count is the owner's witness (stage tpm status). The seal's death is the second counter's business (duress.count.nv, raised by the loader on the first duress unseal). After a duress event: stage tpm duress reset (the count read, then back to 0), then stage tpm seal again
 # @group   provisioning
-# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the contexts live on (default /tmp/ram)
+# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the contexts live on (default .ram under the database)
 # @example elebake stage tpm duress daily-v1
 # @see     stage tpm duress count
 # @see     stage tpm duress reset
@@ -652,11 +750,11 @@ ___stage_tpm_duress1() {
 # @summary Act terminal (root): the old index undefined if there (a new passphrase, a new authValue; the Name does not change, the sealed policies stay valid), tpm2_nvdefine of the 8-byte PIN_PASS index (nt=pinpass|ownerwrite|ownerread|authread|no_da) with the authValue from auth-duress.bin, tpm2_nvwrite pinCount 0 pinLimit 0xffffffff as the owner, tpm2_nvreadpublic as the receipt
 # @group   provisioning
 # @internal
-# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the contexts live on (default /tmp/ram)
+# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the contexts live on (default .ram under the database)
 # @see     stage tpm duress
 #@end
 _stage_tpm_duress_make1() {
-        local d="${ELEBAKE_TPM_WORKDIR:-/tmp/ram}" pin=""
+        local d="$(ram_dir)" pin=""
         pin=$(sed -n 1p "$ELEBAKE_BASE/stage/$1/kenv/loader.trust.tpm.duress.nv" 2>/dev/null)
         emit_note "stage tpm duress '$1': PIN_PASS index $pin, pinLimit 0xffffffff, authValue = sha256 of the duress passphrase"
         cat <<EOF
@@ -692,11 +790,11 @@ ___stage_tpm_duress_reset1() {
 # @summary Act terminal (root): tpm2_nvwrite of pinCount 0 pinLimit 0xffffffff into the PIN index with owner auth, the value read back
 # @group   provisioning
 # @internal
-# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the contexts live on (default /tmp/ram)
+# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the contexts live on (default .ram under the database)
 # @see     stage tpm duress reset
 #@end
 _stage_tpm_duress_reset_write1() {
-        local d="${ELEBAKE_TPM_WORKDIR:-/tmp/ram}" pin=""
+        local d="$(ram_dir)" pin=""
         pin=$(sed -n 1p "$ELEBAKE_BASE/stage/$1/kenv/loader.trust.tpm.duress.nv" 2>/dev/null)
         emit_note "stage tpm duress reset '$1': pinCount 0, pinLimit 0xffffffff in $pin"
         cat <<EOF
@@ -713,7 +811,7 @@ EOF
 # @command stage tpm duress count <stage>
 # @summary Define the second counter loader.trust.tpm.duress.count.nv, the one earlboot raises for a boot answer of the coercion class (duress_count_act, PolicyCommandCode NV_Increment, authread so the loader's PolicyNV reads it through the index itself), incremented once after the define (a fresh counter reads TPM_RC_NV_UNINITIALIZED, and its first value is the TPM-wide maximum + 1, never 0); its value written to <workdir>/count-sealed.hex for 'stage tpm duress count record'. The stage exists, the leaf is set, the work directory ready; then 'stage tpm duress count make'
 # @group   provisioning
-# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the contexts live on (default /tmp/ram)
+# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the contexts live on (default .ram under the database)
 # @example elebake stage tpm duress count daily-v1
 # @see     stage tpm duress count record
 # @see     stage tpm counter
@@ -731,11 +829,11 @@ ___stage_tpm_duress_count1() {
 # @summary Act terminal (root): a trial session with tpm2_policycommandcode TPM2_CC_NV_Increment, tpm2_nvdefine of the 8-byte counter under it (nt=counter|ownerread|authread|policywrite|no_da) unless defined, one increment under the policy unless initialized, the value read as the owner and written as 16 hex characters to <workdir>/count-sealed.hex (world-readable: it is no secret, it is in the policy digest)
 # @group   provisioning
 # @internal
-# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the contexts live on (default /tmp/ram)
+# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the contexts live on (default .ram under the database)
 # @see     stage tpm duress count
 #@end
 _stage_tpm_duress_count_make1() {
-        local d="${ELEBAKE_TPM_WORKDIR:-/tmp/ram}" cnt=""
+        local d="$(ram_dir)" cnt=""
         cnt=$(sed -n 1p "$ELEBAKE_BASE/stage/$1/kenv/loader.trust.tpm.duress.count.nv" 2>/dev/null)
         emit_note "stage tpm duress count '$1': counter $cnt, increment-only, readable through the index; its value -> $d/count-sealed.hex"
         cat <<EOF
@@ -764,7 +862,7 @@ EOF
 # @command stage tpm duress count record <stage>
 # @summary Take the counter's value stage tpm duress count left in <workdir>/count-sealed.hex (16 hex characters) and record it as loader.trust.tpm.duress.count.sealed: the stage exists; then 'stage kenv add' with the value (stage tpm duress count sealed). The loader reads it from loader.trust.conf (stage loaderconf mk, include, sign, push after this); stage tpm policy and stage tpm seal owner take it from the record. Run again after every increment of the counter (a duress event of the fish path) -- after 'stage kenv drop <stage> loader.trust.tpm.duress.count.sealed': the record is immutable, a differing value is refused
 # @group   provisioning
-# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the contexts live on (default /tmp/ram)
+# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the contexts live on (default .ram under the database)
 # @example elebake stage tpm duress count record daily-v1
 # @see     stage tpm duress count
 # @see     stage kenv add
@@ -779,11 +877,11 @@ ___stage_tpm_duress_count_record1() {
 # @summary <workdir>/count-sealed.hex holds 16 hex characters: rewrite to 'stage kenv add <stage> loader.trust.tpm.duress.count.sealed <value>', else an error line naming stage tpm duress count
 # @group   provisioning
 # @internal
-# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the contexts live on (default /tmp/ram)
+# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the contexts live on (default .ram under the database)
 # @see     stage tpm duress count record
 #@end
 __stage_tpm_duress_count_sealed1() {
-        local d="${ELEBAKE_TPM_WORKDIR:-/tmp/ram}" v=""
+        local d="$(ram_dir)" v=""
         v=$(sed -n 1p "$d/count-sealed.hex" 2>/dev/null | tr -d ' ')
         if printf '%s\n' "$v" | grep -qx '[0-9a-f]\{16\}'; then
                 printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage kenv add '$1' loader.trust.tpm.duress.count.sealed '$v'"
@@ -796,7 +894,7 @@ __stage_tpm_duress_count_sealed1() {
 # @command stage tpm anchor <stage>
 # @summary Define the two time-anchor indices: loader.trust.tpm.anchor.nv, which the loader writes at record commit under PolicyPCR over the cap PCR in its BOOT state and then caps (one PCR extend: root at runtime cannot rewrite it), and loader.trust.tpm.shutdown.nv, which elvbootd writes at shutdown under PolicyPCR over the CAPPED state (so only the runtime after the loader's cap can write it; a shutdown without the hook leaves an old index and SmartStep falls): the stage exists, the three leafs are set, the work directory ready; then 'stage tpm anchor make'. Threat model assumed: wall time is the RTC, which anyone with the setup can set; the anchor makes a forged RTC agree with the TPM clock and the NVMe counters, which only grow. No secret is involved: the anchor carries an HMAC under the record material, the shutdown index a plain digest
 # @group   provisioning
-# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the contexts live on (default /tmp/ram)
+# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the contexts live on (default .ram under the database)
 # @example elebake stage tpm anchor daily-v1
 # @see     stage tpm counter
 # @see     stage tpm status
@@ -816,11 +914,11 @@ ___stage_tpm_anchor1() {
 # @summary Act terminal (root): the two PCR states as files (32 zero bytes = the boot state; sha256(zeros || sha256("elvboot cap")) = the capped state), two trial sessions with tpm2_policypcr against those files (anchor.policy, shutdown.policy), tpm2_nvdefine of two 64-byte indices under them (policywrite|authread|no_da), tpm2_nvreadpublic as the receipt; indices already defined are kept
 # @group   provisioning
 # @internal
-# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the contexts live on (default /tmp/ram)
+# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the contexts live on (default .ram under the database)
 # @see     stage tpm anchor
 #@end
 _stage_tpm_anchor_make1() {
-        local d="${ELEBAKE_TPM_WORKDIR:-/tmp/ram}" anchor="" shut="" cap=""
+        local d="$(ram_dir)" anchor="" shut="" cap=""
         anchor=$(sed -n 1p "$ELEBAKE_BASE/stage/$1/kenv/loader.trust.tpm.anchor.nv" 2>/dev/null)
         shut=$(sed -n 1p "$ELEBAKE_BASE/stage/$1/kenv/loader.trust.tpm.shutdown.nv" 2>/dev/null)
         cap=$(sed -n 1p "$ELEBAKE_BASE/stage/$1/kenv/loader.trust.tpm.cap.pcr" 2>/dev/null)
@@ -850,7 +948,7 @@ EOF
 # @command stage tpm probe <stage> <owner|duress> <secret-file>
 # @summary Unseal the role's object the way the loader does -- a session salted to loader.trust.tpm.key.handle, the role's policy replayed -- and compare with the secret file: the stage exists, then the role's probe (stage tpm probe role): its prerequisites (the same as the seal's), the unseal, and for duress the pinCount written back to 0 (the PolicySecret counted)
 # @group   provisioning
-# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the contexts live on (default /tmp/ram)
+# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the contexts live on (default .ram under the database)
 # @example elebake stage tpm probe daily-v1 duress /tmp/ram/zempty.bin
 # @see     stage tpm seal
 # @see     stage tpm clean
@@ -904,11 +1002,11 @@ __stage_tpm_probe_role3() {
 # @summary Act terminal (root): tpm2_startauthsession --policy-session --tpmkey-context=<key handle>, policypcr, policyauthvalue, policynv zero4.bin over duress.nv, policynv sealed8.bin over duress.count.nv, tpm2_unseal of the first handle with session+hex:<auth-owner.hex> piped into cmp against the secret file -- prints 'unseal-owner-ok' or fails
 # @group   provisioning
 # @internal
-# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the contexts live on (default /tmp/ram)
+# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the contexts live on (default .ram under the database)
 # @see     stage tpm probe
 #@end
 _stage_tpm_probe_unseal_role_owner2() {
-        local d="${ELEBAKE_TPM_WORKDIR:-/tmp/ram}" key="" pcrs="" h="" pin="" cnt=""
+        local d="$(ram_dir)" key="" pcrs="" h="" pin="" cnt=""
         key=$(sed -n 1p "$ELEBAKE_BASE/stage/$1/kenv/loader.trust.tpm.key.handle" 2>/dev/null)
         pcrs=$(sed -n 1p "$ELEBAKE_BASE/stage/$1/kenv/loader.trust.tpm.keyfile.pcrs" 2>/dev/null)
         pin=$(sed -n 1p "$ELEBAKE_BASE/stage/$1/kenv/loader.trust.tpm.duress.nv" 2>/dev/null)
@@ -934,11 +1032,11 @@ EOF
 # @summary Act terminal (root): tpm2_startauthsession --policy-session --tpmkey-context=<key handle>, policysecret against duress.nv with hex:<auth-duress.hex>, policypcr, tpm2_unseal of the second handle with the session alone piped into cmp against the secret file -- prints 'unseal-duress-ok' or fails
 # @group   provisioning
 # @internal
-# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the contexts live on (default /tmp/ram)
+# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the contexts live on (default .ram under the database)
 # @see     stage tpm probe
 #@end
 _stage_tpm_probe_unseal_role_duress2() {
-        local d="${ELEBAKE_TPM_WORKDIR:-/tmp/ram}" key="" pcrs="" h="" pin=""
+        local d="$(ram_dir)" key="" pcrs="" h="" pin=""
         key=$(sed -n 1p "$ELEBAKE_BASE/stage/$1/kenv/loader.trust.tpm.key.handle" 2>/dev/null)
         pcrs=$(sed -n 1p "$ELEBAKE_BASE/stage/$1/kenv/loader.trust.tpm.keyfile.pcrs" 2>/dev/null)
         pin=$(sed -n 1p "$ELEBAKE_BASE/stage/$1/kenv/loader.trust.tpm.duress.nv" 2>/dev/null)
@@ -961,7 +1059,7 @@ EOF
 # @command stage tpm clean
 # @summary Wipe what the family left on the work directory: the auth hashes, contexts, policies, key files (rm -P, the RAM disk is unmounted by the owner); the work directory ready; then 'stage tpm wipe'
 # @group   provisioning
-# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the contexts live on (default /tmp/ram)
+# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the contexts live on (default .ram under the database)
 # @example elebake stage tpm clean
 # @see     stage tpm probe
 #@end
@@ -975,11 +1073,11 @@ ___stage_tpm_clean0() {
 # @summary Act terminal: rm -P of auth-*.hex, auth-*.bin, *.ctx, *.pub, *.priv, *.policy, the anchor's PCR files, srk.* on the work directory (whichever are there); the secret file is the owner's to wipe
 # @group   provisioning
 # @internal
-# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the contexts live on (default /tmp/ram)
+# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the contexts live on (default .ram under the database)
 # @see     stage tpm clean
 #@end
 _stage_tpm_wipe0() {
-        local d="${ELEBAKE_TPM_WORKDIR:-/tmp/ram}"
+        local d="$(ram_dir)"
         emit_note "stage tpm clean: wiping the contexts on $d"
         printf '%s\n' "cd '$d' || exit 1; for f in auth-owner.hex auth-duress.hex auth-owner.bin auth-duress.bin auth-hierarchy.hex primary.ctx session.ctx nv.ctx inc.ctx u.ctx owner.ctx duress.ctx owner.pub owner.priv duress.pub duress.priv pcrauth.policy owner.policy duress.policy nvinc.policy anchor.policy shutdown.policy t.ctx cap.bin pcr-boot.bin pcr-capped.bin sealed8.bin pin01.bin count-sealed.hex srk.name srk.pem; do [ -e \"\$f\" ] && rm -P \"\$f\"; done; :"
 }
@@ -1001,11 +1099,11 @@ ___stage_tpm_status1() {
 # @summary Act terminal (root): tpm2_getcap handles-persistent, tpm2_nvreadpublic of the counter, the anchor and the shutdown index when the stage names them; the stage's leafs printed beside them
 # @group   provisioning
 # @internal
-# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the contexts live on (default /tmp/ram)
+# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the contexts live on (default .ram under the database)
 # @see     stage tpm status
 #@end
 _stage_tpm_status_show1() {
-        local d="${ELEBAKE_TPM_WORKDIR:-/tmp/ram}" nv="" halt="" anchor="" shut="" pin="" cnt="" sealed=""
+        local d="$(ram_dir)" nv="" halt="" anchor="" shut="" pin="" cnt="" sealed=""
         nv=$(sed -n 1p "$ELEBAKE_BASE/stage/$1/kenv/loader.trust.tpm.counter.nv" 2>/dev/null)
         halt=$(sed -n 1p "$ELEBAKE_BASE/stage/$1/kenv/loader.trust.halt.nv" 2>/dev/null)
         anchor=$(sed -n 1p "$ELEBAKE_BASE/stage/$1/kenv/loader.trust.tpm.anchor.nv" 2>/dev/null)

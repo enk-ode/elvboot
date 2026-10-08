@@ -27,15 +27,16 @@ Rules (sharp):
   sequence (`check stage`, `check dir`, `check file`, ...); the batch
   machinery owns stop-at-first-failure, so a failed check stops the run
   before the acting terminal fires.
-- Helpers (no leading underscore, include/predicate.sh) are silent
-  predicates: they answer yes or no and never print. A value the
-  generator needs (a serial, a signer, a partition type) is read by a
-  line in the anchor that needs it, and a value several anchors need is
-  read ONCE, at the entry of the command, and handed down as an argument
-  (`restore <dump>` reads the serial, the pinned key, the signer and the
-  signer's floor stage by stage; the batch at the end compares and acts
-  on its arguments). The architecture suite refuses a module function
-  outside the three classes and a predicate that prints.
+- No helpers. A yes/no question about a name or a value is asked inside
+  the combinator that rewrites on its answer: a silent `case` or `test`
+  sets a flag, the `if` decides between the comment line and the error
+  line. A value the generator needs (a serial, a signer, a partition
+  type) is read by a line in the anchor that needs it, and a value
+  several anchors need is read ONCE, at the entry of the command, and
+  handed down as an argument (`restore <dump>` reads the serial, the
+  pinned key, the signer and the signer's floor stage by stage; the
+  batch at the end compares and acts on its arguments). The architecture
+  suite refuses a module function outside the three classes.
 
 ## 2. Generation time vs. runtime
 

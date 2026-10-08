@@ -519,7 +519,7 @@ ___stage_witness_add3() {
 # @see     stage witness add
 #@end
 __stage_witness_fields_valid2() {
-        if test -n "$1" && test "$1" != . && test "$1" != .. && test "${1%%*[!A-Za-z0-9_.-]*}" = "$1" && printf '%s\n' "$2" | grep -qx '[a-z][a-z0-9]*[0-9]p[1-9][0-9]\{0,1\}'; then
+        if test -n ""$1"" && test ""$1"" != . && test ""$1"" != .. && test "${1%%*[!A-Za-z0-9_.-]*}" = ""$1"" && printf '%s\n' "$2" | grep -qx '[a-z][a-z0-9]*[0-9]p[1-9][0-9]\{0,1\}'; then
                 printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'witness $1 on $2: a record name and a GPT partition name'"
         else
                 printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'stage witness add: a record name ([A-Za-z0-9_.-]) and a GPT partition name (<disk><n>p<m>) are needed: $1 $2'"
@@ -772,15 +772,15 @@ _stage_witness_lines1() {
                 test -f "$f" || continue
                 name=${f##*/}
                 last=$(tail -n 1 "$ELEBAKE_BASE/stage/$1/witness-receipts/$name" 2>/dev/null)
-                test -n "$last" || { missing="$missing $name"; continue; }
+                if test -z "$last"; then missing="$missing $name"; continue; fi
                 last=${last#* }
                 list="$list${list:+,}$name:${last%% *}:${last##* }"
         done
         if test -n "$missing"; then
                 printf '%s\n' "printf '# Error: stage site mk witnesses: no receipt for%s (stage witness measure %s)\\n' '$missing' '$1' >&2; exit 1"
-        else
-                printf '%s\n' "printf '%s\\n' 'CFLAGS+= -DLOADER_TRUST_WITNESS_LABELS=\\\"$list\\\"'"
+                return
         fi
+        printf '%s\n' "printf '%s\\n' 'CFLAGS+= -DLOADER_TRUST_WITNESS_LABELS=\\\"$list\\\"'"
 }
 
 #@help __stage_site_mk_disks1
