@@ -1,0 +1,2 @@
+sudo sh
+# Act terminal of 'stage kernel install': bectl create of the root as it is; sudo sh so it runs as root.

@@ -39,6 +39,7 @@ elebake stage rescue local add daily-v1 'sshd_enable="NO"'    # what the rescue 
 elebake stage rescue local add daily-v1 'kldxref_enable="NO"'  # /boot stays read-only: no linker.hints at boot
 elebake stage rescue local add daily-v1 'entropy_file="NO"'    # the root stays read-only: no seed file at /entropy ...
 elebake stage rescue local add daily-v1 'entropy_boot_file="NO"'  # ... nor at /boot/entropy (the hardware sources feed the pool)
+elebake stage rescue local add daily-v1 'root_rw_mount="NO"'   # the card's pool is imported read-only (the loader's divert sets vfs.zfs.rootpool_readonly): rc must not remount / read-write
 elebake stage rescue user add daily-v1 brj                    # read from this machine's passwd; the hash follows at mirror
 elebake stage rescue user add daily-v1 root                   # root's password only
 elebake stage rescue transient add daily-v1 /home             # the rescue is transient: these get a memory layer at boot ...

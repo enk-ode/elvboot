@@ -5,10 +5,11 @@
 # /.rescue-union holds an upper layer per path, mounted as unionfs over
 # the read-only directory. What a session writes there is gone at the next
 # boot; the card is the same image after every shutdown. Written into the
-# rescue root by 'elebake stage rescue transient write'. Runs as soon as
-# the root is there: before hostid_save writes /etc/hostid, before
-# mountcritlocal and everything after it that writes to /etc and /var
-# (zfs, var, cleanvar, ldconfig, random).
+# rescue root by 'elebake stage rescue transient write', into /etc/rc.d:
+# /etc/rc runs the base scripts up to FILESYSTEMS before any local
+# directory, and this one runs as soon as the root is there -- before
+# hostid_save writes /etc/hostid, before mountcritlocal and everything
+# after it that writes to /etc and /var (zfs, var, cleanvar, ldconfig).
 #
 # PROVIDE: rescue_union
 # REQUIRE: root

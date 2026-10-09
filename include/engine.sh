@@ -934,7 +934,9 @@ produce_with_exit() {
 	set +e  # Temporarily disable errexit to capture exit code
 	# Close stdin to prevent reading from inherited pipes (nested pipeline issue)
 	# Stderr flows naturally (not captured) to allow LOG_FILE redirections to work
-	dispatch </dev/null > "$stdout_file"
+	# A subshell: an exit inside the dispatched function ends the subshell,
+	# not this one, and the exit code reaches the file below
+	( dispatch ) </dev/null > "$stdout_file"
 	local dispatch_exit=$?
 	trace_log "|" "produce_with_exit" "dispatch returned: $dispatch_exit before set -e"
 	set -e  # Re-enable errexit

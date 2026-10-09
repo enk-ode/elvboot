@@ -780,7 +780,14 @@ elebake stage elvbootd mk daily-v1
 elebake stage elvbootd install daily-v1
 elebake stage push daily-v1 b
 elebake stage marker write daily-v1 restore | sudo sh
+elebake stage kernel install daily-v1
 ```
+
+The last line only when the kernel moved: the same kernel the medium boots
+goes over `/boot/kernel` of the root, so the modules rc loads at run time
+belong to the kernel that runs; `bectl` keeps the root as it was in a boot
+environment `pre-kernel-<UTC>`, and `stage kernel rollback` activates it.
+The rescue takes the kernel the same way (`stage rescue kernel mirror`).
 
 `recheckout` replaces  the worktree  with the  named ref  (a second  checkout is
 refused, on  purpose); `trust` exports the  OpenPGP anchor into the  worktree --

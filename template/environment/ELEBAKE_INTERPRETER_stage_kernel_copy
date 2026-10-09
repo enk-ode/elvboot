@@ -1,0 +1,2 @@
+sudo sh
+# Act terminal of 'stage kernel install': the stage's boot/kernel over /boot/kernel of the running root; sudo sh so it copies as root.

@@ -16,6 +16,7 @@ elebake stage make daily-v1                       # build, install, include, sig
 elebake stage earlboot mk daily-v1 && elebake stage earlboot install daily-v1    # the hooks carry the loader's digest:
 elebake stage elvbootd mk daily-v1 && elebake stage elvbootd install daily-v1    # regenerate after every make (install: never with sudo, the pins do it)
 elebake stage push daily-v1 b                     # manifest, attest, tree onto the medium, loader onto the ESP
+elebake stage kernel install daily-v1             # when the kernel moved: the same kernel over /boot/kernel of the root (modules rc loads at run time), behind a boot environment pre-kernel-<UTC>; stage kernel rollback <be> brings the old root back
 
 # Boot. Expected: kernellock reports PcrBank and, with unlock-fail bound,
 # asks the unlock passphrase (the informed decision); everything else

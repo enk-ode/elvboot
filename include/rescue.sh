@@ -324,7 +324,7 @@ ___stage_rescue_transient_write1() {
 }
 #@help _stage_rescue_transient_file1
 # @command stage rescue transient file <stage>
-# @summary Act terminal (root): the heredocs that write <rescue root>/usr/local/etc/rc.d/rescue_union (0555, the template rescue/rescue_union of this elebake), the directory /.rescue-union the layers mount on, /etc/rc.conf.d/rescue_union (enable, the paths), /etc/rc.conf.d/tmp (tmpmfs="YES") and /etc/rc.conf.d/var (varmfs="YES", or "NO" when /var is a listed path: the image's /var is the base of its layer), each 0644
+# @summary Act terminal (root): the heredocs that write <rescue root>/etc/fstab (two comment lines: nothing to mount from a table) and <rescue root>/etc/rc.d/rescue_union (0555, the template rescue/rescue_union of this elebake; under /etc/rc.d, not /usr/local/etc/rc.d: /etc/rc runs the base scripts up to FILESYSTEMS before any local directory, and the layers must be there before hostid_save and mountcritlocal write), every layered path made in the image (the root is read-only when the layers mounte), the directory /.rescue-union the layers mount on, /etc/rc.conf.d/rescue_union (enable, the paths), /etc/rc.conf.d/tmp (tmpmfs="YES") and /etc/rc.conf.d/var (varmfs="YES", or "NO" when /var is a listed path: the image's /var is the base of its layer), each 0644
 # @group   deploy
 # @internal
 # @env     ELEBAKE_TEMPLATE_DIR  where rescue/rescue_union is read from
@@ -334,15 +334,21 @@ _stage_rescue_transient_file1() {
         paths=$(grep . "$ELEBAKE_BASE/stage/$1/rescue/transient" 2>/dev/null | tr '\n' ' ' | sed 's/ $//')
         grep -qx /var "$ELEBAKE_BASE/stage/$1/rescue/transient" 2>/dev/null && varmfs=NO
         emit_note "stage rescue transient write '$1': rc.d rescue_union over $paths, tmpmfs, varmfs=$varmfs, into $alt"
-        printf '%s\n' "$MODIFY_DIR_CREATE '$alt/usr/local/etc/rc.d' '$alt/etc/rc.conf.d' '$alt/.rescue-union'"
-        printf '%s\n' "cat > '$alt/usr/local/etc/rc.d/rescue_union' <<'ELVUNION'"
+        printf '%s\n' "$MODIFY_DIR_CREATE '$alt/etc/rc.d' '$alt/etc/rc.conf.d' '$alt/.rescue-union'$(printf " '%s%s'" $(for p in $paths; do printf '%s %s\n' "$alt" "$p"; done))"
+        printf '%s\n' "rm -f '$alt/usr/local/etc/rc.d/rescue_union'"
+        printf '%s\n' "cat > '$alt/etc/rc.d/rescue_union' <<'ELVUNION'"
         cat "$ELEBAKE_TEMPLATE_DIR/rescue/rescue_union"
         printf '%s\n' "ELVUNION"
-        printf '%s\n' "$MODIFY_FILE_PERMS 0555 '$alt/usr/local/etc/rc.d/rescue_union'"
+        printf '%s\n' "$MODIFY_FILE_PERMS 0555 '$alt/etc/rc.d/rescue_union'"
         printf '%s\n' "printf 'rescue_union_enable=\"YES\"\\nrescue_union_paths=\"%s\"\\n' '$paths' > '$alt/etc/rc.conf.d/rescue_union'"
         printf '%s\n' "printf 'tmpmfs=\"YES\"\\n' > '$alt/etc/rc.conf.d/tmp'"
         printf '%s\n' "printf 'varmfs=\"$varmfs\"\\n' > '$alt/etc/rc.conf.d/var'"
         printf '%s\n' "$MODIFY_FILE_PERMS 0644 '$alt/etc/rc.conf.d/rescue_union' '$alt/etc/rc.conf.d/tmp' '$alt/etc/rc.conf.d/var'"
+        printf '%s\n' "cat > '$alt/etc/fstab' <<'ELVFSTAB'"
+        printf '%s\n' "# fstab of the rescue root: nothing to mount from a table. The root is ZFS on the card, opened by the loader;"
+        printf '%s\n' "# /tmp is a memory disk (tmpmfs), $paths are memory layers (rc.d/rescue_union). Written by elebake stage rescue transient write."
+        printf '%s\n' "ELVFSTAB"
+        printf '%s\n' "$MODIFY_FILE_PERMS 0644 '$alt/etc/fstab'"
 }
 
 #@help ___stage_rescue_config_drop2
@@ -1458,7 +1464,7 @@ __stage_rescue_ports_present0() {
 #@help _stage_rescue_tool_build2
 # @command stage rescue tool build <stage> <tool>
 # @completion tool none
-# @summary Act terminal (owner): the stage's distfiles, work and repository directories made; the distfile written as 'git archive' of the checkout's HEAD (<tool>-<version>.tar.gz, version 0.0.<commit count> read here); then 'make makesum package' in <checkout>/port with the version in the environment (ELEBAKE_DISTVERSION: a command-line variable would travel into the dependency ports) and DISTDIR, WRKDIRPREFIX, PACKAGES of the stage -- the package lands under <repo>/All, where 'stage rescue repo index' finds it. The port's build dependencies must be installed as packages (make -C <checkout>/port missing names them); the framework would otherwise build them from source as root
+# @summary Act terminal (owner): the stage's distfiles, work and repository directories made; the distfile written as 'git archive' of the checkout's HEAD (<tool>-<version>.tar.gz, version 0.0.<commit count> read here); then 'make makesum package' in <checkout>/port; afterwards the older packages and distfiles of the tool go (one version per tool in the repository -- pkg reads every manifest of the catalogue) with the version in the environment (ELEBAKE_DISTVERSION: a command-line variable would travel into the dependency ports) and DISTDIR, WRKDIRPREFIX, PACKAGES of the stage -- the package lands under <repo>/All, where 'stage rescue repo index' finds it. The port's build dependencies must be installed as packages (make -C <checkout>/port missing names them); the framework would otherwise build them from source as root
 # @group   deploy
 # @internal
 #@end
@@ -1470,6 +1476,7 @@ _stage_rescue_tool_build2() {
         printf '%s\n' "$MODIFY_DIR_CREATE '$r/distfiles' '$r/work' '$r/repo'"
         printf '%s\n' "git -C '$src' archive --format=tar.gz --prefix='$2-$ver/' -o '$r/distfiles/$2-$ver.tar.gz' HEAD || exit 1"
         printf '%s\n' "env ELEBAKE_DISTVERSION='$ver' make -C '$src/port' DISTDIR='$r/distfiles' WRKDIRPREFIX='$r/work' PACKAGES='$r/repo' clean makesum package || exit 1"
+        printf '%s\n' "for f in '$r/repo/All/$2'-[0-9]*.pkg '$r/distfiles/$2'-[0-9]*.tar.gz; do case \"\$f\" in '$r/repo/All/$2-$ver.pkg'|'$r/distfiles/$2-$ver.tar.gz') ;; *) rm -f \"\$f\" ;; esac; done"
 }
 
 #@help ___stage_rescue_package_build1
@@ -1581,7 +1588,7 @@ __stage_rescue_package_built1() {
 
 #@help _stage_rescue_package_pkg1
 # @command stage rescue package pkg <stage>
-# @summary Act terminal (root): the repository fingerprints copied under the rescue root (pkg reads them relative to --rootdir), pkg update over this machine's repositories plus the stage's, pkg install of the meta package and pkg upgrade (the tools built anew; install alone leaves an older elvboot in place), pkg info of the meta package
+# @summary Act terminal (root): the repository fingerprints copied under the rescue root; the base set installed through --rootdir (an empty root has no shell to chroot into: the bootstrap), then everything else with pkg chrooted into the root -- the repository files of this machine copied into it, the stage's repository hung in at /mnt/repo (nullfs, read-only) with a repository file of its own, resolv.conf from this machine -- so the package scripts run inside the image where their paths are (linux_base's ldconfig, glib's gio-querymodules): pkg update, pkg install of the meta package and pkg upgrade (the tools built anew; install alone leaves an older elvboot in place), pkg info of the meta package
 # @group   deploy
 # @internal
 #@end
@@ -1591,9 +1598,13 @@ _stage_rescue_package_pkg1() {
         emit_note "stage rescue package install '$1': $name and everything it depends on into $alt"
         printf '%s\n' "$MODIFY_DIR_CREATE '$alt/usr/share/keys'"
         printf '%s\n' "cp -a /usr/share/keys/pkg /usr/share/keys/pkgbase-* '$alt/usr/share/keys/' 2>/dev/null; :"
-        printf '%s\n' "pkg --rootdir '$alt' -o REPOS_DIR=/etc/pkg,/usr/local/etc/pkg/repos,'$r/repos' update || exit 1"
-        printf '%s\n' "pkg --rootdir '$alt' -o REPOS_DIR=/etc/pkg,/usr/local/etc/pkg/repos,'$r/repos' install -y '$name' || exit 1"
-        printf '%s\n' "pkg --rootdir '$alt' -o REPOS_DIR=/etc/pkg,/usr/local/etc/pkg/repos,'$r/repos' upgrade -y || exit 1"	# install takes the meta package only when its dependencies are there in SOME version: the tools built anew need the upgrade
+        printf '%s\n' "pkg --rootdir '$alt' -o REPOS_DIR=/etc/pkg,/usr/local/etc/pkg/repos update || exit 1"
+        printf '%s\n' "pkg --rootdir '$alt' -o REPOS_DIR=/etc/pkg,/usr/local/etc/pkg/repos install -y FreeBSD-set-base || exit 1"
+        printf '%s\n' "$MODIFY_DIR_CREATE '$alt/usr/local/etc/pkg/repos' '$alt/mnt/repo' && cp /usr/local/etc/pkg/repos/*.conf '$alt/usr/local/etc/pkg/repos/' 2>/dev/null; cp /etc/resolv.conf '$alt/etc/resolv.conf'"
+        printf '%s\n' "printf 'rescue: { url: \"file:///mnt/repo\", enabled: yes, priority: 10 }\\n' > '$alt/usr/local/etc/pkg/repos/rescue.conf'"
+        printf '%s\n' "umount '$alt/mnt/repo' 2>/dev/null; mount -t nullfs -o ro '$r/repo' '$alt/mnt/repo' || exit 1"
+        printf '%s\n' "pkg -c '$alt' update && pkg -c '$alt' install -y '$name' && pkg -c '$alt' upgrade -y; rc=\$?"	# install takes the meta package only when its dependencies are there in SOME version: the tools built anew need the upgrade
+        printf '%s\n' "umount '$alt/mnt/repo'; rmdir '$alt/mnt/repo'; rm -f '$alt/usr/local/etc/pkg/repos/rescue.conf'; test \"\$rc\" = 0 || exit 1"
         printf '%s\n' "pkg --rootdir '$alt' info '$name'"
 }
 
@@ -1692,7 +1703,7 @@ __stage_rescue_patch_complete2() {
 #@help _stage_rescue_patch_run2
 # @command stage rescue patch run <stage> <name>
 # @completion name none
-# @summary Act terminal (root): the resource directory hung into the root read-only (nullfs on <root>/mnt/patch), a one-shot jail on the root (jail -c: no network, clean environment, gone when the command ends) running 'sh <script> <user> /mnt/patch' -- the contract of every patch script: $1 the user the patch is for, $2 the resource directory, the root is /; the mount taken down after, a non-zero exit fails the batch
+# @summary Act terminal (root): a jail and a mount of that name an earlier, broken run left on the root are taken down first; the resource directory hung into the root read-only (nullfs on <root>/mnt/patch), a one-shot jail on the root (jail -c: its own network stack with no interface configured (vnet) -- a script in it never sees the host's interfaces -- and a clean environment, gone when the command ends) running 'sh <script> <user> /mnt/patch' -- the contract of every patch script: $1 the user the patch is for, $2 the resource directory, the root is /; the mount taken down after, a non-zero exit fails the batch
 # @group   deploy
 # @internal
 # @see     stage rescue patch apply
@@ -1702,8 +1713,9 @@ _stage_rescue_patch_run2() {
         rec=$(sed -n 1p "$ELEBAKE_BASE/stage/$1/rescue/patches/$2" 2>/dev/null)
         user=${rec%%:*}; script=${rec#*:}; mnt="$alt/mnt/patch"
         emit_note "stage rescue patch run '$1' '$2': jail on $alt, sh $script $user /mnt/patch (resources $ELEBAKE_BASE/.resource/$2)"
+        printf '%s\n' "jail -r 'elebake-$1-patch' 2>/dev/null; umount '$mnt' 2>/dev/null; :"
         printf '%s\n' "$MODIFY_DIR_CREATE '$mnt' && mount -t nullfs -o ro '$ELEBAKE_BASE/.resource/$2' '$mnt' || exit 1"
-        printf '%s\n' "jail -c name='elebake-$1-patch' path='$alt' ip4=disable ip6=disable exec.clean=1 command=/bin/sh '$script' '$user' /mnt/patch; rc=\$?"
+        printf '%s\n' "jail -c name='elebake-$1-patch' path='$alt' vnet exec.clean=1 command=/bin/sh '$script' '$user' /mnt/patch; rc=\$?"
         printf '%s\n' "jail -r 'elebake-$1-patch' 2>/dev/null; umount '$mnt'; rmdir '$mnt'; test \"\$rc\" = 0 || { printf '# Error: stage rescue patch %s: the script failed (exit %s)\\n' '$2' \"\$rc\" >&2; exit 1; }"
         printf '%s\n' "printf '# rescue: patch %s applied inside %s as %s\\n' '$2' '$alt' '$user' >&2"
 }

@@ -2373,6 +2373,35 @@ test_stage_kernel_build_emissions() {
   else
     fail "installkernel emission wrong: $out"
   fi
+  mkdir -p "$TEST_DIR/stage/unitk/destdir/boot/kernel" "$TEST_DIR/stage/unitk/destdir/boot/lua" "$TEST_DIR/stage/unitk/destdir/usr"
+  printf 'k\n' > "$TEST_DIR/stage/unitk/destdir/boot/kernel/kernel"; printf 'l\n' > "$TEST_DIR/stage/unitk/destdir/boot/loader.efi"; printf 'x\n' > "$TEST_DIR/stage/unitk/destdir/boot/lua/loader.lua"
+  run_elebake setintp stage_reset sh > /dev/null
+  run_elebake stage reset unitk > /dev/null 2>&1
+  if run_elebake stage kernel install unitk 2>&1 | grep -q "no such file in boot/: kernel/kernel" \
+     && run_elebake stage kernel rollback unitk no-such-be 2>&1 | grep -q "no boot environment no-such-be"; then
+    pass "kernel install needs the kernel in the stage's boot tree; rollback needs a listed boot environment"
+  else
+    fail "kernel install/rollback checks: $(run_elebake stage kernel install unitk 2>&1 | head -2)"
+  fi
+  mkdir -p "$TEST_DIR/stage/unitk/boot/kernel" && printf 'k\n' > "$TEST_DIR/stage/unitk/boot/kernel/kernel"
+  run_elebake setintp stage_kernel_backup cat > /dev/null
+  run_elebake setintp stage_kernel_copy cat > /dev/null
+  run_elebake setintp stage_kernel_activate cat > /dev/null
+  out=$(run_elebake stage kernel backup unitk; run_elebake stage kernel copy unitk; run_elebake stage kernel activate pre-kernel-x)
+  if printf '%s\n' "$out" | grep -q "bectl create 'pre-kernel-[0-9]*T[0-9]*Z' || exit 1" \
+     && printf '%s\n' "$out" | grep -q "rm -rf /boot/kernel && cp -a '$TEST_DIR/stage/unitk/boot/kernel' /boot/kernel && chown -R root:wheel /boot/kernel || exit 1" \
+     && printf '%s\n' "$out" | grep -q "bectl activate 'pre-kernel-x' || exit 1" \
+     && run_elebake stage kernel show unitk 2>&1 | grep -q "# kernel of stage unitk: "; then
+    pass "kernel backup, copy and activate render bectl create, the copy over /boot/kernel and bectl activate; show names the kernels"
+  else
+    fail "kernel family: $out"
+  fi
+  if [ -f "$TEST_DIR/stage/unitk/destdir/boot/kernel/kernel" ] && [ ! -e "$TEST_DIR/stage/unitk/destdir/boot/loader.efi" ] \
+     && [ ! -e "$TEST_DIR/stage/unitk/destdir/boot/lua" ] && [ ! -e "$TEST_DIR/stage/unitk/destdir/usr" ]; then
+    pass "stage reset clears the stand products of destdir and keeps boot/kernel for include"
+  else
+    fail "stage reset: $(ls -R "$TEST_DIR/stage/unitk/destdir" 2>&1 | tr '\n' ' ')"
+  fi
 }
 
 test_collect_speaks_archive_base() {
@@ -3462,10 +3491,16 @@ test_stage_rescue_family() {
     fail "dataset mount: $r"
   fi
   r=$(run_elebake stage rescue package pkg unitr)
-  if printf '%s\n' "$r" | grep -q "usr/share/keys" && printf '%s\n' "$r" | grep -q "rescue/repos' install -y 'unit-rescue'"; then
-    pass "package pkg renders the fingerprints copy and the install of the meta package from this machine's repositories plus the stage's"
+  miss=""
+  printf '%s\n' "$r" | grep -q "usr/share/keys" || miss="$miss keys"
+  printf '%s\n' "$r" | grep -qF "pkg --rootdir '$TEST_BASE_DIR/mnt/unitr-rescue' -o REPOS_DIR=/etc/pkg,/usr/local/etc/pkg/repos install -y FreeBSD-set-base || exit 1" || miss="$miss base"
+  printf '%s\n' "$r" | grep -qF "mount -t nullfs -o ro '$TEST_DIR/stage/unitr/rescue/repo' '$TEST_BASE_DIR/mnt/unitr-rescue/mnt/repo' || exit 1" || miss="$miss repo-mount"
+  printf '%s\n' "$r" | grep -qF "pkg -c '$TEST_BASE_DIR/mnt/unitr-rescue' update && pkg -c '$TEST_BASE_DIR/mnt/unitr-rescue' install -y 'unit-rescue'" || miss="$miss chroot-install"
+  printf '%s\n' "$r" | grep -qF "rm -f '$TEST_BASE_DIR/mnt/unitr-rescue/usr/local/etc/pkg/repos/rescue.conf'" || miss="$miss repo-conf-gone"
+  if [ -z "$miss" ]; then
+    pass "package pkg renders the fingerprints copy, the base set through --rootdir, the rest chrooted with the stage repository hung in at /mnt/repo and taken out again"
   else
-    fail "package pkg: $r"
+    fail "package pkg misses:$miss -- $r"
   fi
   r=$(run_elebake stage rescue package create unitr)
   if printf '%s\n' "$r" | grep -q "pkg create -M '.*/rescue/+MANIFEST' -o '.*/rescue/repo'"; then
@@ -3481,8 +3516,9 @@ test_stage_rescue_family() {
   fi
   r=$(run_elebake stage rescue tool build unitr elvboot)
   if printf '%s\n' "$r" | grep -q "git -C .*archive --format=tar.gz" && printf '%s\n' "$r" | grep -q "env ELEBAKE_DISTVERSION=.0\.0\.[0-9]*. make -C .*/port." \
-     && printf '%s\n' "$r" | grep -q "PACKAGES=.*/rescue/repo. clean makesum package"; then
-    pass "tool build renders the git archive of the checkout and the port build (makesum, package) into the stage repository"
+     && printf '%s\n' "$r" | grep -q "PACKAGES=.*/rescue/repo. clean makesum package" \
+     && printf '%s\n' "$r" | grep -q "for f in '$TEST_DIR/stage/unitr/rescue/repo/All/elvboot'-\[0-9\]\*.pkg '$TEST_DIR/stage/unitr/rescue/distfiles/elvboot'-\[0-9\]\*.tar.gz; do case"; then
+    pass "tool build renders the git archive of the checkout and the port build (makesum, package) into the stage repository, then removes the older versions of the tool"
   else
     fail "tool build: $r"
   fi
@@ -3524,10 +3560,11 @@ test_stage_rescue_family() {
   mkdir -p "$TEST_BASE_DIR/mnt/unitr-rescue/usr/local/lib/unit/template/rescue" && printf '#!/bin/sh\nexit 0\n' > "$TEST_BASE_DIR/mnt/unitr-rescue/usr/local/lib/unit/template/rescue/unit-patch.sh"
   r=$(run_elebake stage rescue patch run unitr unitp)
   if printf '%s\n' "$r" | grep -q "mount -t nullfs -o ro '$TEST_DIR/.resource/unitp' '$TEST_BASE_DIR/mnt/unitr-rescue/mnt/patch' || exit 1" \
-     && printf '%s\n' "$r" | grep -q "jail -c name='elebake-unitr-patch' path='$TEST_BASE_DIR/mnt/unitr-rescue' ip4=disable ip6=disable exec.clean=1 command=/bin/sh '/usr/local/lib/unit/template/rescue/unit-patch.sh' 'root' /mnt/patch; rc=\$?" \
+     && printf '%s\n' "$r" | grep -q "jail -c name='elebake-unitr-patch' path='$TEST_BASE_DIR/mnt/unitr-rescue' vnet exec.clean=1 command=/bin/sh '/usr/local/lib/unit/template/rescue/unit-patch.sh' 'root' /mnt/patch; rc=\$?" \
+     && printf '%s\n' "$r" | grep -q "^jail -r 'elebake-unitr-patch' 2>/dev/null; umount '$TEST_BASE_DIR/mnt/unitr-rescue/mnt/patch' 2>/dev/null; :\$" \
      && printf '%s\n' "$r" | grep -q "jail -r 'elebake-unitr-patch' 2>/dev/null; umount '$TEST_BASE_DIR/mnt/unitr-rescue/mnt/patch'; rmdir" \
      && ! run_elebake stage rescue patch complete unitr unitp 2>&1 | grep -q "Error"; then
-    pass "patch run: the resources hung into the root read-only, a one-shot jail on the root, sh <script> <user> /mnt/patch in it, the mount taken down (cat-pinned here)"
+    pass "patch run: leftovers of an earlier run taken down, the resources hung into the root read-only, a one-shot jail on the root, sh <script> <user> /mnt/patch in it, the mount taken down (cat-pinned here)"
   else
     fail "patch run: $r"
   fi
@@ -3612,9 +3649,11 @@ test_stage_rescue_family() {
     fail "transient add: $(run_elebake stage rescue transient add unitr etc 2>&1 | head -2)"
   fi
   r=$(run_elebake stage rescue transient file unitr)
-  if printf '%s\n' "$r" | grep -q "rc.d/rescue_union' <<'ELVUNION'" && printf '%s\n' "$r" | grep -q "^# PROVIDE: rescue_union" \
-     && printf '%s\n' "$r" | grep -q "rescue_union_paths=\"%s\".*'/home /etc'" && printf '%s\n' "$r" | grep -q "tmpmfs=" && printf '%s\n' "$r" | grep -q "varmfs="; then
-    pass "transient file renders the rc.d script from the template, the paths, tmpmfs and varmfs into rc.conf.d"
+  if printf '%s\n' "$r" | grep -q "cat > '$TEST_BASE_DIR/mnt/unitr-rescue/etc/rc.d/rescue_union' <<'ELVUNION'" && printf '%s\n' "$r" | grep -q "^# PROVIDE: rescue_union" \
+     && printf '%s\n' "$r" | grep -q "mkdir -p '$TEST_BASE_DIR/mnt/unitr-rescue/etc/rc.d' '$TEST_BASE_DIR/mnt/unitr-rescue/etc/rc.conf.d' '$TEST_BASE_DIR/mnt/unitr-rescue/.rescue-union' '$TEST_BASE_DIR/mnt/unitr-rescue/home' '$TEST_BASE_DIR/mnt/unitr-rescue/etc'" \
+     && printf '%s\n' "$r" | grep -q "rescue_union_paths=\"%s\".*'/home /etc'" && printf '%s\n' "$r" | grep -q "tmpmfs=" && printf '%s\n' "$r" | grep -q "varmfs=" \
+     && printf '%s\n' "$r" | grep -q "cat > '$TEST_BASE_DIR/mnt/unitr-rescue/etc/fstab' <<'ELVFSTAB'" && printf '%s\n' "$r" | grep -q "^# fstab of the rescue root: nothing to mount from a table"; then
+    pass "transient file renders the rc.d script from the template into /etc/rc.d, makes every layered path, the paths, tmpmfs and varmfs into rc.conf.d, and an fstab that mounts nothing"
   else
     fail "transient file: $(printf '%s\n' "$r" | head -5)"
   fi
@@ -3659,6 +3698,14 @@ test_stage_rescue_family() {
     pass "card setkey renders the rekey of slot 0 from the old key file to the recorded one"
   else
     fail "card setkey: $r"
+  fi
+  run_elebake stage rescue tools add unitr no-repository-knows-this-unit-tool > /dev/null 2>&1
+  r=$(run_elebake stage rescue manifest render unitr > /dev/null 2>&1; echo "rc=$?"; run_elebake stage rescue manifest render unitr 2>&1 >/dev/null | grep -c "Invalid producer_exit")
+  run_elebake stage rescue tools drop unitr no-repository-knows-this-unit-tool > /dev/null 2>&1
+  if printf '%s\n' "$r" | grep -q "^rc=[1-9]" && printf '%s\n' "$r" | grep -qx "0"; then
+    pass "a text terminal that exits inside its function fails the command with its own error, no invalid producer exit"
+  else
+    fail "producer exit: $r"
   fi
   if run_elebake stage rescue dataset close unitr 2>&1 | grep -q "not mounted" \
      && run_elebake stage rescue package install unitr 2>&1 | grep -q "not mounted" \

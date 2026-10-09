@@ -20,6 +20,8 @@ elebake gate claim add inventory witness-labels                  # the labels of
 elebake gate claim add inventory witness-present                 # every witness is present (a missing card is its own state, not a mismatch)
 elebake stage site mk daily-v1                                   # LOADER_TRUST_WITNESS_LABELS from the receipts
 elebake stage make daily-v1
+elebake stage earlboot mk daily-v1 && elebake stage earlboot install daily-v1    # the hooks carry the loader's digest: after every make
+elebake stage elvbootd mk daily-v1 && elebake stage elvbootd install daily-v1
 elebake stage push daily-v1 b
 # Boot: WitnessLabels and WitnessPresent pass; the kenv leaf
 # loader.trust.inventory.witness.state names each witness with match, differ

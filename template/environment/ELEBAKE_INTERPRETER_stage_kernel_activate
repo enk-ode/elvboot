@@ -1,0 +1,2 @@
+sudo sh
+# Act terminal of 'stage kernel rollback': bectl activate; sudo sh so it runs as root.

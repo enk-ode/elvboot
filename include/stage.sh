@@ -1126,14 +1126,16 @@ _stage_clean_dir1() {
 
 #@help _stage_reset1
 # @command stage reset <stage>
-# @summary Act terminal: clear destdir/ ONLY -- boot/ is the curated truth (adopted config + included artifacts) and survives every rebuild
+# @summary Act terminal: clear the products of the stand build from destdir/ -- everything but boot/kernel, which 'stage install kernel' put there and 'stage include' takes (stage make runs after install kernel); boot/ of the stage is the curated truth and survives every rebuild
 # @group   stage
 # @internal
 # @see     stage clean
+# @see     stage install kernel
 #@end
 _stage_reset1() {
-        printf '%s\n' "$MODIFY_FILE_REMOVE -r '$ELEBAKE_BASE/stage/$1/destdir/'*"
-        printf '%s\n' "printf '# Reset build outputs of stage %s (destdir/)\\n' '$1' >&2"
+        local dd="$ELEBAKE_BASE/stage/$1/destdir"
+        printf '%s\n' "find '$dd' -mindepth 1 -maxdepth 1 ! -name boot -exec rm -rf {} + 2>/dev/null; find '$dd/boot' -mindepth 1 -maxdepth 1 ! -name kernel -exec rm -rf {} + 2>/dev/null; :"
+        printf '%s\n' "printf '# Reset build outputs of stage %s (destdir/, boot/kernel kept)\\n' '$1' >&2"
 }
 
 #@help ___stage_build1
@@ -1384,6 +1386,142 @@ ___stage_install_kernel1() {
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage kernconf set"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage obj exists '$1'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage install kernel run '$1'"
+}
+
+#@help ___stage_kernel_install1
+# @command stage kernel install <stage>
+# @summary The kernel of the stage's boot tree onto the running root -- the medium, the rescue (stage rescue kernel mirror) and the root then run one kernel with one set of modules, wherever the stage took it from (stage include /boot: the package; stage build kernel: the fork): the stage exists, boot/kernel/kernel is in it, the root is a boot environment (bectl); then 'stage kernel backup' (a boot environment pre-kernel-<UTC> of the root as it is: the rollback) and 'stage kernel copy' (boot/kernel of the stage over /boot/kernel, root:wheel). A reboot runs the new kernel; 'stage kernel rollback' activates the saved environment
+# @group   stage
+# @example elebake stage kernel install daily-v1
+# @see     stage kernel rollback
+# @see     stage kernel show
+# @see     stage install kernel
+# @see     stage rescue kernel mirror
+#@end
+___stage_kernel_install1() {
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage check stage '$1'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage boot file exists '$1' kernel/kernel"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage kernel be present"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage kernel backup '$1'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage kernel copy '$1'"
+}
+
+#@help __stage_kernel_be_present0
+# @command stage kernel be present
+# @summary The running root is an active boot environment (bectl list names one with N in its flags): a comment line, else an error line -- without a boot environment there is no rollback, and no kernel goes over the root
+# @group   stage
+# @internal
+# @see     stage kernel install
+#@end
+__stage_kernel_be_present0() {
+        local be=""
+        be=$(bectl list -H 2>/dev/null | awk '$2 ~ /N/ { print $1; exit }')
+        if test -n "$be"; then
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'the running root is the boot environment $be'"
+        else
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'stage kernel install: the running root is no boot environment (bectl list) -- no rollback, no kernel over the root'"
+        fi
+}
+
+#@help _stage_kernel_backup1
+# @command stage kernel backup <stage>
+# @summary Act terminal (root): bectl create pre-kernel-<UTC stamp> -- the root as it is before the kernel, a boot environment to activate when the new kernel fails (stage kernel rollback)
+# @group   stage
+# @internal
+# @see     stage kernel install
+#@end
+_stage_kernel_backup1() {
+        local be="pre-kernel-$(date -u '+%Y%m%dT%H%M%SZ')"
+        emit_note "stage kernel install '$1': the root as it is becomes the boot environment $be (the rollback)"
+        printf '%s\n' "bectl create '$be' || exit 1"
+        printf '%s\n' "printf '# boot environment %s created: stage kernel rollback %s %s brings it back\\n' '$be' '$1' '$be' >&2"
+}
+
+#@help _stage_kernel_copy1
+# @command stage kernel copy <stage>
+# @summary Act terminal (root): /boot/kernel of the running root replaced by a copy of the stage's boot/kernel (cp -a, root:wheel), the version line of the copied kernel on stderr -- the act of the rescue mirror, on the root
+# @group   stage
+# @internal
+# @see     stage kernel install
+#@end
+_stage_kernel_copy1() {
+        emit_note "stage kernel install '$1': boot/kernel of the stage into /boot/kernel of the running root"
+        printf '%s\n' "rm -rf /boot/kernel && cp -a '$ELEBAKE_BASE/stage/$1/boot/kernel' /boot/kernel && chown -R root:wheel /boot/kernel || exit 1"
+        printf '%s\n' "printf '# kernel of stage %s installed into /boot/kernel: %s -- a reboot runs it\\n' '$1' \"\$(strings -n 20 /boot/kernel/kernel | grep -m1 '@(#)FreeBSD')\" >&2"
+}
+
+#@help ___stage_kernel_rollback2
+# @command stage kernel rollback <stage> <be>
+# @completion be none
+# @summary Back to a root before a kernel: the stage exists, the boot environment is listed (bectl); then 'stage kernel activate' -- the next boot runs that environment with its kernel. The stage's boot tree and the medium stay as they are: the loader boots what the medium carries, the root's modules are the environment's
+# @group   stage
+# @example elebake stage kernel rollback daily-v1 pre-kernel-20261008T160000Z
+# @see     stage kernel install
+# @see     stage kernel show
+#@end
+___stage_kernel_rollback2() {
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage check stage '$1'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage kernel be listed '$2'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage kernel activate '$2'"
+}
+
+#@help __stage_kernel_be_listed1
+# @command stage kernel be listed <be>
+# @completion be none
+# @summary bectl lists the boot environment: a comment line, else an error line
+# @group   stage
+# @internal
+# @see     stage kernel rollback
+#@end
+__stage_kernel_be_listed1() {
+        if bectl list -H 2>/dev/null | awk '{ print $1 }' | grep -qxF "$1"; then
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'boot environment $1 listed'"
+        else
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'stage kernel rollback: no boot environment $1 (stage kernel show)'"
+        fi
+}
+
+#@help _stage_kernel_activate1
+# @command stage kernel activate <be>
+# @completion be none
+# @summary Act terminal (root): bectl activate <be> -- the next boot runs it; the note says so
+# @group   stage
+# @internal
+# @see     stage kernel rollback
+#@end
+_stage_kernel_activate1() {
+        emit_note "stage kernel rollback: the boot environment $1 becomes the root of the next boot"
+        printf '%s\n' "bectl activate '$1' || exit 1"
+        printf '%s\n' "printf '# boot environment %s activated -- reboot to run it\\n' '$1' >&2"
+}
+
+#@help ___stage_kernel_show1
+# @command stage kernel show <stage>
+# @summary The kernels as notes: the version line of the stage's boot/kernel/kernel, of the running root's /boot/kernel/kernel, and the boot environments bectl lists (the pre-kernel-* ones are the rollbacks of stage kernel install): the stage exists; then 'stage kernel lines'
+# @group   stage
+# @example elebake stage kernel show daily-v1
+# @see     stage kernel install
+#@end
+___stage_kernel_show1() {
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage check stage '$1'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage kernel lines '$1'"
+}
+
+#@help _stage_kernel_lines1
+# @command stage kernel lines <stage>
+# @summary Text terminal: the version lines of the stage's kernel and the root's kernel (absent says so), then bectl list
+# @group   stage
+# @internal
+# @see     stage kernel show
+#@end
+_stage_kernel_lines1() {
+        local v=""
+        v=$(strings -n 20 "$ELEBAKE_BASE/stage/$1/boot/kernel/kernel" 2>/dev/null | grep -m1 '@(#)FreeBSD')
+        printf '# kernel of stage %s: %s\n' "$1" "${v:-(none in boot/kernel -- stage install kernel, stage include)}"
+        v=$(strings -n 20 /boot/kernel/kernel 2>/dev/null | grep -m1 '@(#)FreeBSD')
+        printf '# kernel of the running root: %s\n' "${v:-(none under /boot/kernel)}"
+        printf '# boot environments (bectl list):\n'
+        bectl list 2>/dev/null | sed 's/^/#   /'
 }
 
 #@help _stage_install_kernel_run1
