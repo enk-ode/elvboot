@@ -655,7 +655,7 @@ ___stage_witness_anchor1() {
 
 #@help _stage_witness_anchor_write1
 # @command stage witness anchor write <stage>
-# @summary Act terminal (root): the table digest -- sha256 over "<name>:<medium>:<digest>" lines, one per witness in the order of loader.trust.inventory.witnesses, from the stage's kenv records -- into the NV index loader.trust.tpm.witness.nv: a trial session computes the policy (PolicyPCR over loader.trust.tpm.keyfile.pcrs as they stand, then PolicyAuthValue), the index is defined once (32 bytes, policywrite|authread|no_da, auth value = <workdir>/auth-owner.hex from stage tpm seal read), a policy session with the auth value writes the 32 bytes, the receipt line (UTC, digest) is appended to witness-receipts/anchor. The loader reads the index with its empty read auth
+# @summary Act terminal (root): the table digest -- sha256 over "<name>:<medium>:<digest>" lines, one per witness in the order of loader.trust.inventory.witnesses, from the stage's kenv records -- into the NV index loader.trust.tpm.witness.nv: a trial session computes the policy (PolicyPCR over loader.trust.tpm.keyfile.pcrs as they stand, then PolicyAuthValue), the index is defined once (32 bytes, policywrite|authread|no_da, auth value = <workdir>/auth-owner.hex from stage tpm seal read) -- an index whose policy no longer matches these PCRs (a rebuild moved them) is undefined under the owner hierarchy and defined anew, the loader's claim sees absent only between the two --, a policy session with the auth value writes the 32 bytes, the receipt line (UTC, digest) is appended to witness-receipts/anchor. The loader reads the index with its empty read auth
 # @group   provisioning
 # @internal
 # @env     ELEBAKE_TPM_WORKDIR  the RAM disk (auth-owner.hex, auth-hierarchy.hex, the session contexts)
@@ -669,7 +669,7 @@ _stage_witness_anchor_write1() {
         digest=$(for n in $(printf '%s' "$names" | tr ',' ' '); do
                 printf '%s:%s:%s\n' "$n" "$(sed -n 1p "$ELEBAKE_BASE/stage/$1/kenv/loader.trust.inventory.witness.$n.medium" 2>/dev/null)" "$(sed -n 1p "$ELEBAKE_BASE/stage/$1/kenv/loader.trust.inventory.witness.$n.digest" 2>/dev/null)"
         done | sha256 -q)
-        emit_note "stage witness anchor '$1': the table of $names as $digest into index $idx (PolicyPCR $pcrs and the owner's passphrase); an index already defined is kept"
+        emit_note "stage witness anchor '$1': the table of $names as $digest into index $idx (PolicyPCR $pcrs and the owner's passphrase); an index already defined is kept while its policy matches, defined anew when a rebuild moved the PCRs"
         cat <<EOF
 export TPM2TOOLS_TCTI=device:/dev/tpm0
 cd '$d' || exit 1
@@ -683,6 +683,9 @@ tpm2_startauthsession --session=t.ctx || exit 1
 tpm2_policypcr --session=t.ctx --pcr-list='sha256:$pcrs' || exit 1
 tpm2_policyauthvalue --session=t.ctx --policy=witness.policy || exit 1
 tpm2_flushcontext t.ctx
+have=\$(tpm2_nvreadpublic '$idx' 2>/dev/null | sed -n 's/^ *authorization policy: *//p' | tr 'A-F' 'a-f')
+want=\$(od -An -tx1 witness.policy | tr -d ' \\n')
+[ -z "\$have" ] || [ "\$have" = "\$want" ] || tpm2_nvundefine '$idx' --hierarchy=o --hierarchy-auth="hex:\$(cat auth-hierarchy.hex)" || exit 1
 tpm2_nvreadpublic '$idx' >/dev/null 2>&1 || tpm2_nvdefine '$idx' --hierarchy=o --size=32 --policy=witness.policy --attributes='policywrite|authread|no_da' --index-auth="hex:\$(cat auth-owner.hex)" --hierarchy-auth="hex:\$(cat auth-hierarchy.hex)" || exit 1
 tpm2_startauthsession --policy-session --session=w.ctx || exit 1
 tpm2_policypcr --session=w.ctx --pcr-list='sha256:$pcrs' || { tpm2_flushcontext w.ctx; exit 1; }

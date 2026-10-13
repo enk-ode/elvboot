@@ -3087,11 +3087,12 @@ test_stage_witness_records() {
   run_elebake stage kenv add unitwt loader.trust.inventory.witness.zempty.digest d2 > /dev/null
   local anchor; anchor=$(printf 'zcard-b:m1:d1\nzempty:m2:d2\n' | sha256 -q)
   if run_elebake stage witness anchor write unitwt | grep -q "tpm2_nvdefine '0x01c10e26' --hierarchy=o --size=32 --policy=witness.policy --attributes='policywrite|authread|no_da' --index-auth=\"hex:\$(cat auth-owner.hex)\"" \
+     && run_elebake stage witness anchor write unitwt | grep -q '^\[ -z "\$have" \] || \[ "\$have" = "\$want" \] || tpm2_nvundefine '"'"'0x01c10e26'"'"' --hierarchy=o --hierarchy-auth="hex:\$(cat auth-hierarchy.hex)" || exit 1$' \
      && run_elebake stage witness anchor write unitwt | grep -q "tpm2_policypcr --session=w.ctx --pcr-list='sha256:0,2,7'" \
      && run_elebake stage witness anchor write unitwt | grep -q "tpm2_nvwrite '0x01c10e26' --auth=\"session:w.ctx+hex:\$(cat auth-owner.hex)\" --input=witness-anchor.bin" \
      && run_elebake stage witness anchor write unitwt | grep -q "printf '%s' '$anchor' | awk" \
      && run_elebake stage witness anchor write unitwt | grep -q "'$anchor' >> '.*/witness-receipts/anchor'"; then
-    pass "anchor write: the table digest in the witnesses' order, the index defined once under PolicyPCR+AuthValue, written with the owner's auth value, the receipt appended"
+    pass "anchor write: the table digest in the witnesses order, the index defined once under PolicyPCR+AuthValue and anew when its policy moved, written with the owner's auth value, the receipt appended"
   else
     fail "anchor write: $(run_elebake stage witness anchor write unitwt | head -8)"
   fi
