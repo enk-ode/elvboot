@@ -1,0 +1,3 @@
+cat
+# @summary Interpreter of 'witness lines' (elvboot): the receipt lines of the stage's witnesses are the emission itself -- cat shows them
+# @see ELEBAKE_INTERPRETER_report_render

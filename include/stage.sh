@@ -3745,7 +3745,7 @@ __stage_marker_rotate1() {
 
 #@help ___stage_site_mk1
 # @command stage site mk <stage>
-# @summary Write local/site.mk of the stage's checkout: the stage and its checkout exist; the header, then the measured parts (board, keys, marker, origin, disks, witnesses) and the baselines appended in file order to site.mk.new; the install (rendered, clean, placed) and the report. Run under sudo: the key store, the marker and the origin are EFI variables
+# @summary Write local/site.mk of the stage's checkout: the stage and its checkout exist; the header, then the measured parts (board, keys, marker, origin, disks) and the baselines appended in file order to site.mk.new; the install (rendered, clean, placed) and the report. Run under sudo: the key store, the marker and the origin are EFI variables
 # @group   provisioning
 # @example elebake stage site mk daily-v1
 # @see     stage site mk report
@@ -3762,7 +3762,6 @@ ___stage_site_mk1() {
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage site mk marker '$1' >> '$f.new'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage site mk origin '$1' >> '$f.new'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage site mk disks '$1' >> '$f.new'"
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage site mk witnesses '$1' >> '$f.new'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage site mk baselines '$1' >> '$f.new'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage inventory make '$1' >> '$f.new'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage site mk install '$1' '$f'"

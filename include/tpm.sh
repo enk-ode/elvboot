@@ -123,7 +123,7 @@ __stage_tpm_leaf_set2() {
 #@end
 __stage_tpm_workdir_ready0() {
         local d="$(ram_dir)"
-        if mount | grep -q " on $d "; then
+        if mount | grep -q " on $(cd "$d" 2>/dev/null && pwd -P) "; then
                 printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'work directory $d is mounted'"
         else
                 printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'stage tpm: $d is not a mount point (elebake ram open)'"
@@ -142,7 +142,7 @@ __stage_tpm_workdir_ready0() {
 __ram_open0() {
         local d
         d=$(ram_dir)
-        if mount | grep -q " on $d "; then
+        if mount | grep -q " on $(cd "$d" 2>/dev/null && pwd -P) "; then
                 printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'RAM disk $d is mounted'"
         else
                 printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" ram mount"
@@ -170,7 +170,7 @@ _ram_mount0() {
 
 #@help __ram_close0
 # @command ram close
-# @summary The RAM disk is mounted: rewrite to 'ram release' (every file overwritten and removed, the tmpfs unmounted, the directory gone); else a comment line
+# @summary The RAM disk is mounted: rewrite to 'ram release' (every file overwritten and removed, the tmpfs unmounted, the directory gone); else a comment line. The check compares the physical path: mount(8) prints the resolved path, a database behind a symlink is still found
 # @group   provisioning
 # @env     ELEBAKE_TPM_WORKDIR  the RAM disk (default .ram under the database)
 # @example elebake ram close
@@ -179,7 +179,7 @@ _ram_mount0() {
 __ram_close0() {
         local d
         d=$(ram_dir)
-        if mount | grep -q " on $d "; then
+        if mount | grep -q " on $(cd "$d" 2>/dev/null && pwd -P) "; then
                 printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" ram release"
         else
                 printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'no RAM disk at $d'"

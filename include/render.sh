@@ -213,6 +213,49 @@ ___stage_elvbootd_hook_render2() {
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage hook install '$1' '$f'"
 }
 
+#@help ___stage_elvbootd_test3
+# @command stage elvbootd test <stage> <phase> <dump>
+# @summary Replay one runtime phase (STARTUP, PERIODIC, RESUME, MEDIA, SHUTDOWN) through the CURRENT elvbootd catalog of the stage, without root and without side effects: the same rendering as 'stage elvbootd mk' but with mocks for state and tools -- kenv/sysctl/kldstat answer from <dump>, shutdown, logger and the TPM writers become notes on stderr, the state lives under hooks/ and is removed after -- then the run: exit code, every file the run left (appraisals, spool, marks, the boots/ snapshot of kenv_act). Capture a dump after a boot as for 'stage earlboot test'
+# @group   foundation
+# @example elebake stage elvbootd test daily-v1 STARTUP /tmp/ram/boot.kenv
+# @see     stage elvbootd mk
+# @see     stage earlboot test
+# @see     stage container render mocks
+#@end
+___stage_elvbootd_test3() {
+        local f="$ELEBAKE_BASE/stage/$1/hooks/elvbootd.test"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage check stage '$1'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage checkout exists '$1'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage phase check elvbootd '$2'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage dump readable '$3'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage container prepare '$1'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage container render header elvbootd '$1' > '$f'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage container render constants '$1' >> '$f'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage container render mocks '$1' elvbootd '$3' >> '$f'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage container render functions elvbootd '$1' >> '$f'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage container render prologue >> '$f'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage container render phase '$1' '$2' >> '$f'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage container render footer >> '$f'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage hook test run '$1' elvbootd '$f'"
+}
+
+#@help __stage_phase_check2
+# @command stage phase check <container> <phase>
+# @summary The phase is one of the container's (earlboot: SYSINIT MOUNTED; elvbootd: STARTUP PERIODIC RESUME MEDIA SHUTDOWN): a comment line, else an error line naming them
+# @group   foundation
+# @internal
+# @see     stage elvbootd test
+#@end
+__stage_phase_check2() {
+        local phases="STARTUP PERIODIC RESUME MEDIA SHUTDOWN"
+        test "$1" != earlboot || phases="SYSINIT MOUNTED"
+        if printf ' %s ' "$phases" | grep -q " $2 "; then
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'phase $2 of $1'"
+        else
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error '$1 has no phase $2 (one of: $phases)'"
+        fi
+}
+
 #@help ___stage_elvbootd_glue_rcd_mk1
 # @command stage elvbootd glue rcd mk <stage>
 # @summary STARTUP or SHUTDOWN binds a policy: the one line that writes hooks/elvbootd from 'stage elvbootd glue rcd' (.new then mv: the installed file is 0500), else a comment line -- a batch, because the line carries a redirection
@@ -983,7 +1026,7 @@ _stage_hook_place2() {
 
 #@help _stage_hook_test_run3
 # @command stage hook test run <stage> <container> <file>
-# @summary Run a rendered test script (render mocks in place of state and tools): the render carries no error, a fresh test state dir, sh <file> with its exit code, every file the run left in the test state dir printed with a header, then state dir and script removed
+# @summary Run a rendered test script (render mocks in place of state and tools): the render carries no error, a fresh test state dir, sh <file> with its exit code, every file the run left in the test state dir (subdirectories included, the path relative to it as header) printed, then state dir and script removed
 # @group   foundation
 # @internal
 # @see     stage earlboot test
@@ -993,7 +1036,7 @@ _stage_hook_test_run3() {
         printf '%s\n' "! grep -q '^printf .# Error: ' '$3'"
         printf '%s\n' "rm -rf '$state' && mkdir -p '$state' && chmod 0700 '$state'"
         printf '%s\n' "sh '$3'; printf '== %s test run of %s: exit %s\\n' '$2' '$1' \"\$?\""
-        printf '%s\n' "for x in '$state'/*; do [ -f \"\$x\" ] || continue; printf '== %s\\n' \"\${x##*/}\"; cat \"\$x\"; done"
+        printf '%s\n' "find '$state' -type f | sort | while IFS= read -r x; do printf '== %s\\n' \"\${x#'$state'/}\"; cat \"\$x\"; done"
         printf '%s\n' "rm -rf '$state' '$3'"
 }
 

@@ -23,9 +23,14 @@
 #                       hashed in the ciphertext, witness that nothing was
 #                       written into it since the rollout. stage witness
 #                       measure takes the hash as root and keeps a receipt
-#                       (witness-receipts/<name>, an observation, not in the
-#                       dump); site mk renders the last receipts into
-#                       LOADER_TRUST_WITNESS_LABELS (name:guid:digest,...).
+#                       (witness-receipts/<name>: UTC, GPT uuid, medium --
+#                       the sha256 of the GELI metadata sector, what tells
+#                       two dd-cloned cards apart -- and digest; an
+#                       observation, not in the dump); stage witness conf
+#                       writes the last receipts as kenv records
+#                       (loader.trust.inventory.witnesses, .witness.<name>.
+#                       guid/medium/digest), loaderconf mk puts them into
+#                       loader.trust.conf: a rollout is no rebuild.
 #   kenv/<key>          loader.trust.* kenv values the bound actions read
 #                       at boot (question, salt, rescue root, deadline ...);
 #                       loaderconf mk writes them into boot/loader.trust.conf,
@@ -496,7 +501,7 @@ ___stage_dump_disks1() {
 # @command stage witness add <stage> <name> <partition>
 # @completion name none
 # @completion partition none
-# @summary Record one integrity witness of the stage: a GELI container the loader reads but never opens -- the rescue card (da1p3 as zcard-b), the quarantine (nda1p1 as zempty). Its four ZFS vdev labels and its GELI metadata sector, hashed in the ciphertext, say whether anything was written into it since the rollout (every transaction group writes a new uberblock into the labels). The stage exists, the name is a record name and the partition a GPT partition name; then written under witness/<name> (immutable: the same partition again is a note, another one is refused -- drop first). 'stage witness measure' takes the hash when it runs (root) and leaves the receipt 'stage site mk' builds the loader with; 'stage witness check' compares a container with its last receipt
+# @summary Record one integrity witness of the stage: a GELI container the loader reads but never opens -- the rescue card (da1p3 as zcard-b; a second card in the same slot is its own witness, zcard-a: the medium of the first receipt, the sha256 of the card's GELI metadata sector, tells them apart even when the cards are dd clones with one GPT uuid; measure and check skip the card that is not in the slot), the quarantine (nda1p1 as zempty). Its four ZFS vdev labels and its GELI metadata sector, hashed in the ciphertext, say whether anything was written into it since the rollout (every transaction group writes a new uberblock into the labels). The stage exists, the name is a record name and the partition a GPT partition name; then written under witness/<name> (immutable: the same partition again is a note, another one is refused -- drop first). 'stage witness measure' takes the hash when it runs (root) and leaves the receipt 'stage witness conf' puts into loader.trust.conf; 'stage witness check' compares a container with its last receipt
 # @group   provisioning
 # @example elebake stage witness add daily-v1 zcard-b da1p3
 # @see     stage witness measure
@@ -594,13 +599,13 @@ __stage_witness_listed2() {
 # @see     stage witness drop
 #@end
 _stage_witness_unlink2() {
-        printf '%s\n' "rm -f '$ELEBAKE_BASE/stage/$1/witness/$2' '$ELEBAKE_BASE/stage/$1/witness-receipts/$2'"
+        printf '%s\n' "rm -f '$ELEBAKE_BASE/stage/$1/witness/$2' '$ELEBAKE_BASE/stage/$1/witness-receipts/$2' '$ELEBAKE_BASE/stage/$1/witness-receipts/$2.full' '$ELEBAKE_BASE/stage/$1/witness-receipts/$2.gpt'"
         emit_note "witness $2 of $1: dropped"
 }
 
 #@help ___stage_witness_show1
 # @command stage witness show <stage>
-# @summary The witnesses of the stage as notes -- name, partition, the last receipt (when, GPT uuid, digest): the stage exists; none says so. The digest line is what goes on paper and into the public commit at a rollout: the one witness outside the machine
+# @summary The witnesses of the stage as notes -- name, partition, the last receipt (when, GPT uuid, medium, digest) and the last whole-card receipt when there is one: the stage exists; none says so. The digest line is what goes on paper and into the public commit at a rollout: the one witness outside the machine
 # @group   provisioning
 # @example elebake stage witness show daily-v1
 # @see     stage witness add
@@ -615,8 +620,79 @@ ___stage_witness_show1() {
                 name=${f##*/}
                 last=$(tail -n 1 "$ELEBAKE_BASE/stage/$1/witness-receipts/$name" 2>/dev/null)
                 printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" log '  $name: $(sed -n 1p "$f") -- ${last:-no receipt yet (stage witness measure $1)}'"
+                last=$(tail -n 1 "$ELEBAKE_BASE/stage/$1/witness-receipts/$name.full" 2>/dev/null)
+                test -z "$last" || printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" log '    whole card: $last'"
+                last=$(tail -n 1 "$ELEBAKE_BASE/stage/$1/witness-receipts/$name.gpt" 2>/dev/null)
+                test -z "$last" || printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" log '    partition table: $last'"
         done
         test -n "$(ls "$ELEBAKE_BASE/stage/$1/witness" 2>/dev/null)" || printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" log '  (none -- stage witness add $1 <name> <partition>)'"
+        last=$(tail -n 1 "$ELEBAKE_BASE/stage/$1/witness-receipts/anchor" 2>/dev/null)
+        test -z "$last" || printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" log '  anchor (the table in the TPM): $last'"
+}
+
+#@help ___stage_witness_anchor1
+# @command stage witness anchor <stage>
+# @summary The anchor of the witness table in the TPM (the third witness): the stage exists and names the index (kenv loader.trust.tpm.witness.nv) and the PCR list (loader.trust.tpm.keyfile.pcrs), the RAM disk is mounted, the hierarchy password is on it, every witness has its receipt and the conf records stand (loader.trust.inventory.witnesses); then the owner's passphrase is read hidden (the index's auth value is the owner object's) and 'stage witness anchor write' defines the index once and writes the digest. After every rollout of a witness: measure, conf, anchor. The loader's claim WitnessAnchor and elvbootd's witness_anchor_act compare against this index; a conf rewritten on a medium by whoever holds the signing key carries a table the index does not
+# @group   provisioning
+# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the auth values live on (default .ram under the database)
+# @example elebake stage witness anchor daily-v1
+# @see     stage witness conf
+# @see     stage tpm anchor
+# @see     stage witness show
+#@end
+___stage_witness_anchor1() {
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage check stage '$1'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage tpm leaf set '$1' loader.trust.tpm.witness.nv"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage tpm leaf set '$1' loader.trust.tpm.keyfile.pcrs"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage tpm leaf set '$1' loader.trust.inventory.witnesses"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage tpm workdir ready"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage tpm hierarchy present"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage witness recorded '$1'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage witness receipts complete '$1'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage tpm seal read '$1' owner"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage witness anchor write '$1'"
+}
+
+#@help _stage_witness_anchor_write1
+# @command stage witness anchor write <stage>
+# @summary Act terminal (root): the table digest -- sha256 over "<name>:<medium>:<digest>" lines, one per witness in the order of loader.trust.inventory.witnesses, from the stage's kenv records -- into the NV index loader.trust.tpm.witness.nv: a trial session computes the policy (PolicyPCR over loader.trust.tpm.keyfile.pcrs as they stand, then PolicyAuthValue), the index is defined once (32 bytes, policywrite|authread|no_da, auth value = <workdir>/auth-owner.hex from stage tpm seal read), a policy session with the auth value writes the 32 bytes, the receipt line (UTC, digest) is appended to witness-receipts/anchor. The loader reads the index with its empty read auth
+# @group   provisioning
+# @internal
+# @env     ELEBAKE_TPM_WORKDIR  the RAM disk (auth-owner.hex, auth-hierarchy.hex, the session contexts)
+# @see     stage witness anchor
+#@end
+_stage_witness_anchor_write1() {
+        local d="$(ram_dir)" r="$ELEBAKE_BASE/stage/$1/witness-receipts" idx="" pcrs="" names="" n="" digest=""
+        idx=$(sed -n 1p "$ELEBAKE_BASE/stage/$1/kenv/loader.trust.tpm.witness.nv" 2>/dev/null)
+        pcrs=$(sed -n 1p "$ELEBAKE_BASE/stage/$1/kenv/loader.trust.tpm.keyfile.pcrs" 2>/dev/null)
+        names=$(sed -n 1p "$ELEBAKE_BASE/stage/$1/kenv/loader.trust.inventory.witnesses" 2>/dev/null)
+        digest=$(for n in $(printf '%s' "$names" | tr ',' ' '); do
+                printf '%s:%s:%s\n' "$n" "$(sed -n 1p "$ELEBAKE_BASE/stage/$1/kenv/loader.trust.inventory.witness.$n.medium" 2>/dev/null)" "$(sed -n 1p "$ELEBAKE_BASE/stage/$1/kenv/loader.trust.inventory.witness.$n.digest" 2>/dev/null)"
+        done | sha256 -q)
+        emit_note "stage witness anchor '$1': the table of $names as $digest into index $idx (PolicyPCR $pcrs and the owner's passphrase); an index already defined is kept"
+        cat <<EOF
+export TPM2TOOLS_TCTI=device:/dev/tpm0
+cd '$d' || exit 1
+test -s auth-owner.hex || { printf '# Error: %s\\n' 'stage witness anchor: auth-owner.hex missing on the RAM disk (stage tpm seal read $1 owner)' >&2; exit 1; }
+printf '%s' '$digest' | awk 'BEGIN { h = "0123456789abcdef" } { s = tolower(\$0); for (i = 1; i <= length(s); i += 2) printf "\\\\%03o", (index(h, substr(s, i, 1)) - 1) * 16 + index(h, substr(s, i + 1, 1)) - 1 }' > witness-anchor.oct
+# shellcheck disable=SC2059
+printf "\$(cat witness-anchor.oct)" > witness-anchor.bin
+test "\$(od -An -tx1 witness-anchor.bin | tr -d ' \\n')" = '$digest' || { rm -P witness-anchor.oct witness-anchor.bin; printf '# Error: %s\\n' 'stage witness anchor: the 32 bytes do not round-trip' >&2; exit 1; }
+tpm2_flushcontext --loaded-session
+tpm2_startauthsession --session=t.ctx || exit 1
+tpm2_policypcr --session=t.ctx --pcr-list='sha256:$pcrs' || exit 1
+tpm2_policyauthvalue --session=t.ctx --policy=witness.policy || exit 1
+tpm2_flushcontext t.ctx
+tpm2_nvreadpublic '$idx' >/dev/null 2>&1 || tpm2_nvdefine '$idx' --hierarchy=o --size=32 --policy=witness.policy --attributes='policywrite|authread|no_da' --index-auth="hex:\$(cat auth-owner.hex)" --hierarchy-auth="hex:\$(cat auth-hierarchy.hex)" || exit 1
+tpm2_startauthsession --policy-session --session=w.ctx || exit 1
+tpm2_policypcr --session=w.ctx --pcr-list='sha256:$pcrs' || { tpm2_flushcontext w.ctx; exit 1; }
+tpm2_policyauthvalue --session=w.ctx || { tpm2_flushcontext w.ctx; exit 1; }
+tpm2_nvwrite '$idx' --auth="session:w.ctx+hex:\$(cat auth-owner.hex)" --input=witness-anchor.bin || { tpm2_flushcontext w.ctx; exit 1; }
+tpm2_flushcontext w.ctx
+rm -P witness-anchor.oct witness-anchor.bin witness.policy
+$MODIFY_DIR_CREATE '$r' && printf '%s %s\\n' "\$(date -u '+%Y-%m-%dT%H:%M:%SZ')" '$digest' >> '$r/anchor' && chown '$(id -un)' '$r' '$r/anchor' && $MODIFY_FILE_PERMS 0600 '$r/anchor'
+printf '# witness anchor of %s: %s in index %s\\n' '$1' '$digest' '$idx' >&2
+EOF
 }
 
 #@help ___stage_dump_witness1
@@ -632,7 +708,7 @@ ___stage_dump_witness1() {
 
 #@help ___stage_witness_measure1
 # @command stage witness measure <stage>
-# @summary Measure every witness of the stage when the batch runs (raw device reads: the act is root) -- the four vdev labels and the GELI metadata sector of each container in the ciphertext, one sha256 per witness -- and append a receipt (UTC time, GPT uuid, digest) under witness-receipts/<name>: the stage exists and records at least one witness; then one 'stage witness labels' per witness. Measure at the rollout, with the container closed; 'stage site mk' builds the loader with the last receipts, 'stage witness show' prints them for paper and commit
+# @summary Measure every witness of the stage when the batch runs (raw device reads: the act is root) -- the four vdev labels and the GELI metadata sector of each container in the ciphertext, one sha256 per witness -- and append a receipt (UTC time, GPT uuid, digest) under witness-receipts/<name>: the stage exists and records at least one witness; then one 'stage witness labels' per witness. Measure at the rollout, with the container closed; 'stage witness conf' puts the last receipts into the kenv records the loader reads, 'stage witness show' prints them for paper and commit
 # @group   provisioning
 # @example elebake stage witness measure daily-v1
 # @see     stage witness add
@@ -646,7 +722,59 @@ ___stage_witness_measure1() {
         for f in "$ELEBAKE_BASE/stage/$1"/witness/*; do
                 test -f "$f" || continue
                 printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage witness labels '$1' '${f##*/}'"
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage witness tables '$1' '${f##*/}'"
         done
+}
+
+#@help _stage_witness_tables2
+# @command stage witness tables <stage> <name>
+# @summary Act terminal (root): the partition table of the disk the witness lives on -- sha256 over the GPT header proper (92 bytes of LBA 1) and the entry array it points to, as the loader hashes PartitionTables -- guarded by the medium like the labels (the other card in the slot: no receipt); the receipt line (UTC, medium, digest) goes to witness-receipts/<name>.gpt. The cards differ in size and carry their own tables: each is a witness of its own (WitnessTables), not a term in PartitionTables
+# @group   provisioning
+# @internal
+# @see     stage witness measure
+# @see     stage witness labels
+#@end
+_stage_witness_tables2() {
+        local r="$ELEBAKE_BASE/stage/$1/witness-receipts" first="" medium="" part="" disk=""
+        part=$(sed -n 1p "$ELEBAKE_BASE/stage/$1/witness/$2" 2>/dev/null); disk=${part%p[0-9]*}
+        first=$(sed -n 1p "$r/$2" 2>/dev/null)
+        test "$(printf '%s\n' "$first" | awk '{ print NF }')" != 4 || { medium=${first#* }; medium=${medium#* }; medium=${medium%% *}; }
+        emit_note "stage witness tables '$1' '$2': the GPT header and entry array of /dev/$disk${medium:+ (the medium $medium)}"
+        _stage_witness_digest2 "$1" "$2"
+        test -z "$medium" || printf '%s\n' "if [ \"\$m\" != '$medium' ]; then printf '# witness %s: not in the slot (the slot carries the medium %s, the witness is %s) -- no table receipt\\n' '$2' \"\$m\" '$medium' >&2; exit 0; fi"
+        printf '%s\n' "ss=\$(diskinfo '/dev/$disk' | awk '{ print \$2 }'); test \"\${ss:-0}\" -ge 512 || exit 1"
+        printf '%s\n' "h=\$(mktemp) || exit 1; dd if='/dev/$disk' bs=\"\$ss\" skip=1 count=1 of=\"\$h\" 2>/dev/null || exit 1"
+        printf '%s\n' "test \"\$(dd if=\"\$h\" bs=1 count=8 2>/dev/null)\" = 'EFI PART' || { rm -f \"\$h\"; printf '# Error: witness %s: /dev/%s carries no GPT\\n' '$2' '$disk' >&2; exit 1; }"
+        printf '%s\n' "t=\$(od -An -tu8 -j72 -N8 \"\$h\" | tr -d ' '); e=\$(od -An -tu4 -j80 -N4 \"\$h\" | tr -d ' '); z=\$(od -An -tu4 -j84 -N4 \"\$h\" | tr -d ' ')"
+        printf '%s\n' "g=\$({ dd if=\"\$h\" bs=1 count=92 2>/dev/null; dd if='/dev/$disk' bs=\"\$ss\" skip=\"\$t\" count=\"\$(((e * z + ss - 1) / ss))\" 2>/dev/null | head -c \"\$((e * z))\"; } | sha256 -q); rm -f \"\$h\""
+        printf '%s\n' "$MODIFY_DIR_CREATE '$r' && printf '%s %s %s\\n' \"\$(date -u '+%Y-%m-%dT%H:%M:%SZ')\" \"\$m\" \"\$g\" >> '$r/$2.gpt' && chown '$(id -un)' '$r' '$r/$2.gpt' && $MODIFY_FILE_PERMS 0600 '$r/$2.gpt' || exit 1"
+        printf '%s\n' "printf '# witness %s partition table of /dev/%s: %s\\n' '$2' '$disk' \"\$g\" >&2"
+}
+
+#@help _stage_witness_compare_tables2
+# @command stage witness compare tables <stage> <name>
+# @summary Act terminal (root): the partition table of the witness's disk now against the last table receipt (witness-receipts/<name>.gpt): unchanged since <UTC>, else an error line with both digests; without a receipt a note; a card not in the slot (the medium) is not compared
+# @group   provisioning
+# @internal
+# @see     stage witness check
+# @see     stage witness tables
+#@end
+_stage_witness_compare_tables2() {
+        local r="$ELEBAKE_BASE/stage/$1/witness-receipts" last="" medium="" part="" disk=""
+        part=$(sed -n 1p "$ELEBAKE_BASE/stage/$1/witness/$2" 2>/dev/null); disk=${part%p[0-9]*}
+        last=$(tail -n 1 "$r/$2.gpt" 2>/dev/null)
+        emit_note "stage witness check '$1' '$2': the partition table of /dev/$disk against the receipt of ${last%% *}"
+        if test -z "$last"; then
+                printf '%s\n' "printf '# witness %s: no table receipt yet (stage witness measure %s)\\n' '$2' '$1' >&2; exit 0"
+                return
+        fi
+        medium=${last#* }; medium=${medium%% *}
+        _stage_witness_digest2 "$1" "$2"
+        printf '%s\n' "if [ \"\$m\" != '$medium' ]; then printf '# witness %s: not in the slot (the slot carries the medium %s, the witness is %s) -- table not compared\\n' '$2' \"\$m\" '$medium' >&2; exit 0; fi"
+        printf '%s\n' "ss=\$(diskinfo '/dev/$disk' | awk '{ print \$2 }'); h=\$(mktemp) || exit 1; dd if='/dev/$disk' bs=\"\$ss\" skip=1 count=1 of=\"\$h\" 2>/dev/null || exit 1"
+        printf '%s\n' "t=\$(od -An -tu8 -j72 -N8 \"\$h\" | tr -d ' '); e=\$(od -An -tu4 -j80 -N4 \"\$h\" | tr -d ' '); z=\$(od -An -tu4 -j84 -N4 \"\$h\" | tr -d ' ')"
+        printf '%s\n' "g=\$({ dd if=\"\$h\" bs=1 count=92 2>/dev/null; dd if='/dev/$disk' bs=\"\$ss\" skip=\"\$t\" count=\"\$(((e * z + ss - 1) / ss))\" 2>/dev/null | head -c \"\$((e * z))\"; } | sha256 -q); rm -f \"\$h\""
+        printf '%s\n' "if [ \"\$g\" = '${last##* }' ]; then printf '# witness %s partition table: unchanged since %s\\n' '$2' '${last%% *}' >&2; else printf '# Error: witness %s partition table CHANGED: %s, receipt of %s was %s\\n' '$2' \"\$g\" '${last%% *}' '${last##* }' >&2; exit 1; fi"
 }
 
 #@help __stage_witness_recorded1
@@ -666,7 +794,7 @@ __stage_witness_recorded1() {
 
 #@help _stage_witness_digest2
 # @command stage witness digest <stage> <name>
-# @summary Text terminal: the sh lines that read the witness's partition and print its digest -- the GELI metadata sector (geli dump) decides the geometry: with authentication every logical sector of the provider occupies bytes_per_sector physical bytes (data per physical sector = sector size minus the HMAC length, rounded down to 16), without it the bytes are the bytes; the provider size follows the same rule as g_eli (the metadata sector off, aligned to the logical sector); ZFS keeps labels 0 and 1 in the first 512 KiB of the provider and labels 2 and 3 in the last 512 KiB of the provider size aligned down to 256 KiB; the three regions (first pair, last pair, the partition's last sector) hashed in that order, exactly what the loader hashes (measure_witness_labels). Sets u (GPT uuid, lower case) and d (digest) for the lines after
+# @summary Text terminal: the sh lines that read the witness's partition and print its digest -- the GELI metadata sector (geli dump) decides the geometry: with authentication every logical sector of the provider occupies bytes_per_sector physical bytes (data per physical sector = sector size minus the HMAC length, rounded down to 16), without it the bytes are the bytes; the provider size follows the same rule as g_eli (the metadata sector off, aligned to the logical sector); ZFS keeps labels 0 and 1 in the first 512 KiB of the provider and labels 2 and 3 in the last 512 KiB of the provider size aligned down to 256 KiB; the three regions (first pair, last pair, the partition's last sector) hashed in that order, exactly what the loader hashes (measure_witness_labels). Sets u (GPT uuid, lower case), m (the medium: sha256 of the GELI metadata, the last 512 bytes of the last sector -- every card init writes its own, so two dd-cloned cards with one GPT uuid are told apart) and d (digest) for the lines after
 # @group   provisioning
 # @internal
 # @see     stage witness labels
@@ -689,22 +817,107 @@ fi
 a=\$((media - media % 262144)); test "\$a" -ge 524288 || { printf '# Error: witness $2: /dev/$part is too small for vdev labels\\n' >&2; exit 1; }
 n=\$((524288 / ssz * bps / bss))
 d=\$( { dd if='/dev/$part' bs="\$bss" count="\$n" 2>/dev/null; dd if='/dev/$part' bs="\$bss" skip="\$(( (a - 524288) / ssz * bps / bss ))" count="\$n" 2>/dev/null; dd if='/dev/$part' bs="\$bss" skip="\$((msz / bss - 1))" count=1 2>/dev/null; } | sha256 -q )
+m=\$( dd if='/dev/$part' bs="\$bss" skip="\$((msz / bss - 1))" count=1 2>/dev/null | tail -c 512 | sha256 -q )
 EOF
 }
 
 #@help _stage_witness_labels2
 # @command stage witness labels <stage> <name>
-# @summary Act terminal (root): the digest lines ('stage witness digest'), then the receipt "<UTC> <uuid> <digest>" appended under witness-receipts/<name> (owned by the database's owner, mode 0600) and the digest on stderr
+# @summary Act terminal (root): the digest lines ('stage witness digest'), then -- a witness is one medium: with a receipt, the medium of the first receipt (sha256 of the GELI metadata sector) names it, and a partition that carries another medium is another card in the slot, noted and left without a receipt; a receipt without a medium identity (an earlier form) asks for drop and add -- the receipt "<UTC> <uuid> <medium> <digest>" appended under witness-receipts/<name> (owned by the database's owner, mode 0600) and the digest on stderr
 # @group   provisioning
 # @internal
 # @see     stage witness measure
 #@end
 _stage_witness_labels2() {
-        local r="$ELEBAKE_BASE/stage/$1/witness-receipts"
-        emit_note "stage witness measure '$1' '$2': the vdev labels and the GELI metadata sector of /dev/$(sed -n 1p "$ELEBAKE_BASE/stage/$1/witness/$2" 2>/dev/null) in the ciphertext"
+        local r="$ELEBAKE_BASE/stage/$1/witness-receipts" first="" medium=""
+        first=$(sed -n 1p "$r/$2" 2>/dev/null)
+        test "$(printf '%s\n' "$first" | awk '{ print NF }')" != 4 || { medium=${first#* }; medium=${medium#* }; medium=${medium%% *}; }
+        emit_note "stage witness measure '$1' '$2': the vdev labels and the GELI metadata sector of /dev/$(sed -n 1p "$ELEBAKE_BASE/stage/$1/witness/$2" 2>/dev/null) in the ciphertext${medium:+ (the medium $medium)}"
+        if test -n "$first" && test -z "$medium"; then
+                printf '%s\n' "printf '# witness %s: its receipts carry no medium identity (an earlier form) -- stage witness drop %s %s, then add and measure it again with its card in the slot\\n' '$2' '$1' '$2' >&2; exit 0"
+                return
+        fi
         _stage_witness_digest2 "$1" "$2"
-        printf '%s\n' "$MODIFY_DIR_CREATE '$r' && printf '%s %s %s\\n' \"\$(date -u '+%Y-%m-%dT%H:%M:%SZ')\" \"\$u\" \"\$d\" >> '$r/$2' && chown '$(id -un)' '$r' '$r/$2' && $MODIFY_FILE_PERMS 0600 '$r/$2' || exit 1"
-        printf '%s\n' "printf '# witness %s: %s\\n' '$2' \"\$d\" >&2"
+        test -z "$medium" || printf '%s\n' "if [ \"\$m\" != '$medium' ]; then printf '# witness %s: not in the slot (the slot carries the medium %s, the witness is %s) -- no receipt\\n' '$2' \"\$m\" '$medium' >&2; exit 0; fi"
+        printf '%s\n' "$MODIFY_DIR_CREATE '$r' && printf '%s %s %s %s\\n' \"\$(date -u '+%Y-%m-%dT%H:%M:%SZ')\" \"\$u\" \"\$m\" \"\$d\" >> '$r/$2' && chown '$(id -un)' '$r' '$r/$2' && $MODIFY_FILE_PERMS 0600 '$r/$2' || exit 1"
+        printf '%s\n' "printf '# witness %s: %s (medium %s)\\n' '$2' \"\$d\" \"\$m\" >&2"
+}
+
+#@help ___stage_witness_measure_full1
+# @command stage witness measure full <stage>
+# @summary The whole-card receipt of every witness of the stage, when the batch runs (root; minutes per card: the entire disk is read): sha256 over the disk the witness partition lives on -- GPT, every partition, the free space after the last one -- against which a later 'stage witness check full' tells any byte written anywhere on the card, inside or outside the containers. The stage exists and records witnesses; then one 'stage witness whole' per witness. A witness whose medium is not in the slot is skipped like 'stage witness measure'. The loader never reads this receipt; the report does, and so does the owner on suspicion
+# @group   provisioning
+# @example elebake stage witness measure full daily-v1
+# @see     stage witness measure
+# @see     stage witness check full
+#@end
+___stage_witness_measure_full1() {
+        local f=""
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage check stage '$1'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage witness recorded '$1'"
+        for f in "$ELEBAKE_BASE/stage/$1"/witness/*; do
+                test -f "$f" || continue
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage witness whole '$1' '${f##*/}'"
+        done
+}
+
+#@help _stage_witness_whole2
+# @command stage witness whole <stage> <name>
+# @summary Act terminal (root): the digest lines ('stage witness digest') for the medium identity, the guard on the medium, then sha256 over the whole disk the partition lives on (dd bs=1m from LBA 0 to the end) appended as "<UTC> <medium> <digest>" under witness-receipts/<name>.full (owner, 0600), the digest on stderr
+# @group   provisioning
+# @internal
+# @see     stage witness measure full
+#@end
+_stage_witness_whole2() {
+        local r="$ELEBAKE_BASE/stage/$1/witness-receipts" first="" medium="" part="" disk=""
+        part=$(sed -n 1p "$ELEBAKE_BASE/stage/$1/witness/$2" 2>/dev/null); disk=${part%p[0-9]*}
+        first=$(sed -n 1p "$r/$2" 2>/dev/null)
+        test "$(printf '%s\n' "$first" | awk '{ print NF }')" != 4 || { medium=${first#* }; medium=${medium#* }; medium=${medium%% *}; }
+        emit_note "stage witness measure full '$1' '$2': the whole disk /dev/$disk (GPT, every partition, the free space) -- minutes"
+        _stage_witness_digest2 "$1" "$2"
+        test -z "$medium" || printf '%s\n' "if [ \"\$m\" != '$medium' ]; then printf '# witness %s: not in the slot (the slot carries the medium %s, the witness is %s) -- no whole-card receipt\\n' '$2' \"\$m\" '$medium' >&2; exit 0; fi"
+        printf '%s\n' "w=\$(dd if='/dev/$disk' bs=1m 2>/dev/null | sha256 -q) && test -n \"\$w\" || { printf '# Error: witness %s: /dev/%s could not be read whole\\n' '$2' '$disk' >&2; exit 1; }"
+        printf '%s\n' "$MODIFY_DIR_CREATE '$r' && printf '%s %s %s\\n' \"\$(date -u '+%Y-%m-%dT%H:%M:%SZ')\" \"\$m\" \"\$w\" >> '$r/$2.full' && chown '$(id -un)' '$r' '$r/$2.full' && $MODIFY_FILE_PERMS 0600 '$r/$2.full' || exit 1"
+        printf '%s\n' "printf '# witness %s whole card /dev/%s: %s\\n' '$2' '$disk' \"\$w\" >&2"
+}
+
+#@help ___stage_witness_check_full1
+# @command stage witness check full <stage>
+# @summary Compare the whole card of every witness with its last whole-card receipt when the batch runs (root; minutes per card): the stage exists and records witnesses; then one 'stage witness compare whole' per witness -- unchanged, or CHANGED with both digests (exit 1): a byte written anywhere on the card since the receipt, inside or outside the containers
+# @group   provisioning
+# @example elebake stage witness check full daily-v1
+# @see     stage witness measure full
+#@end
+___stage_witness_check_full1() {
+        local f=""
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage check stage '$1'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage witness recorded '$1'"
+        for f in "$ELEBAKE_BASE/stage/$1"/witness/*; do
+                test -f "$f" || continue
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage witness compare whole '$1' '${f##*/}'"
+        done
+}
+
+#@help _stage_witness_compare_whole2
+# @command stage witness compare whole <stage> <name>
+# @summary Act terminal (root): the digest lines for the medium identity, the guard on the medium, then sha256 over the whole disk against the last whole-card receipt -- "unchanged" on stderr, or CHANGED with both digests and exit 1; no whole-card receipt yet is a note (stage witness measure full)
+# @group   provisioning
+# @internal
+# @see     stage witness check full
+#@end
+_stage_witness_compare_whole2() {
+        local r="$ELEBAKE_BASE/stage/$1/witness-receipts" last="" medium="" part="" disk=""
+        part=$(sed -n 1p "$ELEBAKE_BASE/stage/$1/witness/$2" 2>/dev/null); disk=${part%p[0-9]*}
+        last=$(tail -n 1 "$r/$2.full" 2>/dev/null)
+        emit_note "stage witness check full '$1' '$2': the whole disk /dev/$disk against the receipt of ${last%% *}"
+        if test -z "$last"; then
+                printf '%s\n' "printf '# witness %s: no whole-card receipt yet (stage witness measure full %s)\\n' '$2' '$1' >&2; exit 0"
+                return
+        fi
+        medium=${last#* }; medium=${medium%% *}
+        _stage_witness_digest2 "$1" "$2"
+        printf '%s\n' "if [ \"\$m\" != '$medium' ]; then printf '# witness %s: not in the slot (the slot carries the medium %s, the witness is %s) -- not compared\\n' '$2' \"\$m\" '$medium' >&2; exit 0; fi"
+        printf '%s\n' "w=\$(dd if='/dev/$disk' bs=1m 2>/dev/null | sha256 -q); if [ \"\$w\" = '${last##* }' ]; then printf '# witness %s whole card: unchanged since %s\\n' '$2' '${last%% *}' >&2; else printf '# Error: witness %s whole card CHANGED: receipt %s %s, now %s\\n' '$2' '${last%% *}' '${last##* }' \"\$w\" >&2; exit 1; fi"
 }
 
 #@help ___stage_witness_check1
@@ -721,65 +934,87 @@ ___stage_witness_check1() {
         for f in "$ELEBAKE_BASE/stage/$1"/witness/*; do
                 test -f "$f" || continue
                 printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage witness compare '$1' '${f##*/}'"
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage witness compare tables '$1' '${f##*/}'"
         done
 }
 
 #@help _stage_witness_compare2
 # @command stage witness compare <stage> <name>
-# @summary Act terminal (root): the digest lines ('stage witness digest'), then the digest against the last receipt -- "unchanged" on stderr, or CHANGED with the receipt's and the current digest and exit 1; no receipt yet is an error
+# @summary Act terminal (root): the digest lines ('stage witness digest'), then the digest against the last receipt -- "unchanged" on stderr, or CHANGED with the receipt's and the current digest and exit 1; a partition that carries another medium than the receipt (the GELI metadata sector) is another card in the slot: noted, not compared; a receipt without a medium identity asks for drop and add; no receipt yet is an error
 # @group   provisioning
 # @internal
 # @see     stage witness check
 #@end
 _stage_witness_compare2() {
-        local last=""
+        local last="" uuid=""
         last=$(tail -n 1 "$ELEBAKE_BASE/stage/$1/witness-receipts/$2" 2>/dev/null)
         emit_note "stage witness check '$1' '$2': against the receipt of ${last%% *}"
         if test -z "$last"; then
                 printf '%s\n' "printf '# Error: witness %s of %s has no receipt (stage witness measure %s)\\n' '$2' '$1' '$1' >&2; exit 1"
                 return
         fi
+        if test "$(printf '%s\n' "$last" | awk '{ print NF }')" != 4; then
+                printf '%s\n' "printf '# witness %s: its receipt carries no medium identity (an earlier form) -- stage witness drop %s %s, then add and measure it again with its card in the slot\\n' '$2' '$1' '$2' >&2; exit 0"
+                return
+        fi
         _stage_witness_digest2 "$1" "$2"
+        uuid=${last#* }; uuid=${uuid#* }; uuid=${uuid%% *}
+        printf '%s\n' "if [ \"\$m\" != '$uuid' ]; then printf '# witness %s: not in the slot (the slot carries the medium %s, the witness is %s) -- not compared\\n' '$2' \"\$m\" '$uuid' >&2; exit 0; fi"
         printf '%s\n' "if [ \"\$d\" = '${last##* }' ]; then printf '# witness %s: unchanged since %s\\n' '$2' '${last%% *}' >&2; else printf '# Error: witness %s CHANGED: receipt %s %s, now %s\\n' '$2' '${last%% *}' '${last##* }' \"\$d\" >&2; exit 1; fi"
 }
 
-#@help __stage_site_mk_witnesses1
-# @command stage site mk witnesses <stage>
-# @summary The stage records witnesses: rewrite to 'stage witness lines <stage>' (LOADER_TRUST_WITNESS_LABELS from the last receipts), else a comment line -- no witness prints nothing
+#@help ___stage_witness_conf1
+# @command stage witness conf <stage>
+# @summary The witnesses into the stage's kenv records, from the last receipts: loader.trust.inventory.witnesses (the names) and loader.trust.inventory.witness.<name>.guid, .medium and .digest -- what the loader reads from loader.trust.conf (WitnessLabels): the stage exists, it records witnesses, every receipt carries a medium; then the records rewritten (erase, add). Arm them with 'stage loaderconf mk', 'stage include' and 'stage push': the conf travels in the signed manifest, no rebuild -- a rollout of a card is measure, conf, loaderconf mk, include, push
 # @group   provisioning
-# @internal
-# @see     stage site mk
-# @see     stage witness add
+# @example elebake stage witness conf daily-v1
+# @see     stage witness measure
+# @see     stage loaderconf mk
 #@end
-__stage_site_mk_witnesses1() {
-        if test -n "$(ls "$ELEBAKE_BASE/stage/$1/witness" 2>/dev/null)"; then
-                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage witness lines '$1'"
-        else
-                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'stage $1 records no witness'"
-        fi
-}
-
-#@help _stage_witness_lines1
-# @command stage witness lines <stage>
-# @summary Act terminal: print the site.mk line LOADER_TRUST_WITNESS_LABELS="<name>:<uuid>:<digest>,..." from the last receipt of every witness, in record order; a witness without a receipt stops the line with an error (stage witness measure first)
-# @group   provisioning
-# @internal
-# @see     stage site mk witnesses
-#@end
-_stage_witness_lines1() {
-        local f="" name="" last="" list="" missing=""
+___stage_witness_conf1() {
+        local f="" name="" last="" names=""
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage check stage '$1'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage witness recorded '$1'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage witness receipts complete '$1'"
         for f in "$ELEBAKE_BASE/stage/$1"/witness/*; do
                 test -f "$f" || continue
                 name=${f##*/}
                 last=$(tail -n 1 "$ELEBAKE_BASE/stage/$1/witness-receipts/$name" 2>/dev/null)
-                test -n "$last" || { missing="$missing $name"; continue; }
-                last=${last#* }
-                list="$list${list:+,}$name:${last%% *}:${last##* }"
+                test "$(printf '%s\n' "$last" | awk '{ print NF }')" = 4 || continue
+                names="$names${names:+,}$name"
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage kenv erase '$1' 'loader.trust.inventory.witness.$name.guid'"
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage kenv add '$1' 'loader.trust.inventory.witness.$name.guid' '$(printf '%s\n' "$last" | awk '{ print $2 }')'"
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage kenv erase '$1' 'loader.trust.inventory.witness.$name.medium'"
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage kenv add '$1' 'loader.trust.inventory.witness.$name.medium' '$(printf '%s\n' "$last" | awk '{ print $3 }')'"
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage kenv erase '$1' 'loader.trust.inventory.witness.$name.digest'"
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage kenv add '$1' 'loader.trust.inventory.witness.$name.digest' '${last##* }'"
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage kenv erase '$1' 'loader.trust.inventory.witness.$name.gpt'"
+                last=$(tail -n 1 "$ELEBAKE_BASE/stage/$1/witness-receipts/$name.gpt" 2>/dev/null)
+                test -z "$last" || printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage kenv add '$1' 'loader.trust.inventory.witness.$name.gpt' '${last##* }'"
         done
-        if test -n "$missing"; then
-                printf '%s\n' "printf '# Error: stage site mk witnesses: no receipt for%s (stage witness measure %s)\\n' '$missing' '$1' >&2; exit 1"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage kenv erase '$1' 'loader.trust.inventory.witnesses'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage kenv add '$1' 'loader.trust.inventory.witnesses' '$names'"
+}
+
+#@help __stage_witness_receipts_complete1
+# @command stage witness receipts complete <stage>
+# @summary Every witness of the stage has a receipt and the last one carries a medium identity: a comment line, else an error line naming the witnesses to measure (or drop, add and measure, for a receipt of the earlier form)
+# @group   provisioning
+# @internal
+# @see     stage witness conf
+#@end
+__stage_witness_receipts_complete1() {
+        local f="" name="" last="" missing=""
+        for f in "$ELEBAKE_BASE/stage/$1"/witness/*; do
+                test -f "$f" || continue
+                name=${f##*/}
+                last=$(tail -n 1 "$ELEBAKE_BASE/stage/$1/witness-receipts/$name" 2>/dev/null)
+                test "$(printf '%s\n' "$last" | awk '{ print NF }')" = 4 || missing="$missing $name"
+        done
+        if test -z "$missing"; then
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'every witness of $1 has a receipt with a medium'"
         else
-                printf '%s\n' "printf '%s\\n' 'CFLAGS+= -DLOADER_TRUST_WITNESS_LABELS=\\\"$list\\\"'"
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'stage witness conf: no receipt with a medium for$missing (stage witness measure $1 with the card in the slot; a receipt of the earlier form: drop, add, measure)'"
         fi
 }
 
@@ -801,7 +1036,7 @@ __stage_site_mk_disks1() {
 
 #@help ___stage_disks_measure1
 # @command stage disks measure <stage>
-# @summary Measure the recorded partitions when the batch runs (raw device reads: run under sudo) -- their GPT UUIDs (gpart), the last 512 bytes of each provider (GELI metadata), the GPT header and entry array of each disk once -- into a scratch directory of the stage, then print LOADER_TRUST_GELI_PARTS, _GELI_DIGEST and _GPT_DIGEST; an unreadable device fails the batch
+# @summary Measure the recorded partitions when the batch runs (raw device reads: run under sudo) -- their GPT UUIDs (gpart), the last 512 bytes of each provider (GELI metadata), the GPT header and entry array of each disk once, in record order (the order the loader walks the parents of LOADER_TRUST_GELI_PARTS) -- into a scratch directory of the stage, then print LOADER_TRUST_GELI_PARTS, _GELI_DIGEST and _GPT_DIGEST; an unreadable device fails the batch
 # @group   provisioning
 # @internal
 # @see     stage site mk disks
@@ -813,7 +1048,7 @@ ___stage_disks_measure1() {
                 printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage disk uuid record '$1' '$dev'"
                 printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage disk geli measure '$1' '$dev'"
         done
-        grep . "$ELEBAKE_BASE/stage/$1/disks" 2>/dev/null | sed "s/p[0-9]*$//" | sort -u | while read -r disk; do
+        grep . "$ELEBAKE_BASE/stage/$1/disks" 2>/dev/null | sed "s/p[0-9]*$//" | awk '!seen[$0]++' | while read -r disk; do
                 printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage disk gpt measure '$1' '$disk'"
         done
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage disks lines '$1'"
@@ -932,13 +1167,13 @@ __stage_kenv_rewrite3() {
 
 #@help __stage_kenv_store3
 # @command stage kenv store <stage> <key> <value>
-# @summary The key is loader.trust.<gate>.<leaf> (a-z, 0-9, ., _) and the value fits one loader.conf line (no double quotes, backslashes or newlines): rewrite to 'stage kenv record', else an error line
+# @summary The key is loader.trust.<gate>.<leaf> (a-z, 0-9, ., _, -) and the value fits one loader.conf line (no double quotes, backslashes or newlines): rewrite to 'stage kenv record', else an error line
 # @group   provisioning
 # @internal
 # @see     stage kenv add
 #@end
 __stage_kenv_store3() {
-        if printf '%s\n' "$2" | grep -qx 'loader\.trust\.[a-z][a-z0-9._]*' && ! printf '%s' "$3" | grep -q '["\\]' && test "$(printf '%s' "$3" | wc -l | tr -d ' ')" -eq 0; then
+        if printf '%s\n' "$2" | grep -qx 'loader\.trust\.[a-z][a-z0-9._-]*' && ! printf '%s' "$3" | grep -q '["\\]' && test "$(printf '%s' "$3" | wc -l | tr -d ' ')" -eq 0; then
                 printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage kenv record '$1' '$2' $(sq "$3")"
         else
                 printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'stage kenv add: invalid key or value (loader.trust.<gate>.<leaf>; one loader.conf line): $2'"

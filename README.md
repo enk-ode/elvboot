@@ -56,6 +56,14 @@ The family, by name:
   counters, NVMe power cycles, the boot origin, and the fingerprint of
   the GELI key the loader derived — each a claim with a verdict, each
   verdict in the record.
+- **A report over the kept boots.** elvbootd keeps the loader's kenv of
+  every boot with the session's verdicts, hash-chained, under
+  `/var/db/elvboot/boots`; `elvboot report <stage>` (the second harness
+  of this repository: the same engine and database, its own vocabulary)
+  renders them as Markdown -- the boots, the fallen claims with
+  expectation against measurement, the aggregates, the chain, the
+  witnesses' receipts, the sources with their digests -- to sign with
+  `elebake attest`.
 - **Three factors for the encrypted root, judged by the TPM.** The
   loader compares no password. Its one dialog hands the passphrase to
   the TPM, whose sealed objects carry it as their auth value under a

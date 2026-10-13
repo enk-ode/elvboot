@@ -1,0 +1,2 @@
+sudo sh
+# Act terminal of 'stage witness check full': the whole disk read and compared; sudo sh so it runs as root.

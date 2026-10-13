@@ -1,0 +1,3 @@
+sudo sh
+# @summary Interpreter of 'stage witness compare tables': root reads the GPT of the witness's disk and compares -- sudo sh runs it, cat displays it
+# @see ELEBAKE_INTERPRETER_stage_witness_tables

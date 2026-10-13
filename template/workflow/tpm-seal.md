@@ -46,7 +46,16 @@ elebake stage tpm status daily-v1                 # the persistent handles, the 
 # Then the disks. The production root: slot 0 of every provider takes the
 # medium's key file and the TPM's, and no passphrase (the TPM judges the
 # passphrase):
-#   geli setkey -n 0 -P -K <boot tree>/keys/zroot.key -K tpm.bin nda0p1
+#   geli setkey -n 0 -J <passphrase file> -K <boot tree>/keys/zroot.key -K tpm.bin nda0p1
+#   (-J, not -P: slot 0 takes the owner's passphrase as a third factor
+#   beside the medium's key file and the TPM's -- a captured tpm.bin and
+#   zroot.key open nothing without it, a virtual TPM replaying the 32 bytes
+#   neither. The loader derives HMAC(key files) with PBKDF2(passphrase) as
+#   GELI does; the passphrase file holds exactly what is typed at the
+#   loader, no newline: printf '%s' "$pw" > .ram/auth.txt. Set zdata's slot
+#   first and boot once -- zdata is not the boot disk, slot 1 stays the
+#   recovery -- then zroot's. PBKDF2 runs in the loader with the provider's
+#   iterations: seconds per disk; geli setkey -i lowers them if it hurts.)
 # (tpm.bin = the unsealed bytes, on the RAM disk, from the probe). The
 # decoy root (workflow quarantine): slot 0 of nda1p1 takes the TPM's file
 # alone:

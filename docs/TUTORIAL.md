@@ -1432,3 +1432,118 @@ and site.mk is missing from the worktree (a loader compiled without it
 takes every expectation as none: measured once, by accident, on a card
 that boot never saw). And a card must prove itself before a write,
 chapter 23.
+
+## 25. The report: elvboot reads what elvbootd kept
+
+The boot summary line in syslog names the gates; what the loader measured
+and what it expected lives in the kenv of the running boot and is gone
+with the next. Workflow `boot-snapshots` binds `kenv_act`: at STARTUP
+elvbootd writes every `loader.trust.*` leaf of the boot under
+`/var/db/elvboot/boots/<stamp>-<counter>.kenv`, the header carrying the
+sha256 of the previous snapshot (a rewritten past breaks the chain; the
+stamp leads the name because the counter starts at 1 again when the
+record chain starts anew), and at SHUTDOWN appends the session's
+appraisals and spool lines to the same file. `persist_act` on the runtime
+gates puts their verdicts into `appraisal-<gate>`, which the SHUTDOWN run
+copies. Before the install, `stage elvbootd test <stage> STARTUP <dump>`
+replays the hook with mocks and prints the snapshot it would write.
+
+`elvboot` is the second harness of this repository: the same engine, the
+same database, the same pins -- its own vocabulary, nothing of the stage
+commands. `make install` puts the wrapper next to elebake's.
+
+    elvboot report daily-v1 > report.md         # every kept boot
+    elvboot report last daily-v1 10             # the ten newest
+    elvboot report since daily-v1 2026-10-01    # from a time (UTC, any prefix)
+    elvboot boot daily-v1 42                    # one counter, or one stamp: elvboot boot daily-v1 20261012T15
+    elvboot witness daily-v1                    # the receipt lines for paper and the public commit
+
+The report is Markdown: the boots as a table (counter, time, medium,
+chain, fallen gates, elvbootd verdicts, unlocks), per boot the fallen
+claims with the leaves of the gate that carry the claim's first word
+(PcrBank: `pcr.expected` against `pcr.sha256`), the aggregates (boots per
+medium, failures per claim, PcrBank rounds, unlocks, chain restarts and
+gaps, boot time, the last witness state), the chain of snapshots verified
+file by file, the witnesses' receipts (labels and whole card, with the
+medium identity), and the sources with their digests. `report render` is
+pinned to `sudo sh` because the state directory is root's; everything
+else runs as the owner. Sign the file as any export: `elebake attest
+report.md <key>`. Against root on the running machine no signature on
+the machine helps; what holds is the past: the record chain the loader
+seals, the hash chain of the snapshots, and -- Phase C -- append-only
+files under securelevel. The signature belongs where a person with the
+token sits: on the report.
+
+## 26. The integrity witnesses: a container nobody opens still has a state
+
+zroot and zdata are the TPM's business: sealed, three factors, the record
+chain. The rescue card (zcard) and the quarantine root (zempty) are
+different -- one opens with a key file and a passphrase on paper, the other
+with the TPM's file alone on the duress way. Against someone who can open
+either and plant something there, secrecy does not help; what helps is a
+proof of what the container held at a time. Both are immutable by design:
+their content changes only through a rollout, and whatever a session
+writes is gone at the next boot (the rescue imports its pool read-only,
+`vfs.zfs.rootpool_readonly`, set by the loader's divert).
+
+The measurable state is cheap and needs no key: the sha256 over the four
+ZFS vdev labels (256 KiB each at fixed offsets) and the GELI metadata
+sector, in the ciphertext. Every transaction group writes a new uberblock
+into the labels, so every file visible in the file system moves the
+value. `stage witness add <stage> <name> <partition>` records a witness,
+`stage witness measure` takes its receipt (UTC, GPT uuid, medium, digest)
+as root with the container closed. The medium is the sha256 of the GELI
+metadata sector: the owner's two cards are dd clones with one GPT uuid,
+but every card init wrote its own metadata, so the partition the uuid
+finds is this witness's card only when its metadata hashes to the medium;
+otherwise the other card is in the slot and this witness is absent --
+its own state, not a failure. The receipts travel in `loader.trust.conf`
+(`stage witness conf`, `stage loaderconf mk`, `stage include`, `stage
+push`): a rescue push moves a card's labels, and the conf is in the
+signed manifest like `pcr.expected`, so a refresh is no rebuild.
+
+Six witnesses, each from a different root of trust, none presupposed:
+
+1. **The signed loader** reads every listed witness that is present and
+   compares (`WitnessLabels`; `witness.state` names each with match,
+   differ or absent). It covers the attacker with the passphrase but
+   without the signing key completely.
+2. **The cross baseline**: both cards carry both receipts; whichever is in
+   the slot is judged, the other is absent.
+3. **The anchor in the TPM**: an NV index holds the sha256 over the table
+   `<name>:<medium>:<digest>` of the conf, written by the owner (`stage
+   witness anchor`) under PolicyPCR of the production AND the owner's
+   passphrase as the index's auth value. root on the running machine
+   cannot move it; a conf rewritten on a medium by whoever holds the
+   signing key carries a table the index does not. The loader compares
+   (`WitnessAnchor`: match, differ; absent without TPM or index, so a
+   rescue on another board never fails here), and elvbootd reads the index
+   again at STARTUP (`witness_anchor_act`), on its own, not from the
+   loader's verdict.
+4. **Outside the machine**: the receipt lines (`stage witness show`,
+   `elvboot witness`) on paper beside the rescue passphrase and in the
+   public commit -- the one witness that answers the question of time.
+5. **The whole card**: `stage witness measure full` hashes the entire disk
+   the witness lives on -- GPT, every partition, the free space after the
+   last one (the cards are grown to their end first, workflow card-grow,
+   so no unallocated space remains). The loader never reads it; the
+   report and the owner on suspicion do.
+6. **The partition table of each card** (`<name>.gpt`, taken with the
+   labels): the cards differ in size and carry their own tables, so each
+   is a witness of its own (`WitnessTables`), not a term in
+   `PartitionTables`, which covers the internal disks. `WitnessSlot` adds
+   the one thing the absent state cannot say: that at least one card the
+   conf knows is in the slot (`loader.trust.inventory.witness.slot`).
+
+What the chain of witnesses buys: against root at run time, the past.
+A snapshot, a receipt, an index written before the compromise cannot be
+rewound by it; what root forges afterwards is root's own elvbootd, and no
+signature on the machine would change that -- which is why the report,
+not the log, is what the owner signs (chapter 25). The remaining tells of
+a boot are not witnesses but reactions: the seven measurements of the
+tell classes (workflow tells-narrow) read the loader's kenv in SYSINIT and
+narrow the phases behind the unlock -- the firmware's factory state and
+an absence beyond a month close zdata until the owner looks, a moved
+identity or a firmware state played back travels on the card to the admin
+machine, a disk read whole stops the boot. The loader informs; the owner
+decides at the unlock; the policy narrows what runs afterwards.

@@ -1,8 +1,11 @@
 # prune.awk -- the replay of a dump against a bundle: a line that names a base element
 # ("$X_ARCHIVE_BASE/<path>", the dump's quoting) the bundle's collection marks as dropped
 # ('# dropped (<reason>): "$X_ARCHIVE_BASE"/<path>', the collection's quoting) becomes
-# '# dropped (<reason>): <line>' -- the description stays complete and auditable, the replay
-# asks for nothing the bundle does not carry. Everything else passes through as it is.
+# '# dropped (<reason>): <dir>/ -- every element of this record', once per record directory
+# (the batch runner echoes every comment of the replay: a redacted pair drops six files per
+# backup record, one line says it) -- the dump stays complete, the bundle's collection names
+# every element, the replay asks for nothing the bundle does not carry. Everything else
+# passes through as it is.
 # The collection names a file by its real path, the dump by the name a link gives it
 # (stage/<name> -> .staging/<id>): links lists those aliases, 'stage/<name>=.staging/<id>;...'.
 #   awk -v collection=<the bundle's export/collection> -v links=<aliases> -f prune.awk <dump> > <replay>
@@ -21,6 +24,12 @@ BEGIN {
                 if (k > 0) alias[substr(A[i], 1, k - 1)] = substr(A[i], k + 1)
         }
 }
+function said(path, reason,    dir) {
+        dir = path; sub(/\/[^\/]*$/, "", dir)
+        if (dir in told) return
+        told[dir] = 1
+        print "# dropped (" reason "): " dir "/ -- every element of this record"
+}
 /^#/ || /^$/ { print; next }
 {
         if (match($0, /"\$[A-Z_]*ARCHIVE_BASE\/[^"]*"/)) {
@@ -28,8 +37,8 @@ BEGIN {
                 sub(/^"\$[A-Z_]*ARCHIVE_BASE\//, "", p); sub(/"$/, "", p)
                 q = p
                 for (a in alias) if (index(p, a "/") == 1) { q = alias[a] substr(p, length(a) + 1); break }
-                if (p in dropped) { print "# dropped (" dropped[p] "): " $0; next }
-                if (q in dropped) { print "# dropped (" dropped[q] "): " $0; next }
+                if (p in dropped) { said(p, dropped[p]); next }
+                if (q in dropped) { said(q, dropped[q]); next }
         }
         print
 }

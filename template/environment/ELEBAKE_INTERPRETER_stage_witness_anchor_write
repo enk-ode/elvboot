@@ -1,0 +1,3 @@
+sudo sh
+# @summary Interpreter of 'stage witness anchor write': the TPM index is defined and written as root, the receipt chowned to the owner -- sudo sh runs it, cat displays it
+# @see ELEBAKE_INTERPRETER_stage_tpm_anchor_make

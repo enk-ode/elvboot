@@ -250,6 +250,7 @@ help_render() {
                 ch="$COLOR_BLUE"; cc="$COLOR_CYAN"; cg="$COLOR_GRAY"; cr="$COLOR_RESET"
         fi
         help_source_files | tr '\n' '\0' | xargs -0 cat 2>>"$LOG_FILE" | awk \
+        -v tool="${ELEBAKE_CONTEXT_TOOL:-elebake}" -v only="$ANCHOR_FUNCTIONS" \
         -v mode="$mode" -v target="$target" -v ctxname="stage" \
         -v ch="$ch" -v cc="$cc" -v cg="$cg" -v cr="$cr" \
         -f "$ELEBAKE_TEMPLATE_DIR/awk/help-render.awk"
@@ -265,20 +266,23 @@ help_render() {
 # @env     ELEBAKE_DISPLAY_ANSI  0 disables colored output
 # @example elebake help stage
 # @example elebake help stage sign
+# @env     ELEBAKE_CONTEXT_TOOL     the harness's name in the overview and the usage lines (elebake, or elvboot when elvboot.sh runs); its tables (ANCHOR_FUNCTIONS) select the commands shown
+# @env     ELEBAKE_CONTEXT_TAGLINE  the line after the name (the harness sets it)
 #@end
 _help0() {
-        local c_reset="" c_heading="" c_gray=""
+        local c_reset="" c_heading="" c_gray="" tool="${ELEBAKE_CONTEXT_TOOL:-elebake}" example="stage sign"
         if [ "${ELEBAKE_DISPLAY_ANSI:-0}" = "1" ]; then
                 c_reset="$COLOR_RESET"; c_heading="$COLOR_BLUE"; c_gray="$COLOR_GRAY"
         fi
-        printf '%b\n' "${c_heading}elebake${c_reset} - emit-and-inspect tooling for verified boot / tamper detection"
+        test "$tool" = elebake || example="help"
+        printf '%b\n' "${c_heading}${tool}${c_reset} - ${ELEBAKE_CONTEXT_TAGLINE:-emit-and-inspect tooling for verified boot / tamper detection}"
         echo ""
-        printf '%b\n' "${c_gray}Usage:${c_reset} elebake <command> [arguments]"
-        printf '%b\n' "${c_gray}Detail for any command:${c_reset} elebake help <command>   ${c_gray}(e.g. elebake help stage sign)${c_reset}"
+        printf '%b\n' "${c_gray}Usage:${c_reset} $tool <command> [arguments]"
+        printf '%b\n' "${c_gray}Detail for any command:${c_reset} $tool help <command>   ${c_gray}(e.g. $tool help $example)${c_reset}"
         echo ""
         help_render overview
         echo ""
-        printf '%b\n' "${c_gray}Concept topic:${c_reset} elebake help environment"
+        printf '%b\n' "${c_gray}Concept topic:${c_reset} $tool help environment"
 }
 
 #@help _help1

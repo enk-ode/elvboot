@@ -112,6 +112,8 @@ test_setup() {
 # (grep -q) must never reach the running batch -- its exit channel would see
 # the broken pipe, not the failing line.
 run_elebake() { local out rc; out=$(ELEBAKE_BASE="$TEST_DIR" "$TEST_SCRIPT" "$@" 2>&1); rc=$?; printf '%s\n' "$out"; return $rc; }
+# run_elvboot -- the report harness against the same test database
+run_elvboot() { local out rc; out=$(ELEBAKE_BASE="$TEST_DIR" "$(dirname "$TEST_SCRIPT")/elvboot.sh" "$@" 2>&1); rc=$?; printf '%s\n' "$out"; return $rc; }
 # unit_attest_key <record> -- generate a throwaway OpenPGP key in a home
 # short enough for gpg-agent's socket, register it in the test database and
 # pin it as the archive attest key. Sets UNIT_GNUPGHOME and UNIT_FPR.
@@ -3049,8 +3051,8 @@ test_stage_witness_records() {
   test_header "stage witness: add/show/drop, validation, immutability, dump; measure, check and site mk render from the receipts"
   test_setup
   run_elebake stage add unitwt > /dev/null 2>&1
-  if [ -z "$(run_elebake stage site mk witnesses unitwt)" ] && run_elebake stage witness measure unitwt 2>&1 | grep -q "records no witness"; then
-    pass "site mk witnesses prints nothing and measure refuses without a witness"
+  if run_elebake stage witness conf unitwt 2>&1 | grep -q "records no witness" && run_elebake stage witness measure unitwt 2>&1 | grep -q "records no witness"; then
+    pass "conf and measure refuse without a witness"
   else
     fail "without witnesses: $(run_elebake stage witness measure unitwt 2>&1 | head -2)"
   fi
@@ -3070,6 +3072,28 @@ test_stage_witness_records() {
     pass "name and partition are validated"
   else
     fail "validation: $(run_elebake stage witness add unitwt ok bogus 2>&1 | head -2)"
+  fi
+  if run_elebake stage witness anchor unitwt 2>&1 | grep -q "has no loader.trust.tpm.witness.nv"; then
+    pass "the anchor refuses without the index leaf"
+  else
+    fail "anchor leaf check: $(run_elebake stage witness anchor unitwt 2>&1 | head -2)"
+  fi
+  run_elebake stage kenv add unitwt loader.trust.tpm.witness.nv 0x01c10e26 > /dev/null
+  run_elebake stage kenv add unitwt loader.trust.tpm.keyfile.pcrs 0,2,7 > /dev/null
+  run_elebake stage kenv add unitwt loader.trust.inventory.witnesses zcard-b,zempty > /dev/null
+  run_elebake stage kenv add unitwt loader.trust.inventory.witness.zcard-b.medium m1 > /dev/null
+  run_elebake stage kenv add unitwt loader.trust.inventory.witness.zcard-b.digest d1 > /dev/null
+  run_elebake stage kenv add unitwt loader.trust.inventory.witness.zempty.medium m2 > /dev/null
+  run_elebake stage kenv add unitwt loader.trust.inventory.witness.zempty.digest d2 > /dev/null
+  local anchor; anchor=$(printf 'zcard-b:m1:d1\nzempty:m2:d2\n' | sha256 -q)
+  if run_elebake stage witness anchor write unitwt | grep -q "tpm2_nvdefine '0x01c10e26' --hierarchy=o --size=32 --policy=witness.policy --attributes='policywrite|authread|no_da' --index-auth=\"hex:\$(cat auth-owner.hex)\"" \
+     && run_elebake stage witness anchor write unitwt | grep -q "tpm2_policypcr --session=w.ctx --pcr-list='sha256:0,2,7'" \
+     && run_elebake stage witness anchor write unitwt | grep -q "tpm2_nvwrite '0x01c10e26' --auth=\"session:w.ctx+hex:\$(cat auth-owner.hex)\" --input=witness-anchor.bin" \
+     && run_elebake stage witness anchor write unitwt | grep -q "printf '%s' '$anchor' | awk" \
+     && run_elebake stage witness anchor write unitwt | grep -q "'$anchor' >> '.*/witness-receipts/anchor'"; then
+    pass "anchor write: the table digest in the witnesses' order, the index defined once under PolicyPCR+AuthValue, written with the owner's auth value, the receipt appended"
+  else
+    fail "anchor write: $(run_elebake stage witness anchor write unitwt | head -8)"
   fi
   if run_elebake stage witness show unitwt | grep -q "#   zcard-b: da1p3 -- no receipt yet" \
      && run_elebake stage dump unitwt | grep -q "stage witness add 'unitwt' 'zempty' 'nda1p1'"; then
@@ -3092,30 +3116,87 @@ test_stage_witness_records() {
   else
     fail "compare without receipt: $(run_elebake stage witness compare unitwt zcard-b | head -2)"
   fi
-  if run_elebake stage witness lines unitwt | grep -q "no receipt for zcard-b zempty"; then
-    pass "site mk witnesses stops without receipts"
+  if run_elebake stage witness conf unitwt 2>&1 | grep -q "no receipt with a medium for zcard-b zempty"; then
+    pass "witness conf stops without receipts"
   else
-    fail "lines without receipts: $(run_elebake stage witness lines unitwt)"
+    fail "conf without receipts: $(run_elebake stage witness conf unitwt 2>&1 | head -2)"
   fi
   mkdir -p "$TEST_DIR/.staging/$sid/witness-receipts"
-  printf '%s\n' "2026-10-07T18:00:00Z 8253fe40-b99f-11f1-95ad-d49390579fa5 1111111111111111111111111111111111111111111111111111111111111111" "2026-10-08T06:00:00Z 8253fe40-b99f-11f1-95ad-d49390579fa5 2222222222222222222222222222222222222222222222222222222222222222" > "$TEST_DIR/.staging/$sid/witness-receipts/zcard-b"
+  printf '%s\n' "2026-10-07T18:00:00Z 8253fe40-b99f-11f1-95ad-d49390579fa5 aaaa000000000000000000000000000000000000000000000000000000000000 1111111111111111111111111111111111111111111111111111111111111111" "2026-10-08T06:00:00Z 8253fe40-b99f-11f1-95ad-d49390579fa5 aaaa000000000000000000000000000000000000000000000000000000000000 2222222222222222222222222222222222222222222222222222222222222222" > "$TEST_DIR/.staging/$sid/witness-receipts/zcard-b"
   printf '%s\n' "2026-10-07T18:00:00Z 86e09ab0-b99f-11f1-95ad-d49390579fa5 3333333333333333333333333333333333333333333333333333333333333333" > "$TEST_DIR/.staging/$sid/witness-receipts/zempty"
-  if run_elebake stage site mk witnesses unitwt | grep -qx 'CFLAGS+= -DLOADER_TRUST_WITNESS_LABELS=\\"zcard-b:8253fe40-b99f-11f1-95ad-d49390579fa5:2222222222222222222222222222222222222222222222222222222222222222,zempty:86e09ab0-b99f-11f1-95ad-d49390579fa5:3333333333333333333333333333333333333333333333333333333333333333\\"' \
-     && run_elebake stage witness show unitwt | grep -q "#   zcard-b: da1p3 -- 2026-10-08T06:00:00Z 8253fe40-b99f-11f1-95ad-d49390579fa5 2222"; then
-    pass "site mk witnesses renders the last receipt of every witness in record order; show prints it"
+  if run_elebake stage witness conf unitwt 2>&1 | grep -q "no receipt with a medium for zempty" \
+     && run_elebake stage witness labels unitwt zempty | grep -q "its receipts carry no medium identity" \
+     && run_elebake stage witness compare unitwt zempty | grep -q "its receipt carries no medium identity"; then
+    pass "a receipt without a medium identity (the earlier form) stops site mk and asks measure and check for drop and add"
   else
-    fail "lines: $(run_elebake stage site mk witnesses unitwt 2>&1)"
+    fail "old receipt: $(run_elebake stage witness conf unitwt 2>&1 | head -2)"
+  fi
+  printf '%s\n' "2026-10-07T18:00:00Z 86e09ab0-b99f-11f1-95ad-d49390579fa5 bbbb000000000000000000000000000000000000000000000000000000000000 3333333333333333333333333333333333333333333333333333333333333333" > "$TEST_DIR/.staging/$sid/witness-receipts/zempty"
+  run_elebake stage witness conf unitwt > /dev/null 2>&1
+  if [ "$(cat "$TEST_DIR/.staging/$sid/kenv/loader.trust.inventory.witnesses" 2>/dev/null)" = "zcard-b,zempty" ] \
+     && [ "$(cat "$TEST_DIR/.staging/$sid/kenv/loader.trust.inventory.witness.zcard-b.medium" 2>/dev/null)" = "aaaa000000000000000000000000000000000000000000000000000000000000" ] \
+     && [ "$(cat "$TEST_DIR/.staging/$sid/kenv/loader.trust.inventory.witness.zcard-b.digest" 2>/dev/null)" = "2222222222222222222222222222222222222222222222222222222222222222" ] \
+     && [ "$(cat "$TEST_DIR/.staging/$sid/kenv/loader.trust.inventory.witness.zempty.guid" 2>/dev/null)" = "86e09ab0-b99f-11f1-95ad-d49390579fa5" ] \
+     && run_elebake stage witness conf unitwt 2>&1 | grep -q "kenv loader.trust.inventory.witnesses of unitwt dropped" \
+     && run_elebake stage witness show unitwt | grep -q "#   zcard-b: da1p3 -- 2026-10-08T06:00:00Z 8253fe40-b99f-11f1-95ad-d49390579fa5 aaaa0000.* 2222"; then
+    pass "witness conf writes the last receipt of every witness as kenv records (names, guid, medium, digest), again on every call; show prints the receipts"
+  else
+    fail "conf: $(run_elebake stage witness conf unitwt 2>&1 | head -4) $(ls "$TEST_DIR/.staging/$sid/kenv" 2>&1 | tr '\n' ' ')"
   fi
   r=$(run_elebake stage witness compare unitwt zcard-b)
-  if printf '%s\n' "$r" | grep -q "if \[ \"\$d\" = '2222222222222222222222222222222222222222222222222222222222222222' \]; then printf '# witness %s: unchanged since %s\\\\n' 'zcard-b' '2026-10-08T06:00:00Z'"; then
-    pass "witness compare judges the digest against the last receipt"
+  if printf '%s\n' "$r" | grep -q "if \[ \"\$d\" = '2222222222222222222222222222222222222222222222222222222222222222' \]; then printf '# witness %s: unchanged since %s\\\\n' 'zcard-b' '2026-10-08T06:00:00Z'" \
+     && printf '%s\n' "$r" | grep -q "if \[ \"\$m\" != 'aaaa000000000000000000000000000000000000000000000000000000000000' \]; then printf '# witness %s: not in the slot" \
+     && run_elebake stage witness labels unitwt zcard-b | grep -q "if \[ \"\$m\" != 'aaaa000000000000000000000000000000000000000000000000000000000000' \]; then printf '# witness %s: not in the slot" \
+     && run_elebake stage witness labels unitwt zcard-b | grep -q "m=\$( dd if='/dev/da1p3' bs=\"\$bss\" skip=\"\$((msz / bss - 1))\" count=1 2>/dev/null | tail -c 512 | sha256 -q )" \
+     && ! run_elebake stage witness labels unitwt zempty-new 2>/dev/null | grep -q "not in the slot"; then
+    pass "witness compare judges the digest against the last receipt; compare and labels skip the card whose medium (the GELI metadata sector of the first receipt) is not in the slot, a witness without a receipt takes any"
   else
     fail "compare: $r"
   fi
+  r=$(run_elebake stage witness tables unitwt zcard-b 2>&1)
+  if printf '%s\n' "$r" | grep -q "dd if='/dev/da1' bs=\"\$ss\" skip=1 count=1 of=\"\$h\"" \
+     && printf '%s\n' "$r" | grep -q "dd if=\"\$h\" bs=1 count=92 2>/dev/null; dd if='/dev/da1' bs=\"\$ss\" skip=\"\$t\"" \
+     && printf '%s\n' "$r" | grep -q "if \[ \"\$m\" != 'aaaa000000000000000000000000000000000000000000000000000000000000' \]; then printf '# witness %s: not in the slot" \
+     && printf '%s\n' "$r" | grep -q ">> '$TEST_DIR/stage/unitwt/witness-receipts/zcard-b.gpt'" \
+     && run_elebake setintp stage_witness_measure cat > /dev/null && run_elebake stage witness measure unitwt | grep -q "stage witness tables 'unitwt' 'zcard-b'" \
+     && run_elebake unsetenv ELEBAKE_INTERPRETER_stage_witness_measure > /dev/null \
+     && run_elebake stage witness compare tables unitwt zcard-b 2>&1 | grep -q "no table receipt yet"; then
+    pass "witness tables hashes the GPT header and entry array of the witness's disk, guarded by the medium, into the .gpt receipt; measure takes it with the labels; compare without one is a note"
+  else
+    fail "tables: $r"
+  fi
+  printf '%s\n' "2026-10-08T06:00:00Z aaaa000000000000000000000000000000000000000000000000000000000000 4444444444444444444444444444444444444444444444444444444444444444" > "$TEST_DIR/.staging/$sid/witness-receipts/zcard-b.gpt"
+  run_elebake stage witness conf unitwt > /dev/null 2>&1
+  if [ "$(cat "$TEST_DIR/.staging/$sid/kenv/loader.trust.inventory.witness.zcard-b.gpt" 2>/dev/null)" = "4444444444444444444444444444444444444444444444444444444444444444" ] \
+     && [ ! -f "$TEST_DIR/.staging/$sid/kenv/loader.trust.inventory.witness.zempty.gpt" ] \
+     && run_elebake stage witness show unitwt | grep -q "#     partition table: 2026-10-08T06:00:00Z aaaa0000.* 4444" \
+     && run_elebake stage witness compare tables unitwt zcard-b | grep -q "if \[ \"\$g\" = '4444444444444444444444444444444444444444444444444444444444444444' \]; then printf '# witness %s partition table: unchanged since %s" \
+     && run_elebake setintp stage_witness_check cat > /dev/null && run_elebake stage witness check unitwt | grep -q "stage witness compare tables 'unitwt' 'zempty'" \
+     && run_elebake unsetenv ELEBAKE_INTERPRETER_stage_witness_check > /dev/null; then
+    pass "conf carries the .gpt leaf of a witness with a table receipt and none for one without; show prints it; compare tables judges against the last receipt; check compares the tables too"
+  else
+    fail "gpt conf: $(ls "$TEST_DIR/.staging/$sid/kenv" | tr '\n' ' '); $(run_elebake stage witness show unitwt)"
+  fi
+  r=$(run_elebake stage witness whole unitwt zcard-b 2>&1)
+  if printf '%s\n' "$r" | grep -q "w=\$(dd if='/dev/da1' bs=1m 2>/dev/null | sha256 -q)" \
+     && printf '%s\n' "$r" | grep -q "if \[ \"\$m\" != 'aaaa000000000000000000000000000000000000000000000000000000000000' \]; then printf '# witness %s: not in the slot" \
+     && printf '%s\n' "$r" | grep -q ">> '$TEST_DIR/stage/unitwt/witness-receipts/zcard-b.full'" \
+     && run_elebake stage witness compare whole unitwt zcard-b 2>&1 | grep -q "no whole-card receipt yet"; then
+    pass "the whole-card receipt hashes the disk the witness lives on, guarded by the medium; compare without one is a note"
+  else
+    fail "whole card: $r"
+  fi
+  printf '%s\n' "2026-10-09T12:00:00Z aaaa000000000000000000000000000000000000000000000000000000000000 9999999999999999999999999999999999999999999999999999999999999999" > "$TEST_DIR/.staging/$sid/witness-receipts/zcard-b.full"
+  if run_elebake stage witness compare whole unitwt zcard-b 2>&1 | grep -q "if \[ \"\$w\" = '9999999999999999999999999999999999999999999999999999999999999999' \]; then printf '# witness %s whole card: unchanged since %s\\\\n' 'zcard-b' '2026-10-09T12:00:00Z'" \
+     && run_elebake stage witness show unitwt | grep -q "    whole card: 2026-10-09T12:00:00Z aaaa0000.* 9999"; then
+    pass "compare whole judges the whole-card digest against the last receipt; show prints it"
+  else
+    fail "compare whole: $(run_elebake stage witness compare whole unitwt zcard-b 2>&1 | tail -2)"
+  fi
   run_elebake stage witness drop unitwt zcard-b > /dev/null
-  if [ ! -f "$TEST_DIR/.staging/$sid/witness/zcard-b" ] && [ ! -f "$TEST_DIR/.staging/$sid/witness-receipts/zcard-b" ] \
+  if [ ! -f "$TEST_DIR/.staging/$sid/witness/zcard-b" ] && [ ! -f "$TEST_DIR/.staging/$sid/witness-receipts/zcard-b" ] && [ ! -f "$TEST_DIR/.staging/$sid/witness-receipts/zcard-b.full" ] \
      && run_elebake stage witness drop unitwt zcard-b 2>&1 | grep -q "no witness zcard-b"; then
-    pass "witness drop removes the record and its receipts, a second drop is an error"
+    pass "witness drop removes the record, its receipts and its whole-card receipt, a second drop is an error"
   else
     fail "drop: $(run_elebake stage witness drop unitwt zcard-b 2>&1)"
   fi
@@ -3160,6 +3241,15 @@ test_stage_disks_records() {
   else
     pass "disks drop removes the entry"
   fi
+  run_elebake stage disks add unitdk nda0p3 > /dev/null
+  run_elebake setintp batch2 cat > /dev/null
+  if [ "$(run_elebake stage disks measure unitdk 2>&1 | grep -o "ss=\$(diskinfo '/dev/[a-z0-9]*'" | sed "s|.*/dev/||; s|'$||" | tr '\n' ' ')" = "nda2 nda0 " ]; then
+    pass "the partition tables are measured in record order, each disk once -- the order the loader walks them"
+  else
+    fail "gpt measure order: record=$(tr '\n' ',' < "$TEST_DIR/.staging/$sid/disks") measured=$(run_elebake stage disks measure unitdk 2>&1 | grep -o "ss=\$(diskinfo '/dev/[a-z0-9]*'" | tr '\n' ' ')"
+  fi
+  run_elebake unsetenv ELEBAKE_INTERPRETER_batch2 > /dev/null 2>&1
+  run_elebake stage disks drop unitdk nda0p3 > /dev/null
   # the rawuuid of a partition from gpart list: the provider line reads '1. Name: nda1p1' (Name: is not the first field)
   mkdir -p "$TEST_DIR/bin" "$TEST_DIR/stage/unitdk/disks.measure"
   printf '%s\n' '#!/bin/sh' 'printf "%s\n" "Geom name: nda1" "Providers:" "1. Name: nda1p1" "   Mediasize: 1" "   rawuuid: 8253FE40-B99F-11F1-95AD-D49390579FA5" "2. Name: nda1p2" "   rawuuid: 86e09ab0-b99f-11f1-95ad-d49390579fa5" "Consumers:" "1. Name: nda1"' > "$TEST_DIR/bin/gpart"; chmod +x "$TEST_DIR/bin/gpart"
@@ -3707,6 +3797,11 @@ test_stage_rescue_family() {
   else
     fail "producer exit: $r"
   fi
+  if run_elebake stage rescue snapshot unitr 2>&1 | grep -q "no signed baseline"; then
+    pass "snapshot refuses without a signed baseline"
+  else
+    fail "snapshot without baseline: $(run_elebake stage rescue snapshot unitr 2>&1 | head -3)"
+  fi
   if run_elebake stage rescue dataset close unitr 2>&1 | grep -q "not mounted" \
      && run_elebake stage rescue package install unitr 2>&1 | grep -q "not mounted" \
      && run_elebake stage rescue patch apply unitr 2>&1 | grep -q "not mounted" \
@@ -3748,6 +3843,15 @@ test_ram_family() {
     pass "an absolute ELEBAKE_TPM_WORKDIR is taken as it is"
   else
     fail "absolute workdir ignored: $(run_elebake ram open 2>&1 | head -2 | tr '\n' ' ')"
+  fi
+  ln -s /dev "$TEST_DIR/devlink"
+  run_elebake setenv ELEBAKE_TPM_WORKDIR "$TEST_DIR/devlink" > /dev/null 2>&1
+  run_elebake setenv ELEBAKE_INTERPRETER_ram_open0 cat > /dev/null 2>&1
+  if run_elebake ram close 2>&1 | grep -q "ram release" \
+     && run_elebake ram open 2>&1 | grep -q "comment 'RAM disk $TEST_DIR/devlink is mounted'"; then
+    pass "a mount reached through a symlink is found (mount prints the physical path)"
+  else
+    fail "symlink to a mount: $(run_elebake ram close 2>&1 | head -2 | tr '\n' ' ')"
   fi
 }
 
@@ -4138,7 +4242,7 @@ fixture_containers() {
   printf '#!/bin/sh\nlog_act() { :; }\npersist_act() { $MKDIR -p "$ELV_STATE"; printf "gate=%%s verdict=%%s\\npassed=%%s\\nfailed=%%s\\n" "$1" "$GATE_VERDICT" "$PASSED" "$FAILED" > "$ELV_STATE/appraisal-$1"; }\n' > "$fix/earlboot/action.sh"
   printf '#!/bin/sh\nPHASES="STARTUP PERIODIC RESUME MEDIA SHUTDOWN"\nelv_flags_load() { :; }\nelv_prologue() { elv_flags_load; }\nwhen_always() { return 0; }\nwhen_fail() { [ "$GATE_VERDICT" = fail ]; }\n' > "$fix/elvbootd/policy.sh"
   printf '#!/bin/sh\nmeasure_media_serial() { :; }\nmeasure_marker_digest() { :; }\n' > "$fix/elvbootd/measure.sh"
-  printf '#!/bin/sh\nheartbeat_act() { :; }\nquarantine_act() { :; }\nmarker_heal_act() { :; }\n' > "$fix/elvbootd/action.sh"
+  printf '#!/bin/sh\nheartbeat_act() { :; }\nquarantine_act() { :; }\nmarker_heal_act() { :; }\nkenv_act() { $MKDIR -p "$ELV_STATE/boots"; $KENV | /usr/bin/grep "^loader.trust." > "$ELV_STATE/boots/t.kenv"; }\n' > "$fix/elvbootd/action.sh"
 }
 
 test_container_catalogs_and_binding() {
@@ -4317,6 +4421,132 @@ test_answer_family() {
     fail "answer file drop left: $(ls "$TEST_DIR/foundation/expectations" "$TEST_DIR/foundation/policies" 2>&1 | grep fish)"
   fi
   rm -f "$tf"
+}
+
+test_elvboot_report() {
+  test_header "elvboot: the report over the kept boots -- its own vocabulary on the same database, the snapshots read, the chain verified, the receipts listed"
+  test_setup
+  run_elebake stage add unitrp > /dev/null 2>&1
+  local st="$TEST_BASE_DIR/state-$TESTS_RUN" b1 b2 b3 h1
+  mkdir -p "$st/boots" "$TEST_DIR/stage/unitrp/witness-receipts"
+  b1="$st/boots/20261012T100000Z-7.kenv"; b2="$st/boots/20261012T110000Z-8.kenv"; b3="$st/boots/20261012T120000Z-1.kenv"
+  printf '# counter=7 at=2026-10-12T10:00:00Z prev=\nloader.trust.bootlock.failed=""\nloader.trust.kernellock.failed="PcrBank"\nloader.trust.kernellock.passed="BootHowto"\nloader.trust.kernellock.pcr.expected="aaaa"\nloader.trust.kernellock.pcr.sha256="bbbb"\nloader.trust.tellwatch.medium="now=a,last=b"\nloader.trust.recordlock.record="geli=1,counter=6,last=x,bootms=60000,flags=4,chain=match,medium=a"\nloader.trust.inventory.witness.state="zcard-a=match,zempty=match"\n# elvbootd at=2026-10-12T10:30:00Z\n# appraisal-custody\ngate=custody verdict=pass\npassed= word-ok\n# spool since 2026-10-12T10:00:00Z\n2026-10-12T10:00:05Z unlock-ack taint=0 gates=[,PcrBank]\n' > "$b1"
+  h1=$(sha256 -q "$b1")
+  printf '# counter=8 at=2026-10-12T11:00:00Z prev=%s\nloader.trust.bootlock.failed=""\nloader.trust.kernellock.failed=""\nloader.trust.tellwatch.medium="now=a,last=a"\nloader.trust.recordlock.record="geli=1,counter=7,last=x,bootms=40000,flags=4,chain=match,medium=a"\n' "$h1" > "$b2"
+  printf '# counter=1 at=2026-10-12T12:00:00Z prev=deadbeef\nloader.trust.bootlock.failed=""\nloader.trust.inventory.failed="GeliHeaders"\nloader.trust.inventory.geli.digest="cccc"\nloader.trust.tellwatch.medium="now=b,last=a"\n' > "$b3"
+  printf '9.kenv old\n' > "$st/boots/9.kenv"
+  printf '2026-10-12T09:46:01Z 89306b00 fd519 3426af\n' > "$TEST_DIR/stage/unitrp/witness-receipts/zcard-a"
+  printf '2026-10-12T09:53:47Z fd519 5a571a\n' > "$TEST_DIR/stage/unitrp/witness-receipts/zcard-a.full"
+  run_elebake setenv ELEBAKE_STATE_DB "$st" > /dev/null 2>&1
+  run_elebake setenv ELEBAKE_INTERPRETER_report_render sh > /dev/null 2>&1
+  local out; out=$(run_elvboot report unitrp)
+  if printf '%s\n' "$out" | grep -q "^# elvboot report -- unitrp" \
+     && printf '%s\n' "$out" | grep -q "^| 7 | 2026-10-12T10:00:00Z | a | match | kernellock: PcrBank | custody:pass | 1 |" \
+     && printf '%s\n' "$out" | grep -q "^| 8 | 2026-10-12T11:00:00Z | a | match | - | (open: no shutdown run) | 0 |" \
+     && printf '%s\n' "$out" | grep -q "^| 1 | 2026-10-12T12:00:00Z | b | - | inventory: GeliHeaders |"; then
+    pass "one table line per boot: counter, time, medium, chain, fallen gates, elvbootd verdicts, unlocks"
+  else
+    fail "boots table: $(printf '%s\n' "$out" | grep '^|' | head -6)"
+  fi
+  if printf '%s\n' "$out" | grep -q "^- kernellock/PcrBank" \
+     && printf '%s\n' "$out" | grep -q '^    loader.trust.kernellock.pcr.expected=aaaa$' \
+     && printf '%s\n' "$out" | grep -q '^    loader.trust.kernellock.pcr.sha256=bbbb$' \
+     && printf '%s\n' "$out" | grep -q '^    loader.trust.inventory.geli.digest=cccc$'; then
+    pass "the fallen claims carry the leaves of the gate that name the claim's first word"
+  else
+    fail "fallen claims: $(printf '%s\n' "$out" | sed -n '/## Fallen/,/## Aggregates/p' | head -12)"
+  fi
+  if printf '%s\n' "$out" | grep -q "^- boots per medium: a=2, b=1$\|^- boots per medium: b=1, a=2$" \
+     && printf '%s\n' "$out" | grep -q "^- PcrBank rounds: 1$" \
+     && printf '%s\n' "$out" | grep -q "^- unlocks acknowledged: 1$" \
+     && printf '%s\n' "$out" | grep -q "^- chain restarts (counter fell): 1, gaps (counter stepped by more than one): 0$" \
+     && printf '%s\n' "$out" | grep -q "^- boot time (loader, previous boot's record): 50000 ms average over 2$" \
+     && printf '%s\n' "$out" | grep -q "^- last witness state: zcard-a=match,zempty=match$" \
+     && printf '%s\n' "$out" | grep -q "1 older snapshots in the counter-only naming left out"; then
+    pass "the aggregates: media, PcrBank rounds, unlocks, restarts, boot time, the last witness state, the old files counted"
+  else
+    fail "aggregates: $(printf '%s\n' "$out" | sed -n '/## Aggregates/,/## Chain/p')"
+  fi
+  if printf '%s\n' "$out" | grep -q "^- 20261012T110000Z-8.kenv: chained to 20261012T100000Z-7.kenv$" \
+     && printf '%s\n' "$out" | grep -q "^- 20261012T120000Z-1.kenv: NOT chained to 20261012T110000Z-8.kenv (header prev=deadbeef)$" \
+     && printf '%s\n' "$out" | grep -q "^- breaks: 1$"; then
+    pass "the chain: each header's sha256 of its predecessor against the file, breaks counted"
+  else
+    fail "chain: $(printf '%s\n' "$out" | sed -n '/## Chain/,/## Witnesses/p')"
+  fi
+  if printf '%s\n' "$out" | grep -q "^- zcard-a: 2026-10-12T09:46:01Z 89306b00 fd519 3426af$" \
+     && printf '%s\n' "$out" | grep -q "^  whole: 2026-10-12T09:53:47Z fd519 5a571a$" \
+     && printf '%s\n' "$out" | grep -q "^| 20261012T100000Z-7.kenv | $h1 |$" \
+     && printf '%s\n' "$out" | grep -q "^| witness-receipts/zcard-a.full | "; then
+    pass "the witnesses' receipts and the sources with their digests close the report"
+  else
+    fail "witnesses/sources: $(printf '%s\n' "$out" | sed -n '/## Witnesses/,$p')"
+  fi
+  if [ "$(run_elvboot report last unitrp 1 | grep -c '^| [0-9][0-9]* | 20')" = 1 ] \
+     && [ "$(run_elvboot report since unitrp 2026-10-12T11 | grep -c '^| [0-9][0-9]* | 20')" = 2 ] \
+     && run_elvboot boot unitrp 7 | grep -q "^| 7 |" && ! run_elvboot boot unitrp 7 | grep -q "^| 8 |" \
+     && run_elvboot boot unitrp 20261012T11 | grep -q "^| 8 |"; then
+    pass "last, since and boot select: the newest n, from a time, one counter or one stamp"
+  else
+    fail "selection: $(run_elvboot report last unitrp 1 | grep '^|' | head -3)"
+  fi
+  if run_elvboot witness unitrp | grep -q "^#   zcard-a: 2026-10-12T09:46:01Z 89306b00 fd519 3426af$" \
+     && run_elvboot witness unitrp | grep -q "^#     whole: 2026-10-12T09:53:47Z fd519 5a571a$"; then
+    pass "witness prints the receipt lines for paper and the public commit"
+  else
+    fail "witness: $(run_elvboot witness unitrp)"
+  fi
+  if run_elvboot report nostage 2>&1 | grep -q "no stage nostage in" \
+     && run_elvboot stage list 2>&1 | grep -q "unknown command: stage" \
+     && run_elvboot destroy x 2>&1 | grep -q "unknown command: destroy" \
+     && run_elvboot help 2>&1 | grep -q "report last <stage> <n>" && ! run_elvboot help 2>&1 | grep -q "destroy <name>"; then
+    pass "a missing stage is an error; elebake's stage vocabulary is not reachable from elvboot, help lists its own"
+  else
+    fail "vocabulary: $(run_elvboot stage list 2>&1 | head -2); $(run_elvboot help 2>&1 | head -5)"
+  fi
+  run_elebake setenv ELEBAKE_INTERPRETER_report_render cat > /dev/null 2>&1
+  if run_elvboot report unitrp | grep -q "^sh '.*/template/report/render.sh' '$st' 'unitrp' 'all' '-' '.*/template' '$TEST_DIR'$"; then
+    pass "pinned to cat the act is displayed: render.sh with the state directory, the stage, the selection, the templates and the database"
+  else
+    fail "display: $(run_elvboot report unitrp | head -3)"
+  fi
+  rm -rf "$st"
+}
+
+test_elvbootd_test_run() {
+  test_header "stage elvbootd test: replay one runtime phase through the generated hook with mocks, the boots/ snapshot printed"
+  test_setup
+  run_elebake stage add unitet > /dev/null 2>&1
+  fixture_containers unitet
+  run_elebake expectation add ex string loader.trust.kl.x 42 > /dev/null
+  run_elebake claim add cx measure_kenv - - ex > /dev/null
+  run_elebake gate add runtime > /dev/null
+  run_elebake gate claim add runtime cx > /dev/null
+  run_elebake trigger add kenv-always when_always kenv_act > /dev/null
+  run_elebake policy add runtime-watch runtime > /dev/null
+  run_elebake policy trigger add runtime-watch kenv-always > /dev/null
+  run_elebake stage phase policy add unitet STARTUP runtime-watch > /dev/null 2>&1
+  local dump="$TEST_BASE_DIR/dump-et-$TESTS_RUN.kenv"
+  printf 'loader.trust.kl.x="42"\nloader.trust.kernelpost.counter="7"\n' > "$dump"
+  local out sid; sid=$(basename "$(readlink "$TEST_DIR/stage/unitet")")
+  out=$(run_elebake stage elvbootd test unitet STARTUP "$dump" 2>&1)
+  if printf '%s\n' "$out" | grep -q "^== boots/t.kenv" \
+     && printf '%s\n' "$out" | grep -q '^loader.trust.kernelpost.counter="7"' \
+     && printf '%s\n' "$out" | grep -q "elvbootd test run of unitet: exit 0"; then
+    pass "the STARTUP replay runs kenv_act against the dump; files below the state dir are printed with their path"
+  else
+    fail "elvbootd test run: $out"
+  fi
+  if [ ! -d "$TEST_DIR/.staging/$sid/hooks/elvbootd.test.state" ] && [ ! -f "$TEST_DIR/.staging/$sid/hooks/elvbootd.test" ]; then
+    pass "the run leaves nothing behind: no test state, no test script"
+  else
+    fail "leftovers: $(ls "$TEST_DIR/.staging/$sid/hooks/" 2>&1)"
+  fi
+  if run_elebake stage elvbootd test unitet SYSINIT "$dump" 2>&1 | grep -q "elvbootd has no phase SYSINIT (one of: STARTUP PERIODIC RESUME MEDIA SHUTDOWN)"; then
+    pass "a phase of the other container is refused by name"
+  else
+    fail "phase check: $(run_elebake stage elvbootd test unitet SYSINIT "$dump" 2>&1 | head -2)"
+  fi
 }
 
 test_container_test_run() {
@@ -4915,6 +5145,8 @@ main() {
   should_run_test test_container_catalogs_and_binding
   should_run_test test_container_emitters
   should_run_test test_container_test_run
+  should_run_test test_elvbootd_test_run
+  should_run_test test_elvboot_report
   should_run_test test_answer_family
   should_run_test test_dispatch_wrong_arity
   should_run_test test_filter_prune_orphans_only

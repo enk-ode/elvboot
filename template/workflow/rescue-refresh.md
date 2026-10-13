@@ -26,3 +26,16 @@ elebake stage rescue push daily-v1 a
 elebake stage rescue verify daily-v1 b
 elebake ram close
 elebake stage rescue show daily-v1                            # the cards' receipts
+# Every rescue push moves the card's labels and its table: the witnesses anew --
+# the receipts, the conf, the anchor in the TPM (the owner's passphrase), the conf
+# onto both cards (workflow witness-learn). The push is in the signed manifest, no rebuild.
+elebake stage witness measure daily-v1
+elebake stage witness conf daily-v1
+elebake ram open
+elebake stage witness anchor daily-v1
+elebake ram close
+elebake stage loaderconf mk daily-v1
+elebake stage include daily-v1
+elebake stage push daily-v1 b
+elebake stage push daily-v1 a                                  # the other card in the slot
+elebake stage witness show daily-v1                            # the receipt lines: paper and the public commit

@@ -1,0 +1,2 @@
+sudo sh
+# Act terminal of 'stage witness measure full': the whole disk read and hashed, the receipt written; sudo sh so it runs as root.

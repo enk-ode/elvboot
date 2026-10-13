@@ -69,10 +69,17 @@ function complete_pass(from, n, literalonly,   p, k, ok, i, j, ctx, nm, parts, a
 				for(a=1;a<=np;a++){ nm=parts[a]; gsub(/[<>]/,"",nm); if (nm==ctxname && isph(p,nm)) ctx=wd[i] } } }
 		j=n-from+1
 		if (ok && j<=k) candidates_for(p, tok[j], cur, literalonly, ctx) } }
-BEGIN{ seq=0 }
-/^#@help/ { inblk=1; kind=""; usage=""; summary=""; ret=""; body=""; internal=0;
+BEGIN{ seq=0; if (tool=="") tool="elebake"; nonly=split(only, oa, " "); for(i=1;i<=nonly;i++) onlyset[oa[i]]=1 }
+# only: the functions of the harness's tables -- a block of another function is skipped (the
+# harness that reads every module's blocks shows its own vocabulary); a free block (defgroup,
+# topic) always counts
+/^#@help/ { fn=$0; sub(/^#@help[ \t]*/,"",fn); sub(/[ \t].*$/,"",fn)
+        if (nonly>0 && fn!="" && !(fn in onlyset)) { skip=1; next }
+        skip=0; inblk=1; kind=""; usage=""; summary=""; ret=""; body=""; internal=0;
 gc=0; pc=0; ec=0; sc=0; vc=0; xc=0; dgid=""; dgtitle=""; dgord=999; topic="";
 next }
+skip && /^#@end$/ { skip=0; next }
+skip { next }
 inblk && /^#@end$/ {
         inblk=0
         if (kind=="command") {
@@ -132,26 +139,26 @@ if (mode=="complete") {
 	if (wd[1]=="help" && n>=2) { if (n==2) command_words(cur); complete_pass(2, n, 1) }
 	exit 0
 }
-w=0; for(p in cu){ if(length("elebake " cu[p]) > w) w=length("elebake " cu[p]) }
+w=0; for(p in cu){ if(length(tool " " cu[p]) > w) w=length(tool " " cu[p]) }
 w+=2
 if (mode=="detail") {
         if (!(target in cu)) { print "Unknown command: " target; exit 1 }
-        print ch "elebake " cu[target] cr
+        print ch tool " " cu[target] cr
         print "  " cs[target]
         if (cnp[target]>0){ print ""; print ch "Arguments:" cr; for(i=1;i<=cnp[target];i++) print "  " cp[target,i] }
         if (cr_[target]!=""){ print ""; print ch "Output:" cr "  " cr_[target] }
         if (cnv[target]>0){ print ""; print ch "Environment:" cr; for(i=1;i<=cnv[target];i++) print "  " cv[target,i]; print "  " cg "(details: elebake help env <VAR>)" cr }
         if (cne[target]>0){ print ""; print ch "Examples:" cr; for(i=1;i<=cne[target];i++) print "  " cc cex[target,i] cr }
-        if (cns[target]>0){ print ""; print ch "See also:" cr; for(i=1;i<=cns[target];i++) print "  " cc "elebake " cse[target,i] cr }
+        if (cns[target]>0){ print ""; print ch "See also:" cr; for(i=1;i<=cns[target];i++) print "  " cc tool " " cse[target,i] cr }
         nf=0; for(p in cu) if (index(p, target " ")==1 && !chid[p]) { nf++; fam[nf]=p }
         if (nf>0){ for(a=2;a<=nf;a++){ k=fam[a]; b=a-1; while(b>=1 && cord[fam[b]]>cord[k]){ fam[b+1]=fam[b]; b-- } fam[b+1]=k }
-        print ""; print ch "Family:" cr; for(i=1;i<=nf;i++){ p=fam[i]; pad=w-length("elebake " cu[p]); s=sprintf("%-"pad"s",""); print "  " cc "elebake " cu[p] cr s cg cs[p] cr } }
+        print ""; print ch "Family:" cr; for(i=1;i<=nf;i++){ p=fam[i]; pad=w-length(tool " " cu[p]); s=sprintf("%-"pad"s",""); print "  " cc tool " " cu[p] cr s cg cs[p] cr } }
         exit 0
 }
 if (mode=="prefix") {
         n=0; for(p in cu) if (index(p, target)==1 && !chid[p]) n++
         if (n==0) { print "No help for: " target; exit 1 }
-        for(p in cu) if (index(p, target)==1 && !chid[p]) { pad=w-length("elebake " cu[p]); s=sprintf("%-"pad"s",""); print "  " cc "elebake " cu[p] cr s cg cs[p] cr }
+        for(p in cu) if (index(p, target)==1 && !chid[p]) { pad=w-length(tool " " cu[p]); s=sprintf("%-"pad"s",""); print "  " cc tool " " cu[p] cr s cg cs[p] cr }
         exit 0
 }
 for(a=1;a<=ndg;a++) ord[a]=dgall[a]
@@ -177,7 +184,7 @@ first=0
 print ch dgt[g] cr
 print ""
 if (dgb[g]!="") { intro=dgb[g]; gsub(/\n/," ",intro); print "  " cg intro cr; print "" }
-for(i=1;i<=gmn[g];i++){ p=gm[g,i]; pad=w-length("elebake " cu[p]); s=sprintf("%-"pad"s",""); print "  " cc "elebake " cu[p] cr s cg cs[p] cr }
+for(i=1;i<=gmn[g];i++){ p=gm[g,i]; pad=w-length(tool " " cu[p]); s=sprintf("%-"pad"s",""); print "  " cc tool " " cu[p] cr s cg cs[p] cr }
 for(i=1;i<=tpn[g];i++){ print "  " ch tpt[g,i] cr; m=split(tpb[g,i],tl,"\n"); for(j=1;j<=m;j++) print "    " cg tl[j] cr }
 }
 }

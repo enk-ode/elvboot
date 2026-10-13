@@ -26,6 +26,7 @@ loader.trust.geli.tries	geli_open.c	optional
 loader.trust.tpm.anchor.nv	record.c	optional
 loader.trust.tpm.shutdown.nv	record.c	optional
 loader.trust.tpm.cap.pcr	record.c	optional
+loader.trust.tpm.witness.nv	measure_disk.c	optional
 loader.trust.storage.gap.max.days	measure_record.c	optional
 loader.trust.clock.skew.s	measure_record.c	optional
 loader.trust.smart.step.units.max	measure_record.c	optional

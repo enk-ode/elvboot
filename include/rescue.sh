@@ -728,7 +728,7 @@ _stage_rescue_config_copy1() {
 
 #@help ___stage_rescue_snapshot1
 # @command stage rescue snapshot <stage>
-# @summary Snapshot the rescue root (<dataset>@<stage>-<stamp>, recursive for any child) and record the name as the stage's rescue snapshot: the stage exists, the dataset is recorded, the root is not mounted (a quiescent tree); then 'stage rescue snapshot take', then the record
+# @summary Snapshot the rescue root (<dataset>@<stage>-<stamp>, recursive for any child) and record the name as the stage's rescue snapshot: the stage exists, the dataset is recorded, the root is not mounted (a quiescent tree), the baseline is signed (the build's last step -- a token that refused at the end of a long run leaves none, and an unsigned image must not reach a card); then 'stage rescue snapshot take', then the record
 # @group   provisioning
 # @example elebake stage rescue snapshot daily-v1
 # @see     stage rescue push
@@ -739,6 +739,7 @@ ___stage_rescue_snapshot1() {
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage check stage '$1'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage rescue value set '$1' dataset"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage rescue dataset closed '$1'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage rescue baseline present '$1'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage rescue snapshot take '$1' '$snap'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage rescue value record '$1' snapshot '$snap'"
 }

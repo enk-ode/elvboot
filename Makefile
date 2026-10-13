@@ -9,19 +9,37 @@
 # Extend here later: install, test, ...
 
 SCRIPT=		elebake.sh
+HARNESS=	elvboot.sh
 TESTS=		elebake-architecture-test.sh
 INCLUDE_DIR=	include
-INCLUDES!=	echo ${INCLUDE_DIR}/*.sh
+# elebake's vocabulary: every module but report.sh (that is elvboot's, on the
+# same engine); the tests know both
+ALL_INCLUDES!=	echo ${INCLUDE_DIR}/*.sh
+INCLUDES!=	echo ${INCLUDE_DIR}/*.sh | tr ' ' '\n' | grep -v report.sh | tr '\n' ' '
+HARNESS_INCLUDES=	${INCLUDE_DIR}/engine.sh ${INCLUDE_DIR}/database.sh ${INCLUDE_DIR}/help.sh ${INCLUDE_DIR}/report.sh
+HARNESS_MODULE_SRCS=	${INCLUDE_DIR}/database.sh ${INCLUDE_DIR}/help.sh ${INCLUDE_DIR}/report.sh
+# ... of which elvboot's tables keep its own vocabulary (report.sh), help, and
+# what the engine runs beneath every command (the batch runner, the directory
+# checks, the message terminals) -- nothing of the database's management
+HARNESS_KEEP=	^_{1,3}(unknown_command1|wrong_arity1|note1|comment1|error[0-9]|fail2|log[0-9]|batch[0-9]|database_dir_[a-z_]*[0-9]|printenv0|version0|help[0-9a-z_]*|complete[0-9]|report[0-9a-z_]*|witness[0-9a-z_]*|boot2)$$
 # engine.sh is the always-loaded core: its anchors join TERMINAL_FUNCTIONS,
 # but never FUNCTION_MODULES (module mapping is for lazily sourced modules).
-MODULE_SRCS!=	echo ${INCLUDE_DIR}/*.sh | tr ' ' '\n' | grep -v engine.sh | tr '\n' ' ' 
+MODULE_SRCS!=	echo ${INCLUDE_DIR}/*.sh | tr ' ' '\n' | grep -v engine.sh | grep -v report.sh | tr '\n' ' '
+ALL_MODULE_SRCS!=	echo ${INCLUDE_DIR}/*.sh | tr ' ' '\n' | grep -v engine.sh | tr '\n' ' '
 
-.PHONY: metadata check
+.PHONY: metadata metadata-elebake metadata-elvboot metadata-tests _metadata check
+metadata: metadata-elebake metadata-elvboot metadata-tests
+metadata-elebake:
+	@${MAKE} _metadata SCRIPT=${SCRIPT} TESTS= INCLUDES="${INCLUDES}" MODULE_SRCS="${MODULE_SRCS}"
+metadata-elvboot:
+	@${MAKE} _metadata SCRIPT=${HARNESS} TESTS= INCLUDES="${HARNESS_INCLUDES}" MODULE_SRCS="${HARNESS_MODULE_SRCS}" KEEP='${HARNESS_KEEP}'
+metadata-tests:
+	@${MAKE} _metadata SCRIPT= TESTS="${TESTS}" INCLUDES="${ALL_INCLUDES}" MODULE_SRCS="${ALL_MODULE_SRCS}"
 
 # Terminals: exactly ONE leading underscore. Modules: every anchor (_, __,
 # ___) mapped to its basename. Both lists replace the maintained lines in
 # ${SCRIPT} in place; run `make metadata` after adding or renaming anchors.
-metadata:
+_metadata:
 	@terms=$$(grep -hE '^_[a-z][a-z0-9_]*\(\)' ${INCLUDES} \
 	    | sed 's/().*//' | tr '\n' ' ' | sed 's/ $$//'); \
 	mods=$$(awk 'FNR == 1 { f = FILENAME; sub(".*/", "", f) } \
@@ -31,10 +49,16 @@ metadata:
 	    | sed 's/().*//' | tr '\n' ' ' | sed 's/ $$//'); \
 	batches=$$(grep -hE '^___[a-z][a-z0-9_]*\(\)' ${INCLUDES} \
 	    | sed 's/().*//' | tr '\n' ' ' | sed 's/ $$//'); \
+	if [ -n '${KEEP}' ]; then \
+	    terms=$$(printf '%s\n' $$terms | grep -E '${KEEP}' | tr '\n' ' ' | sed 's/ $$//'); \
+	    combs=$$(printf '%s\n' $$combs | grep -E '${KEEP}' | tr '\n' ' ' | sed 's/ $$//'); \
+	    batches=$$(printf '%s\n' $$batches | grep -E '${KEEP}' | tr '\n' ' ' | sed 's/ $$//'); \
+	    mods=$$(printf '%s\n' $$mods | sed 's/:.*//' | grep -nE '${KEEP}' | sed 's/:.*//' | while read -r i; do printf '%s\n' $$mods | sed -n "$${i}p"; done | tr '\n' ' ' | sed 's/ $$//'); \
+	fi; \
 	stems=$$(printf '%s\n' $$terms $$combs $$batches | awk '{ s = $$0; sub(/^_+/, "", s); sub(/[0-9]$$/, "", s); \
 	    if (!(s in t)) { order[++n] = s; t[s] = $$0 } else t[s] = t[s] " " $$0 } \
 	    END { for (i = 1; i <= n; i++) printf "ANCHOR_STEM_%s=\047%s\047 ", order[i], t[order[i]] }' | sed 's/ $$//'); \
-	sed -i.mkbak \
+	[ -z "${SCRIPT}" ] || sed -i.mkbak \
 	    -e "s|^TERMINAL_FUNCTIONS=.*|TERMINAL_FUNCTIONS=\"$$terms\"|" \
 	    -e "s|^COMBINATOR_FUNCTIONS=.*|COMBINATOR_FUNCTIONS=\"$$combs\"|" \
 	    -e "s|^BATCH_COMBINATOR_FUNCTIONS=.*|BATCH_COMBINATOR_FUNCTIONS=\"$$batches\"|" \
@@ -54,7 +78,7 @@ metadata:
 	    "$$(echo $$mods | wc -w | tr -d ' ') anchors -> ${SCRIPT} ${TESTS}"
 
 check:
-	@for f in ${SCRIPT} ${INCLUDES}; do sh -n "$$f" || exit 1; done; \
+	@for f in ${SCRIPT} ${HARNESS} ${ALL_INCLUDES}; do sh -n "$$f" || exit 1; done; \
 	echo "check: sh -n ok"
 
 # --- tests -------------------------------------------------------------------
@@ -111,6 +135,7 @@ DESTDIR?=
 BINDIR?=	${PREFIX}/bin
 MANDIR?=	${PREFIX}/share/man/man
 WRAPPER=	${DESTDIR}${BINDIR}/elebake
+HARNESS_WRAPPER=	${DESTDIR}${BINDIR}/elvboot
 MANPAGE=	${DESTDIR}${MANDIR}8/elebake.8
 # bash-completion loads <command> from here on the first Tab. A user
 # install (PREFIX under $HOME) is not ${PREFIX}/share: bash-completion reads
@@ -144,16 +169,20 @@ install: docs/elebake.8
 	    '${.CURDIR}' '${.CURDIR}' > ${WRAPPER}.tmp
 .endif
 	@install -m 0755 ${WRAPPER}.tmp ${WRAPPER} && rm -f ${WRAPPER}.tmp
+	@printf '#!/bin/sh\n# elvboot wrapper (make install from %s)\nexec /bin/sh %s/elvboot.sh "$$@"\n' \
+	    '${.CURDIR}' '${.CURDIR}' > ${HARNESS_WRAPPER}.tmp
+	@install -m 0755 ${HARNESS_WRAPPER}.tmp ${HARNESS_WRAPPER} && rm -f ${HARNESS_WRAPPER}.tmp
 	@install -m 0444 docs/elebake.8 ${MANPAGE}
 	@mkdir -p ${DESTDIR}${COMPLETIONDIR}
 	@rm -f ${COMPLETION} && ln -s ${.CURDIR}/completion/elebake.bash ${COMPLETION}
 	@echo "install: ${WRAPPER} -> ${.CURDIR} (RUNNER=${RUNNER})"
+	@echo "install: ${HARNESS_WRAPPER} -> ${.CURDIR}/elvboot.sh"
 	@echo "install: ${MANPAGE}"
 	@echo "install: ${COMPLETION} (bash completion)"
 
 uninstall:
-	@rm -f ${WRAPPER} ${MANPAGE} ${COMPLETION}
-	@echo "uninstall: ${WRAPPER}, ${MANPAGE} and ${COMPLETION} removed"
+	@rm -f ${WRAPPER} ${HARNESS_WRAPPER} ${MANPAGE} ${COMPLETION}
+	@echo "uninstall: ${WRAPPER}, ${HARNESS_WRAPPER}, ${MANPAGE} and ${COMPLETION} removed"
 
 # --- stage and package ----------------------------------------------------
 # 'stage' lays this checkout out as the package has it: elebake.sh and its

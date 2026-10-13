@@ -606,6 +606,8 @@ __stage_string_demands2() {
 __stage_macro_demand3() {
         if test -f "$ELEBAKE_BASE/stage/$1/baselines/$3" || grep -qs "^CFLAGS\(\.foundation\.c\)\{0,1\}[[:space:]]*+=[[:space:]]*-D$3[=[:space:]]" "$ELEBAKE_BASE/stage/$1/work/stand/efi/loader/local/site.mk"; then
                 printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" log 'macro $2: $3 provisioned'"
+        elif test -d "$ELEBAKE_BASE/stage/$1/work/stand/efi/loader/local" && test ! -f "$ELEBAKE_BASE/stage/$1/work/stand/efi/loader/local/site.mk" && printf '%s\n' "$3" | grep -qx 'LOADER_TRUST_\(BOARD\|KEYS\|MARKER\|ORIGIN\|GELI\|GPT\)_DIGEST'; then
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" log 'macro $2: $3 comes from site.mk, not rendered in this worktree yet (stage site mk $1 measures board, keys, marker, origin and the disks)'"
         else
                 printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" log 'macro $2: $3 has no value yet -- its claims skip at boot (stage baseline add|learn $1 $3 ..., or stage site mk for board, keys, marker, origin and the disks)'"
         fi
@@ -621,6 +623,8 @@ __stage_macro_demand3() {
 __stage_baseline_demand3() {
         if test -f "$ELEBAKE_BASE/stage/$1/baselines/$3" || grep -qs "^CFLAGS\(\.foundation\.c\)\{0,1\}[[:space:]]*+=[[:space:]]*-D$3[=[:space:]]" "$ELEBAKE_BASE/stage/$1/work/stand/efi/loader/local/site.mk"; then
                 printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" log '$2: $3 provisioned'"
+        elif test -d "$ELEBAKE_BASE/stage/$1/work/stand/efi/loader/local" && test ! -f "$ELEBAKE_BASE/stage/$1/work/stand/efi/loader/local/site.mk" && printf '%s\n' "$3" | grep -qx 'LOADER_TRUST_\(BOARD\|KEYS\|MARKER\|ORIGIN\|GELI\|GPT\)_DIGEST\|LOADER_TRUST_GELI_PARTS'; then
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" log '$2 needs $3 -- site.mk not rendered in this worktree yet (stage site mk $1)'"
         else
                 printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" log '$2 needs $3 -- no baseline yet, the code has no default: what it guards is absent at boot (stage baseline add $1 $3 ..., or stage site mk disks for GELI_PARTS)'"
         fi
