@@ -30,5 +30,5 @@ elebake stage push daily-v1 b
 # Continue with pcr-learn. Pairs seen so far:
 #   LOADER_TRUST_SOFTPCR_DIGEST   loader.trust.kernellock.softpcr.sha256
 #   LOADER_TRUST_IMAGES_DIGEST    loader.trust.inventory.images.sha256   (after inventory-drop)
-#   LOADER_TRUST_TPM_KEY_DIGEST   loader.trust.tpm.key.sha256            (after tpm-seal)
+#   LOADER_TRUST_TPM_KEY_DIGEST   loader.trust.tpm.key.sha256            (only when stage tpm key's print was lost: the seal sets it)
 #   LOADER_TRUST_TIME_BOOT_MAX_MS is set by hand (stage baseline add ... int), not learned

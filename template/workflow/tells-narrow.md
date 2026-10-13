@@ -82,3 +82,12 @@ elebake stage push daily-v1 b
 # The probes (Anchor list §6.6): Secure Boot off in the setup -> the unlock
 # at kernellock, zdata stays closed (lock), elebake frozen; setup restored,
 # acknowledged, quiet. beacon_act stays unbound until an addressee exists.
+
+# The TPM's own count of failed authorizations (LockoutQuiet, diagnosis
+# tpm.lockout: failed=<n>,max=<n>,interval.s=<n>): the owner's objects carry
+# noDA, so the dialog's wrong lines never count here -- a count is a hand
+# at objects that do, and the lockout it heads for would close the duress
+# object's way too. Bound beside HaltQuiet (the gate that reads the record):
+elebake expectation add lockout-quiet byte LockoutQuiet 1
+elebake claim add lockout-quiet measure_lockout_quiet diagnose_lockout tpm.lockout lockout-quiet
+elebake gate claim add recordlock lockout-quiet                  # the loader's claim: a rebuild (foundation.c)

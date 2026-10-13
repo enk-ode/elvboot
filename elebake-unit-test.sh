@@ -3414,6 +3414,18 @@ test_stage_baseline_prompt() {
   else
     fail "name check: $(run_elebake stage baseline prompt unitp bad-name 2>&1)"
   fi
+  run_elebake setintp stage_baseline_prompt_read cat > /dev/null
+  if run_elebake stage baseline prompt read unitp LOADER_TRUST_UNLOCK_SECRET 2>&1 | grep -q "no record salt in stage unitp"; then
+    pass "the read refuses without the record salt the derivation needs"
+  else
+    fail "salt check: $(run_elebake stage baseline prompt read unitp LOADER_TRUST_UNLOCK_SECRET 2>&1 | head -2)"
+  fi
+  run_elebake stage baseline add unitp LOADER_TRUST_RECORD_SALT string 0123456789abcdef0123456789abcdef > /dev/null 2>&1
+  if run_elebake stage baseline prompt read unitp LOADER_TRUST_UNLOCK_SECRET | grep -q "openssl enc -aes-256-cbc -pbkdf2 -iter 100000 -md sha256 -S '3031323334353637' -pass stdin -P"; then
+    pass "the read derives PBKDF2-HMAC-SHA256 under the first eight bytes of the record salt, the word on stdin"
+  else
+    fail "prompt read: $(run_elebake stage baseline prompt read unitp LOADER_TRUST_UNLOCK_SECRET | tail -2)"
+  fi
   mkdir -p "$TEST_DIR/.tmp/prompt" && printf '%s\n' 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08 > "$TEST_DIR/.tmp/prompt/unitp-LOADER_TRUST_UNLOCK_SECRET"
   run_elebake stage baseline prompt store unitp LOADER_TRUST_UNLOCK_SECRET > /dev/null
   if [ "$(cat "$TEST_DIR/stage/unitp/baselines/LOADER_TRUST_UNLOCK_SECRET" 2>/dev/null)" = "string 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08" ] \
@@ -4434,17 +4446,20 @@ test_elvboot_report() {
   h1=$(sha256 -q "$b1")
   printf '# counter=8 at=2026-10-12T11:00:00Z prev=%s\nloader.trust.bootlock.failed=""\nloader.trust.kernellock.failed=""\nloader.trust.tellwatch.medium="now=a,last=a"\nloader.trust.recordlock.record="geli=1,counter=7,last=x,bootms=40000,flags=4,chain=match,medium=a"\n' "$h1" > "$b2"
   printf '# counter=1 at=2026-10-12T12:00:00Z prev=deadbeef\nloader.trust.bootlock.failed=""\nloader.trust.inventory.failed="GeliHeaders"\nloader.trust.inventory.geli.digest="cccc"\nloader.trust.tellwatch.medium="now=b,last=a"\n' > "$b3"
-  printf '9.kenv old\n' > "$st/boots/9.kenv"
+  printf 'loader.trust.bootlock.failed=""\nloader.trust.recordlock.record="geli=1,counter=5,last=x,bootms=70000,flags=4,chain=match,medium=a"\n' > "$st/boots/6.kenv"
+  touch -t 202610111200 "$st/boots/6.kenv"
   printf '2026-10-12T09:46:01Z 89306b00 fd519 3426af\n' > "$TEST_DIR/stage/unitrp/witness-receipts/zcard-a"
   printf '2026-10-12T09:53:47Z fd519 5a571a\n' > "$TEST_DIR/stage/unitrp/witness-receipts/zcard-a.full"
   run_elebake setenv ELEBAKE_STATE_DB "$st" > /dev/null 2>&1
   run_elebake setenv ELEBAKE_INTERPRETER_report_render sh > /dev/null 2>&1
   local out; out=$(run_elvboot report unitrp)
   if printf '%s\n' "$out" | grep -q "^# elvboot report -- unitrp" \
+     && printf '%s\n' "$out" | grep -q "boots: 4 (1 of them in the old counter-only naming: before the chain, their time the file's)" \
+     && printf '%s\n' "$out" | grep -q "^| 6 | 2026-10-11T1[0-9]:00:00Z | - | match | - | (open: no shutdown run) | 0 |" \
      && printf '%s\n' "$out" | grep -q "^| 7 | 2026-10-12T10:00:00Z | a | match | kernellock: PcrBank | custody:pass | 1 |" \
      && printf '%s\n' "$out" | grep -q "^| 8 | 2026-10-12T11:00:00Z | a | match | - | (open: no shutdown run) | 0 |" \
      && printf '%s\n' "$out" | grep -q "^| 1 | 2026-10-12T12:00:00Z | b | - | inventory: GeliHeaders |"; then
-    pass "one table line per boot: counter, time, medium, chain, fallen gates, elvbootd verdicts, unlocks"
+    pass "one table line per boot: counter, time, medium, chain, fallen gates, elvbootd verdicts, unlocks; the old counter-only snapshot first, its time the file's"
   else
     fail "boots table: $(printf '%s\n' "$out" | grep '^|' | head -6)"
   fi
@@ -4456,21 +4471,24 @@ test_elvboot_report() {
   else
     fail "fallen claims: $(printf '%s\n' "$out" | sed -n '/## Fallen/,/## Aggregates/p' | head -12)"
   fi
-  if printf '%s\n' "$out" | grep -q "^- boots per medium: a=2, b=1$\|^- boots per medium: b=1, a=2$" \
+  if printf '%s\n' "$out" | grep "^- boots per medium: " | grep -q "a=2" \
+     && printf '%s\n' "$out" | grep "^- boots per medium: " | grep -q "b=1" \
+     && printf '%s\n' "$out" | grep "^- boots per medium: " | grep -q -- "-=1" \
      && printf '%s\n' "$out" | grep -q "^- PcrBank rounds: 1$" \
      && printf '%s\n' "$out" | grep -q "^- unlocks acknowledged: 1$" \
      && printf '%s\n' "$out" | grep -q "^- chain restarts (counter fell): 1, gaps (counter stepped by more than one): 0$" \
-     && printf '%s\n' "$out" | grep -q "^- boot time (loader, previous boot's record): 50000 ms average over 2$" \
-     && printf '%s\n' "$out" | grep -q "^- last witness state: zcard-a=match,zempty=match$" \
-     && printf '%s\n' "$out" | grep -q "1 older snapshots in the counter-only naming left out"; then
-    pass "the aggregates: media, PcrBank rounds, unlocks, restarts, boot time, the last witness state, the old files counted"
+     && printf '%s\n' "$out" | grep -q "^- boot time (loader, previous boot's record): 56666 ms average over 3$" \
+     && printf '%s\n' "$out" | grep -q "^- last witness state: zcard-a=match,zempty=match$"; then
+    pass "the aggregates: media, PcrBank rounds, unlocks, restarts, boot time, the last witness state"
   else
     fail "aggregates: $(printf '%s\n' "$out" | sed -n '/## Aggregates/,/## Chain/p')"
   fi
-  if printf '%s\n' "$out" | grep -q "^- 20261012T110000Z-8.kenv: chained to 20261012T100000Z-7.kenv$" \
+  if printf '%s\n' "$out" | grep -q "^- 6.kenv: before the chain (counter-only naming, no header)$" \
+     && printf '%s\n' "$out" | grep -q "^- 20261012T100000Z-7.kenv: first of the selection (header prev=none)$" \
+     && printf '%s\n' "$out" | grep -q "^- 20261012T110000Z-8.kenv: chained to 20261012T100000Z-7.kenv$" \
      && printf '%s\n' "$out" | grep -q "^- 20261012T120000Z-1.kenv: NOT chained to 20261012T110000Z-8.kenv (header prev=deadbeef)$" \
      && printf '%s\n' "$out" | grep -q "^- breaks: 1$"; then
-    pass "the chain: each header's sha256 of its predecessor against the file, breaks counted"
+    pass "the chain: the old snapshot before it, then each header's sha256 of its predecessor against the file, breaks counted"
   else
     fail "chain: $(printf '%s\n' "$out" | sed -n '/## Chain/,/## Witnesses/p')"
   fi
@@ -4485,8 +4503,11 @@ test_elvboot_report() {
   if [ "$(run_elvboot report last unitrp 1 | grep -c '^| [0-9][0-9]* | 20')" = 1 ] \
      && [ "$(run_elvboot report since unitrp 2026-10-12T11 | grep -c '^| [0-9][0-9]* | 20')" = 2 ] \
      && run_elvboot boot unitrp 7 | grep -q "^| 7 |" && ! run_elvboot boot unitrp 7 | grep -q "^| 8 |" \
+     && run_elvboot boot unitrp 6 | grep -q "^| 6 |" && ! run_elvboot boot unitrp 6 | grep -q "^| 7 |" \
+     && run_elvboot report last unitrp 9 2>&1 | grep -q "^| 6 |" \
+     && run_elvboot boot unitrp 42 2>&1 | grep -q "no snapshot matches boot 42 under .* (4 kept; report all lists them)" \
      && run_elvboot boot unitrp 20261012T11 | grep -q "^| 8 |"; then
-    pass "last, since and boot select: the newest n, from a time, one counter or one stamp"
+    pass "last, since and boot select: the newest n, from a time, one counter (old naming too) or one stamp; a miss names the count kept"
   else
     fail "selection: $(run_elvboot report last unitrp 1 | grep '^|' | head -3)"
   fi

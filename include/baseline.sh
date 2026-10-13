@@ -1197,7 +1197,7 @@ _stage_kenv_record3() {
 
 #@help ___stage_baseline_prompt2
 # @command stage baseline prompt <stage> <MACRO>
-# @summary Set a string baseline from a HIDDEN line: the word is read twice on the terminal when the batch runs, both must match, its sha256 (hex, no salt -- what the loader compares) becomes the string baseline <MACRO> of the stage. The one use today: LOADER_TRUST_UNLOCK_SECRET, the passphrase unlock_act asks for the informed decision on a deviation; the hash opens nothing and tells no second role apart, so it may live in the signed loader (the three-factor design). The word reaches neither argv, history nor the batch text. Baselines are immutable: stage baseline drop <stage> <MACRO> first to change it
+# @summary Set a string baseline from a HIDDEN line: the word is read twice on the terminal when the batch runs, both must match, and PBKDF2-HMAC-SHA256 over it -- salted with the first eight bytes of the stage's LOADER_TRUST_RECORD_SALT, 100000 rounds, 32 bytes, hex: what the loader derives and compares -- becomes the string baseline <MACRO> of the stage. The one use today: LOADER_TRUST_UNLOCK_SECRET, the passphrase unlock_act asks for the informed decision on a deviation; the hash opens nothing and tells no second role apart, so it may live in the signed loader (the three-factor design), and the rounds make a card thief's guessing slow. The word reaches neither argv, history nor the batch text. The record salt must stand first (stage baseline add LOADER_TRUST_RECORD_SALT). Baselines are immutable: stage baseline drop <stage> <MACRO> first to change it
 # @group   provisioning
 # @example elebake stage baseline prompt daily-v1 LOADER_TRUST_UNLOCK_SECRET
 # @see     stage baseline add
@@ -1227,18 +1227,21 @@ __stage_baseline_prompt_name_valid1() {
 
 #@help _stage_baseline_prompt_read2
 # @command stage baseline prompt read <stage> <MACRO>
-# @summary Act terminal: the script that reads the word twice on /dev/tty with echo off, refuses empty or differing entries, hashes it with sha256 and writes the hex to .tmp/prompt/<stage>-<MACRO> of the database -- the word never leaves the script
+# @summary Act terminal: the script that reads the word twice on /dev/tty with echo off, refuses empty or differing entries, derives PBKDF2-HMAC-SHA256 (openssl enc -pbkdf2, 100000 rounds, the salt the first eight bytes of the stage's record salt) and writes the 64 hex of the key to .tmp/prompt/<stage>-<MACRO> of the database -- the word never leaves the script
 # @group   provisioning
 # @internal
 # @see     stage baseline prompt
 #@end
 _stage_baseline_prompt_read2() {
+        local salt=""
+        salt=$(awk '{ print $2 }' "$ELEBAKE_BASE/stage/$1/baselines/LOADER_TRUST_RECORD_SALT" 2>/dev/null | head -c 8 | od -An -tx1 | tr -d ' \n')
+        test -n "$salt" || { printf '%s\n' "printf '# Error: %s\\n' 'stage baseline prompt: no record salt in stage $1 (stage baseline add $1 LOADER_TRUST_RECORD_SALT string <32 hex>)' >&2; exit 1"; return; }
         cat <<EOF
 { : < /dev/tty; } 2>/dev/null || { printf '# Error: %s\\n' 'stage baseline prompt: needs a terminal to read the word hidden' >&2; exit 1; }
 printf '%s for $1 (hidden): ' '$2' > /dev/tty; stty -echo < /dev/tty; IFS= read -r a < /dev/tty; stty echo < /dev/tty; printf '\\n' > /dev/tty
 printf 'Again: ' > /dev/tty; stty -echo < /dev/tty; IFS= read -r b < /dev/tty; stty echo < /dev/tty; printf '\\n' > /dev/tty
 [ -n "\$a" ] && [ "\$a" = "\$b" ] || { unset a b; printf '# Error: %s\\n' 'stage baseline prompt: the two entries differ or are empty -- nothing done' >&2; exit 1; }
-mkdir -p '$ELEBAKE_BASE/.tmp/prompt' && chmod 0700 '$ELEBAKE_BASE/.tmp/prompt' && printf '%s' "\$a" | sha256 -q > '$ELEBAKE_BASE/.tmp/prompt/$1-$2' && chmod 0600 '$ELEBAKE_BASE/.tmp/prompt/$1-$2'; unset a b
+mkdir -p '$ELEBAKE_BASE/.tmp/prompt' && chmod 0700 '$ELEBAKE_BASE/.tmp/prompt' && printf '%s' "\$a" | openssl enc -aes-256-cbc -pbkdf2 -iter 100000 -md sha256 -S '$salt' -pass stdin -P | sed -n 's/^key=//p' | tr 'A-F' 'a-f' > '$ELEBAKE_BASE/.tmp/prompt/$1-$2' && chmod 0600 '$ELEBAKE_BASE/.tmp/prompt/$1-$2'; unset a b
 EOF
 }
 

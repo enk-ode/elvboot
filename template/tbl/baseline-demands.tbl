@@ -6,6 +6,7 @@ measure_record        LOADER_TRUST_RECORD_SALT
 measure_counter_step  LOADER_TRUST_RECORD_SALT
 measure_chain         LOADER_TRUST_RECORD_SALT
 measure_lastboot_gap  LOADER_TRUST_RECORD_SALT
+measure_tpm_keyfile   LOADER_TRUST_TPM_KEY_DIGEST
 measure_time_boot     LOADER_TRUST_TIME_BOOT_MAX_MS
 measure_time_prompt   LOADER_TRUST_TIME_PROMPT_MIN_MS
 measure_time_prompt   LOADER_TRUST_TIME_PROMPT_MAX_MS

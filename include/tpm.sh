@@ -687,6 +687,7 @@ EOF
 ___stage_tpm_counter1() {
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage check stage '$1'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage tpm leaf set '$1' loader.trust.tpm.counter.nv"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage tpm leaf set '$1' loader.trust.tpm.record.nv"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage tpm workdir ready"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage tpm hierarchy present"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage tpm counter make '$1'"
@@ -701,10 +702,11 @@ ___stage_tpm_counter1() {
 # @see     stage tpm counter
 #@end
 _stage_tpm_counter_make1() {
-        local d="$(ram_dir)" nv="" halt=""
+        local d="$(ram_dir)" nv="" halt="" rec=""
         nv=$(sed -n 1p "$ELEBAKE_BASE/stage/$1/kenv/loader.trust.tpm.counter.nv" 2>/dev/null)
         halt=$(sed -n 1p "$ELEBAKE_BASE/stage/$1/kenv/loader.trust.halt.nv" 2>/dev/null)
-        emit_note "stage tpm counter '$1': NV index $nv (duress)${halt:+, $halt (halt)}, increment-only; an index already defined is kept, one without a value is initialized (a counter reads TPM_RC_NV_UNINITIALIZED until its first increment)"
+        rec=$(sed -n 1p "$ELEBAKE_BASE/stage/$1/kenv/loader.trust.tpm.record.nv" 2>/dev/null)
+        emit_note "stage tpm counter '$1': NV index $nv (duress)${halt:+, $halt (halt)}, $rec (the record's per-boot counter, written with the index's empty auth), increment-only; an index already defined is kept, one without a value is initialized (a counter reads TPM_RC_NV_UNINITIALIZED until its first increment)"
         cat <<EOF
 export TPM2TOOLS_TCTI=device:/dev/tpm0
 cd '$d' || exit 1
@@ -723,6 +725,9 @@ for i in '$nv' ${halt:+'$halt'}; do
         tpm2_nvreadpublic "\$i"
 done
 rm -P nv.ctx nvinc.policy
+tpm2_nvreadpublic '$rec' >/dev/null 2>&1 || tpm2_nvdefine '$rec' --hierarchy=o --size=8 --attributes='nt=counter|authwrite|authread|no_da' --hierarchy-auth="hex:\$(cat '$d/auth-hierarchy.hex')" || exit 1
+tpm2_nvread '$rec' >/dev/null 2>&1 || tpm2_nvincrement '$rec' || exit 1
+tpm2_nvreadpublic '$rec'
 EOF
 }
 

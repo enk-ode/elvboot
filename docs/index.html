@@ -1034,14 +1034,18 @@ elebake freebsd prerequisites
   <dt id="stage~69"><a class="permalink" href="#stage~69"><b>stage baseline
     prompt &lt;stage&gt; &lt;MACRO&gt;</b></a></dt>
   <dd>Set a string baseline from a HIDDEN line: the word is read twice on the
-      terminal when the batch runs, both must match, its sha256 (hex, no salt
-      &#x2013; what the loader compares) becomes the string baseline
-      &lt;MACRO&gt; of the stage. The one use today: LOADER_TRUST_UNLOCK_SECRET,
-      the passphrase unlock_act asks for the informed decision on a deviation;
-      the hash opens nothing and tells no second role apart, so it may live in
-      the signed loader (the three-factor design). The word reaches neither
-      argv, history nor the batch text. Baselines are immutable: stage baseline
-      drop &lt;stage&gt; &lt;MACRO&gt; first to change it</dd>
+      terminal when the batch runs, both must match, and PBKDF2-HMAC-SHA256 over
+      it &#x2013; salted with the first eight bytes of the stage&#x2019;s
+      LOADER_TRUST_RECORD_SALT, 100000 rounds, 32 bytes, hex: what the loader
+      derives and compares &#x2013; becomes the string baseline &lt;MACRO&gt; of
+      the stage. The one use today: LOADER_TRUST_UNLOCK_SECRET, the passphrase
+      unlock_act asks for the informed decision on a deviation; the hash opens
+      nothing and tells no second role apart, so it may live in the signed
+      loader (the three-factor design), and the rounds make a card
+      thief&#x2019;s guessing slow. The word reaches neither argv, history nor
+      the batch text. The record salt must stand first (stage baseline add
+      LOADER_TRUST_RECORD_SALT). Baselines are immutable: stage baseline drop
+      &lt;stage&gt; &lt;MACRO&gt; first to change it</dd>
   <dt id="stage~70"><a class="permalink" href="#stage~70"><b>stage kenv drop
     &lt;stage&gt; &lt;key&gt;</b></a></dt>
   <dd>Remove one loader.trust.* value of the stage: the stage and the record
@@ -2531,6 +2535,6 @@ elebake stage site mk daily-v1
 </main>
 <div class="foot" role="doc-pagefooter" aria-label="Manual footer
   line"><span class="foot-left">elebake</span> <span class="foot-date">October
-  12, 2026</span> <span class="foot-right">ELEBAKE(8)</span></div>
+  13, 2026</span> <span class="foot-right">ELEBAKE(8)</span></div>
 </body>
 </html>

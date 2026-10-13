@@ -4,17 +4,23 @@
 # loader's kenv (loader.trust.* leaves), then -- after '# elvbootd at=' --
 # the session's appraisals ('gate=<g> verdict=<v>' lines under
 # '# appraisal-<g>') and the spool lines since the boot. Variables from
-# the act: stage, now, host, mode, arg, dir, old (count of snapshots in
-# the old counter-only naming, which the report leaves out).
+# the act: stage, now, host, mode, arg, dir, stamps (the modification
+# times of the snapshots in the old counter-only naming, '<file>=<UTC>'
+# per line: those carry no header, their counter is the file's name and
+# their first line is a leaf already).
 function strip(v) { sub(/^"/, "", v); sub(/"$/, "", v); return v }
 function first_word(c,    w) { w = c; sub(/^[A-Z][a-z0-9]*/, "", w); return tolower(substr(c, 1, length(c) - length(w))) }
 function numeric(s) { return s ~ /^[0-9]+$/ }
+BEGIN { m = split(stamps, sl, "\n"); for (i = 1; i <= m; i++) { k = sl[i]; sub(/=.*/, "", k); v = sl[i]; sub(/^[^=]*=/, "", v); mtime[k] = v } }
 FNR == 1 {
 	n++; file[n] = FILENAME; sub(/.*\//, "", file[n]); section = "loader"
-	counter[n] = $0; sub(/.* counter=/, "", counter[n]); sub(/ .*/, "", counter[n])
-	at[n] = $0; sub(/.* at=/, "", at[n]); sub(/ .*/, "", at[n])
 	medium[n] = "-"; chain[n] = "-"; appr[n] = "-"; failed[n] = ""; nf[n] = 0; unlocks[n] = 0
-	next
+	if ($0 ~ /^# counter=/) {
+		counter[n] = $0; sub(/.* counter=/, "", counter[n]); sub(/ .*/, "", counter[n])
+		at[n] = $0; sub(/.* at=/, "", at[n]); sub(/ .*/, "", at[n])
+		next
+	}
+	old++; counter[n] = file[n]; sub(/\.kenv$/, "", counter[n]); at[n] = (file[n] in mtime ? mtime[file[n]] : "-")
 }
 /^# elvbootd at=/ { section = "elvbootd"; closed[n] = 1; next }
 section == "loader" && /^loader\.trust\./ {
@@ -43,7 +49,7 @@ section == "elvbootd" && / unlock-ack / { unlocks[n]++; unlocks_total++; next }
 END {
 	printf "# elvboot report -- %s\n\n", stage
 	printf "%s on %s, snapshots under %s, selection: %s %s, boots: %d", now, host, dir, mode, arg, n
-	if (old > 0) printf " (%d older snapshots in the counter-only naming left out)", old
+	if (old > 0) printf " (%d of them in the old counter-only naming: before the chain, their time the file's)", old
 	printf "\n\n## Boots\n\n| counter | at (UTC) | medium | chain | gates failed | elvbootd | unlocks |\n|---|---|---|---|---|---|---|\n"
 	for (i = 1; i <= n; i++) {
 		printf "| %s | %s | %s | %s | %s | %s | %d |\n", counter[i], at[i], medium[i], chain[i], (failed[i] == "" ? "-" : failed[i]), (closed[i] ? appr[i] : "(open: no shutdown run)"), unlocks[i]

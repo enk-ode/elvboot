@@ -22,7 +22,9 @@ elebake stage tpm duress reset daily-v1            # pinCount 0, pinLimit back
 sudo tpm2_evictcontrol --hierarchy=o --object-context=0x81010001 --hierarchy-auth="hex:$(cat ~/.elebake/db/.ram/auth-hierarchy.hex)"   # the owner object (loader.trust.tpm.keyfile.handles)
 sudo tpm2_evictcontrol --hierarchy=o --object-context=0x81010002 --hierarchy-auth="hex:$(cat ~/.elebake/db/.ram/auth-hierarchy.hex)"   # the duress object
 sudo tpm2_nvundefine 0x01c10e26 --hierarchy=o --hierarchy-auth="hex:$(cat ~/.elebake/db/.ram/auth-hierarchy.hex)"                    # the witness anchor: its auth value is the owner's passphrase, which changes
-elebake stage tpm key daily-v1                     # the storage key anew (a new name: LOADER_TRUST_TPM_KEY_DIGEST relearns below)
+elebake stage tpm key daily-v1                     # the storage key anew; prints its name's digest -- the two lines take it:
+elebake stage baseline drop daily-v1 LOADER_TRUST_TPM_KEY_DIGEST
+elebake stage baseline add daily-v1 LOADER_TRUST_TPM_KEY_DIGEST digest <the sha256 stage tpm key printed>
 elebake stage tpm duress daily-v1                  # the new duress passphrase into the PIN index (hidden, twice)
 elebake stage kenv drop daily-v1 loader.trust.tpm.duress.count.sealed
 elebake stage tpm duress count daily-v1            # the second counter's stand anew ...
@@ -60,18 +62,10 @@ elebake stage earlboot mk daily-v1 && elebake stage earlboot install daily-v1
 elebake stage elvbootd mk daily-v1 && elebake stage elvbootd install daily-v1
 elebake stage push daily-v1 a
 # Boot (a): the new passphrase, the boot answer once more and confirmed
-# (a new chain starts), TpmKeyfile falls (the storage key's new digest),
-# PcrBank falls (new loader); the rest reads as the first boot of a chain
-# (RecordValid, CounterStep, ChainOnMedium, LastBootGap, StorageGap,
-# ClockOrder, AnchorValid, the tells) -- once.
-elebake stage baseline drop daily-v1 LOADER_TRUST_TPM_KEY_DIGEST
-elebake stage baseline learn daily-v1 LOADER_TRUST_TPM_KEY_DIGEST loader.trust.tpm.key.sha256
-elebake stage site mk daily-v1
-elebake stage make daily-v1
-elebake stage earlboot mk daily-v1 && elebake stage earlboot install daily-v1
-elebake stage elvbootd mk daily-v1 && elebake stage elvbootd install daily-v1
-elebake stage push daily-v1 a
-# Boot (a): only PcrBank. Then pcr-learn, boot: quiet. Then the other card:
+# (a new chain starts), PcrBank falls (new loader); the rest reads as the
+# first boot of a chain (RecordValid, CounterStep, ChainOnMedium,
+# LastBootGap, StorageGap, ClockOrder, AnchorValid, the tells) -- once.
+# Then pcr-learn, boot: quiet. Then the other card:
 elebake stage push daily-v1 b
 # Boot (b): ChainOnMedium and MediumSwitch once (the card switch). The
 # paper: the new recovery passphrase of slot 1 when it was rotated, the

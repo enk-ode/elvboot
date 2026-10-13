@@ -13,6 +13,7 @@ loader.trust.tpm.keyfile.handles	tpm_keyfile.c	required
 loader.trust.tpm.keyfile.pcrs	tpm_keyfile.c	required
 loader.trust.tpm.keyfile.providers	tpm_keyfile.c	required
 loader.trust.tpm.counter.nv	tpm_keyfile.c	optional
+loader.trust.tpm.record.nv	record.c	optional
 loader.trust.tpm.duress.nv	tpm_keyfile.c	required
 loader.trust.tpm.duress.count.nv	tpm_keyfile.c	required
 loader.trust.tpm.duress.count.sealed	tpm_keyfile.c	required
