@@ -21,7 +21,7 @@ HARNESS_MODULE_SRCS=	${INCLUDE_DIR}/database.sh ${INCLUDE_DIR}/help.sh ${INCLUDE
 # ... of which elvboot's tables keep its own vocabulary (report.sh), help, and
 # what the engine runs beneath every command (the batch runner, the directory
 # checks, the message terminals) -- nothing of the database's management
-HARNESS_KEEP=	^_{1,3}(unknown_command1|wrong_arity1|note1|comment1|error[0-9]|fail2|log[0-9]|batch[0-9]|database_dir_[a-z_]*[0-9]|printenv0|version0|help[0-9a-z_]*|complete[0-9]|report[0-9a-z_]*|witness[0-9a-z_]*|boot2)$$
+HARNESS_KEEP=	^_{1,3}(unknown_command1|wrong_arity1|note1|comment1|error[0-9]|fail2|log[0-9]|batch[0-9]|database_dir_[a-z_]*[0-9]|printenv0|version0|help[0-9a-z_]*|complete[0-9]|report[0-9a-z_]*|witness[0-9a-z_]*|freeze[0-9a-z_]*|boot2)$$
 # engine.sh is the always-loaded core: its anchors join TERMINAL_FUNCTIONS,
 # but never FUNCTION_MODULES (module mapping is for lazily sourced modules).
 MODULE_SRCS!=	echo ${INCLUDE_DIR}/*.sh | tr ' ' '\n' | grep -v engine.sh | grep -v report.sh | tr '\n' ' '

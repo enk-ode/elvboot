@@ -448,7 +448,7 @@ EOF
 
 #@help ___stage_tpm_seal3
 # @command stage tpm seal <stage> <owner|duress> <secret-file>
-# @summary Seal the secret into the persistent object of the role: owner -- the first handle of loader.trust.tpm.keyfile.handles, under owner.policy, with the owner passphrase's sha256 as auth value (read hidden twice); duress -- the second handle, under duress.policy, no auth value (the PIN index proves the passphrase). The stage exists, the role's prerequisites hold (stage tpm seal check role), the passphrase is read where the role has one, the object is created, loaded, persisted. The owner's secret is the production root's key file; the duress one is the decoy root's key file
+# @summary Seal the secret into the persistent object of the role (refused while a freeze mark stands: stage freeze check): owner -- the first handle of loader.trust.tpm.keyfile.handles, under owner.policy, with the owner passphrase's sha256 as auth value (read hidden twice); duress -- the second handle, under duress.policy, no auth value (the PIN index proves the passphrase). The stage exists, the role's prerequisites hold (stage tpm seal check role), the passphrase is read where the role has one, the object is created, loaded, persisted. The owner's secret is the production root's key file; the duress one is the decoy root's key file
 # @group   provisioning
 # @env     ELEBAKE_TPM_WORKDIR  the RAM disk the contexts live on (default .ram under the database)
 # @example elebake stage tpm seal daily-v1 owner /tmp/ram/secret.bin
@@ -458,6 +458,7 @@ EOF
 #@end
 ___stage_tpm_seal3() {
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage check stage '$1'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage freeze check '$1'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage tpm seal check role '$2' '$1' $(sq "$3")"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage tpm seal read role '$2' '$1'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage tpm seal object role '$2' '$1' $(sq "$3")"

@@ -1,0 +1,3 @@
+sudo sh
+# @summary Interpreter of 'freeze clear' (elvboot freeze ack): the act removes the mark in the hooks' state directory, root's -- sudo sh runs it, cat displays it
+# @see ELEBAKE_STATE_DB

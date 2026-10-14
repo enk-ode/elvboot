@@ -1,0 +1,3 @@
+sudo sh
+# @summary Interpreter of 'stage freeze check' (stage push, stage tpm seal): the act tests the mark in the hooks' state directory, root's -- sudo sh runs it, cat displays it
+# @see ELEBAKE_STATE_DB

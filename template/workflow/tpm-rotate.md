@@ -21,7 +21,7 @@ elebake stage tpm status daily-v1                  # what stands: the handles, t
 elebake stage tpm duress reset daily-v1            # pinCount 0, pinLimit back
 sudo tpm2_evictcontrol --hierarchy=o --object-context=0x81010001 --hierarchy-auth="hex:$(cat ~/.elebake/db/.ram/auth-hierarchy.hex)"   # the owner object (loader.trust.tpm.keyfile.handles)
 sudo tpm2_evictcontrol --hierarchy=o --object-context=0x81010002 --hierarchy-auth="hex:$(cat ~/.elebake/db/.ram/auth-hierarchy.hex)"   # the duress object
-sudo tpm2_nvundefine 0x01c10e26 --hierarchy=o --hierarchy-auth="hex:$(cat ~/.elebake/db/.ram/auth-hierarchy.hex)"                    # the witness anchor: its auth value is the owner's passphrase, which changes
+sudo tpm2_nvundefine 0x01c10e26 --hierarchy=o --auth="hex:$(cat ~/.elebake/db/.ram/auth-hierarchy.hex)"                    # the witness anchor: its policy names the owner hierarchy and the PCRs; a rebuild moves the PCRs and stage witness anchor redefines it, which changes
 elebake stage tpm key daily-v1                     # the storage key anew; prints its name's digest -- the two lines take it:
 elebake stage baseline drop daily-v1 LOADER_TRUST_TPM_KEY_DIGEST
 elebake stage baseline add daily-v1 LOADER_TRUST_TPM_KEY_DIGEST digest <the sha256 stage tpm key printed>

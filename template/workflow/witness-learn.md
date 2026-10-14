@@ -34,8 +34,10 @@ elebake stage include daily-v1
 elebake stage push daily-v1 b
 # The third witness, the anchor in the TPM: an NV index holds sha256 over
 # the table "<name>:<medium>:<digest>" of the conf, written by the owner
-# under PolicyPCR of the production AND the owner's passphrase (the index's
-# auth value) -- root on the running machine cannot move it, a conf
+# under PolicyPCR of the production AND PolicySecret over the owner
+# hierarchy (its password comes from the seed and is never on the running
+# machine; the index's own auth value stays empty, so the loader reads it
+# with the empty password) -- root on the running machine cannot move it, a conf
 # rewritten on a medium by whoever holds the signing key carries a table the
 # index does not. The loader reads it (WitnessAnchor: match, differ; absent
 # without TPM, index or witnesses -- a rescue on another board never fails
@@ -47,7 +49,8 @@ elebake gate claim add inventory witness-anchor                  # the claim int
 elebake trigger add witness-anchor-always when_always witness_anchor_act
 elebake policy trigger add runtime-watch witness-anchor-always
 # After every stage witness conf (a rollout moved a receipt): the anchor
-# anew -- root, the RAM disk open, the owner's passphrase typed hidden.
+# anew -- root, the RAM disk open with the hierarchy password on it
+# (workflow tpm-seal: the gpg line into auth-hierarchy.hex).
 elebake ram open
 elebake stage witness anchor daily-v1
 elebake ram close

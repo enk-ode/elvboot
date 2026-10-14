@@ -12,6 +12,8 @@ elebake stage kenv drop daily-v1 loader.trust.kernellock.pcr.expected   # record
 elebake stage kenv learn daily-v1 loader.trust.kernellock.pcr.expected loader.trust.kernellock.pcr.sha256
 elebake stage loaderconf mk daily-v1              # the new expectation into loader.trust.conf
 elebake stage include daily-v1                    # the conf into the boot tree
+elvboot freeze daily-v1                           # the narrow gates marked PcrBank as an identity tell (class-identity): read, then
+elvboot freeze ack daily-v1                       # ... acknowledge, or stage push refuses
 elebake stage push daily-v1 b                     # no rebuild: the loader is unchanged, PCR 4 stays
 
 # Then the owner's off-machine baseline (D.3): a full dump of the EFI

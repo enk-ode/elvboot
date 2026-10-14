@@ -17,11 +17,11 @@ d="$state/boots"
 test -d "$d" || { printf '# no snapshots under %s (workflow boot-snapshots)\n' "$d" >&2; exit 1; }
 old=$(find "$d" -type f -name '*.kenv' ! -name '[0-9]*T[0-9]*Z-*.kenv' -exec stat -f '%m %N' {} + | sort -n | sed 's/^[0-9]* //')
 all=$(printf '%s\n%s\n' "$old" "$(find "$d" -type f -name '[0-9]*T[0-9]*Z-*.kenv' | sort)" | sed '/^$/d')
-stamps=$(for f in $old; do printf '%s=%s\n' "${f##*/}" "$(date -u -r "$(stat -f %m "$f")" +%Y-%m-%dT%H:%M:%SZ)"; done)
+stamps=$(for f in $old; do printf '%s=%s ' "${f##*/}" "$(date -u -r "$(stat -f %m "$f")" +%Y-%m-%dT%H:%M:%SZ)"; done)
 case "$mode" in
 all) files=$all ;;
 last) files=$(printf '%s\n' "$all" | tail -n "$arg") ;;
-since) files=$(for f in $all; do at=$(head -n 1 "$f" | sed -n 's/^# counter=.* at=\([^ ]*\).*/\1/p'); [ -n "$at" ] || at=$(printf '%s\n' "$stamps" | sed -n "s/^${f##*/}=//p"); [ "$at" \< "$arg" ] || printf '%s\n' "$f"; done) ;;
+since) files=$(for f in $all; do at=$(head -n 1 "$f" | sed -n 's/^# counter=.* at=\([^ ]*\).*/\1/p'); [ -n "$at" ] || at=$(printf '%s\n' $stamps | sed -n "s/^${f##*/}=//p"); [ "$at" \< "$arg" ] || printf '%s\n' "$f"; done) ;;
 boot) case "$arg" in
       *[!0-9]*) files=$(printf '%s\n' "$all" | grep -- "/$arg") ;;
       *) files=$(printf '%s\n' "$all" | grep -- "[-/]$arg\.kenv$") ;;

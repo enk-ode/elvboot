@@ -34,15 +34,15 @@ elebake gate claim add narrow smart-clone
 elebake gate claim add narrow halt-foreign
 elebake gate claim add narrow attempts-nonzero
 elebake gate claim add narrow moved-repeat
-elebake gate add narrow-lock                      # the factory state of the firmware, an absence beyond a month: zdata stays closed, elebake refuses push and seal until the owner acknowledges
-elebake gate claim add narrow-lock setup-factory
-elebake gate claim add narrow-lock storage-long
-elebake gate add narrow-courier                   # a moved identity, foreign attempts at the loader, a firmware state played back: the finding travels on the card to the admin machine, the push is frozen
-elebake gate claim add narrow-courier class-identity
-elebake gate claim add narrow-courier halt-foreign
-elebake gate claim add narrow-courier moved-repeat
-elebake gate add narrow-stop                      # a disk read whole since the last boot: the clone's size -- running it on serves only the one who holds the clone
-elebake gate claim add narrow-stop smart-clone
+elebake gate add narrow_lock                      # the factory state of the firmware, an absence beyond a month: zdata stays closed, elebake refuses push and seal until the owner acknowledges
+elebake gate claim add narrow_lock setup-factory
+elebake gate claim add narrow_lock storage-long
+elebake gate add narrow_courier                   # a moved identity, foreign attempts at the loader, a firmware state played back: the finding travels on the card to the admin machine, the push is frozen
+elebake gate claim add narrow_courier class-identity
+elebake gate claim add narrow_courier halt-foreign
+elebake gate claim add narrow_courier moved-repeat
+elebake gate add narrow_stop                      # a disk read whole since the last boot: the clone's size -- running it on serves only the one who holds the clone
+elebake gate claim add narrow_stop smart-clone
 
 # The triggers (the ones named here may exist from earlier workflows:
 # elebake trigger show):
@@ -55,13 +55,13 @@ elebake trigger add shutdown-fail when_fail shutdown_act
 elebake policy add tells-narrow narrow
 elebake policy trigger add tells-narrow spool-fail
 elebake policy trigger add tells-narrow mark-fail
-elebake policy add tells-narrow-lock narrow-lock
+elebake policy add tells-narrow-lock narrow_lock
 elebake policy trigger add tells-narrow-lock lock-fail
 elebake policy trigger add tells-narrow-lock freeze-fail
-elebake policy add tells-narrow-courier narrow-courier
+elebake policy add tells-narrow-courier narrow_courier
 elebake policy trigger add tells-narrow-courier freeze-fail
 elebake policy trigger add tells-narrow-courier courier-fail
-elebake policy add tells-narrow-stop narrow-stop
+elebake policy add tells-narrow-stop narrow_stop
 elebake policy trigger add tells-narrow-stop freeze-fail
 elebake policy trigger add tells-narrow-stop shutdown-fail
 elebake stage phase policy add daily-v1 SYSINIT tells-narrow
@@ -82,6 +82,10 @@ elebake stage push daily-v1 b
 # The probes (Anchor list §6.6): Secure Boot off in the setup -> the unlock
 # at kernellock, zdata stays closed (lock), elebake frozen; setup restored,
 # acknowledged, quiet. beacon_act stays unbound until an addressee exists.
+# The acknowledgement: elvboot freeze daily-v1 shows the findings that set
+# the mark (freeze_act), elvboot freeze ack daily-v1 removes it; stage push
+# and stage tpm seal refuse while it stands. A rebuild moves PcrBank, an
+# identity tell: the mark after the first boot of a new loader is expected.
 
 # The TPM's own count of failed authorizations (LockoutQuiet, diagnosis
 # tpm.lockout: failed=<n>,max=<n>,interval.s=<n>): the owner's objects carry

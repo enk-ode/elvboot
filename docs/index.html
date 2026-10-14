@@ -862,12 +862,14 @@ elebake freebsd prerequisites
       symlink; none is a comment line</dd>
   <dt id="stage~49"><a class="permalink" href="#stage~49"><b>stage push
     &lt;stage&gt; &lt;medium&gt;</b></a></dt>
-  <dd>Publish the stage: the description checked (stage medium ensure),
-      manifest, attest, verify, the signed loader present; then the ESP mounted
-      read-write and the card proven to be this medium by the letter it carries
-      (stage medium mount: the wrong card is refused before the first write, a
-      fresh card gets its letter with `stage medium stamp' first), the tree and
-      the loader written (stage medium write), the medium released</dd>
+  <dd>Publish the stage: the description checked (stage medium ensure), no
+      freeze mark standing (stage freeze check: a finding of the narrow gates
+      waits for elvboot freeze ack), manifest, attest, verify, the signed loader
+      present; then the ESP mounted read-write and the card proven to be this
+      medium by the letter it carries (stage medium mount: the wrong card is
+      refused before the first write, a fresh card gets its letter with `stage
+      medium stamp' first), the tree and the loader written (stage medium
+      write), the medium released</dd>
   <dt id="stage~50"><a class="permalink" href="#stage~50"><b>stage dump
     [&lt;strategy&gt;] [&lt;stage&gt;|all]</b></a></dt>
   <dd>The stage part of a dump: every stage in the complete vocabulary. The
@@ -966,15 +968,15 @@ elebake freebsd prerequisites
   <dd>The anchor of the witness table in the TPM (the third witness): the stage
       exists and names the index (kenv loader.trust.tpm.witness.nv) and the PCR
       list (loader.trust.tpm.keyfile.pcrs), the RAM disk is mounted, the
-      hierarchy password is on it, every witness has its receipt and the conf
-      records stand (loader.trust.inventory.witnesses); then the owner&#x2019;s
-      passphrase is read hidden (the index&#x2019;s auth value is the owner
-      object&#x2019;s) and `stage witness anchor write' defines the index once
-      and writes the digest. After every rollout of a witness: measure, conf,
-      anchor. The loader&#x2019;s claim WitnessAnchor and elvbootd&#x2019;s
-      witness_anchor_act compare against this index; a conf rewritten on a
-      medium by whoever holds the signing key carries a table the index does
-    not</dd>
+      hierarchy password is on it (the write policy names the owner hierarchy,
+      PolicySecret: the password from the seed, never on the running machine),
+      every witness has its receipt and the conf records stand
+      (loader.trust.inventory.witnesses); then `stage witness anchor write'
+      defines the index once and writes the digest. After every rollout of a
+      witness: measure, conf, anchor. The loader&#x2019;s claim WitnessAnchor
+      and elvbootd&#x2019;s witness_anchor_act compare against this index; a
+      conf rewritten on a medium by whoever holds the signing key carries a
+      table the index does not</dd>
   <dt id="stage~63"><a class="permalink" href="#stage~63"><b>stage witness
     measure &lt;stage&gt;</b></a></dt>
   <dd>Measure every witness of the stage when the batch runs (raw device reads:
@@ -1034,18 +1036,19 @@ elebake freebsd prerequisites
   <dt id="stage~69"><a class="permalink" href="#stage~69"><b>stage baseline
     prompt &lt;stage&gt; &lt;MACRO&gt;</b></a></dt>
   <dd>Set a string baseline from a HIDDEN line: the word is read twice on the
-      terminal when the batch runs, both must match, and PBKDF2-HMAC-SHA256 over
+      terminal when the batch runs, both must match, and PBKDF2-HMAC-SHA512 over
       it &#x2013; salted with the first eight bytes of the stage&#x2019;s
       LOADER_TRUST_RECORD_SALT, 100000 rounds, 32 bytes, hex: what the loader
-      derives and compares &#x2013; becomes the string baseline &lt;MACRO&gt; of
-      the stage. The one use today: LOADER_TRUST_UNLOCK_SECRET, the passphrase
-      unlock_act asks for the informed decision on a deviation; the hash opens
-      nothing and tells no second role apart, so it may live in the signed
-      loader (the three-factor design), and the rounds make a card
-      thief&#x2019;s guessing slow. The word reaches neither argv, history nor
-      the batch text. The record salt must stand first (stage baseline add
-      LOADER_TRUST_RECORD_SALT). Baselines are immutable: stage baseline drop
-      &lt;stage&gt; &lt;MACRO&gt; first to change it</dd>
+      derives with GELI&#x2019;s pkcs5v2 and compares &#x2013; becomes the
+      string baseline &lt;MACRO&gt; of the stage. The one use today:
+      LOADER_TRUST_UNLOCK_SECRET, the passphrase unlock_act asks for the
+      informed decision on a deviation; the hash opens nothing and tells no
+      second role apart, so it may live in the signed loader (the three-factor
+      design), and the rounds make a card thief&#x2019;s guessing slow. The word
+      reaches neither argv, history nor the batch text. The record salt must
+      stand first (stage baseline add LOADER_TRUST_RECORD_SALT). Baselines are
+      immutable: stage baseline drop &lt;stage&gt; &lt;MACRO&gt; first to change
+      it</dd>
   <dt id="stage~70"><a class="permalink" href="#stage~70"><b>stage kenv drop
     &lt;stage&gt; &lt;key&gt;</b></a></dt>
   <dd>Remove one loader.trust.* value of the stage: the stage and the record
@@ -1303,11 +1306,12 @@ elebake freebsd prerequisites
       firmware&#x2019;s TPM clear, then everything anew</dd>
   <dt id="stage~107"><a class="permalink" href="#stage~107"><b>stage tpm seal
     &lt;stage&gt; &lt;owner|duress&gt; &lt;secret-file&gt;</b></a></dt>
-  <dd>Seal the secret into the persistent object of the role: owner &#x2013; the
-      first handle of loader.trust.tpm.keyfile.handles, under owner.policy, with
-      the owner passphrase&#x2019;s sha256 as auth value (read hidden twice);
-      duress &#x2013; the second handle, under duress.policy, no auth value (the
-      PIN index proves the passphrase). The stage exists, the role&#x2019;s
+  <dd>Seal the secret into the persistent object of the role (refused while a
+      freeze mark stands: stage freeze check): owner &#x2013; the first handle
+      of loader.trust.tpm.keyfile.handles, under owner.policy, with the owner
+      passphrase&#x2019;s sha256 as auth value (read hidden twice); duress
+      &#x2013; the second handle, under duress.policy, no auth value (the PIN
+      index proves the passphrase). The stage exists, the role&#x2019;s
       prerequisites hold (stage tpm seal check role), the passphrase is read
       where the role has one, the object is created, loaded, persisted. The
       owner&#x2019;s secret is the production root&#x2019;s key file; the duress
@@ -2105,9 +2109,12 @@ elebake freebsd prerequisites
       lives under hooks/ and is removed after &#x2013; then the run: exit code,
       every file the run left (appraisal, book, spool, marks). Never run the
       INSTALLED earlboot by hand: book_act appends to the book. Capture a dump
-      after a boot with: { kenv; sysctl kern.osrelease kern.ident
-      kern.securelevel | sed `s/^/sysctl./'; kldstat -q -m mac_bootlock
-      &amp;&amp; echo `kldstat.mac_bootlock=1'; } &gt; /tmp/ram/boot.kenv</dd>
+      after a boot with: { kenv; sysctl -e kern.osrelease kern.ident
+      kern.securelevel security.mac.veriexec.state vfs.root.mountfrom | sed
+      `s/^([^=]<i>)=(.</i>)$/sysctl.\1=&#x201C;\2&#x201D;/'; kldstat -q -m
+      mac_bootlock &amp;&amp; echo `kldstat.mac_bootlock=1'; } &gt;
+      /tmp/ram/boot.kenv (the mocks answer only the name=&#x201C;value&#x201D;
+      form)</dd>
   <dt id="stage~178"><a class="permalink" href="#stage~178"><b>stage earlboot
     install &lt;stage&gt;</b></a></dt>
   <dd>Install the generated earlboot script as /etc/rc.d/earlboot (root:wheel
@@ -2233,6 +2240,14 @@ elebake freebsd prerequisites
   <dt id="ELEBAKE_INTERPRETER_expectation_dump"><a class="permalink" href="#ELEBAKE_INTERPRETER_expectation_dump"><b>ELEBAKE_INTERPRETER_expectation_dump</b></a></dt>
   <dd>Interpreter for the dump block <span class="Li">expectation dump</span>
       &#x2013; dump TEXT</dd>
+  <dt id="ELEBAKE_INTERPRETER_freeze_clear"><a class="permalink" href="#ELEBAKE_INTERPRETER_freeze_clear"><b>ELEBAKE_INTERPRETER_freeze_clear</b></a></dt>
+  <dd>Interpreter of `freeze clear' (elvboot freeze ack): the act removes the
+      mark in the hooks&#x2019; state directory, root&#x2019;s &#x2013; sudo sh
+      runs it, cat displays it</dd>
+  <dt id="ELEBAKE_INTERPRETER_freeze_lines"><a class="permalink" href="#ELEBAKE_INTERPRETER_freeze_lines"><b>ELEBAKE_INTERPRETER_freeze_lines</b></a></dt>
+  <dd>Interpreter of `freeze lines' (elvboot): the act reads the hooks&#x2019;
+      state directory, root&#x2019;s &#x2013; sudo sh runs it, cat displays
+    it</dd>
   <dt id="ELEBAKE_INTERPRETER_gate_dump"><a class="permalink" href="#ELEBAKE_INTERPRETER_gate_dump"><b>ELEBAKE_INTERPRETER_gate_dump</b></a></dt>
   <dd>Interpreter for the dump block <span class="Li">gate dump</span> &#x2013;
       dump TEXT</dd>
@@ -2327,6 +2342,10 @@ elebake freebsd prerequisites
   <dt id="ELEBAKE_INTERPRETER_stage_elvbootd_glue_rcd"><a class="permalink" href="#ELEBAKE_INTERPRETER_stage_elvbootd_glue_rcd"><b>ELEBAKE_INTERPRETER_stage_elvbootd_glue_rcd</b></a></dt>
   <dd>Interpreter for <span class="Li">stage elvbootd glue rcd</span> &#x2013;
       the rc.d script as TEXT</dd>
+  <dt id="ELEBAKE_INTERPRETER_stage_freeze_check"><a class="permalink" href="#ELEBAKE_INTERPRETER_stage_freeze_check"><b>ELEBAKE_INTERPRETER_stage_freeze_check</b></a></dt>
+  <dd>Interpreter of `stage freeze check' (stage push, stage tpm seal): the act
+      tests the mark in the hooks&#x2019; state directory, root&#x2019;s
+      &#x2013; sudo sh runs it, cat displays it</dd>
   <dt id="ELEBAKE_INTERPRETER_stage_status_attestkey"><a class="permalink" href="#ELEBAKE_INTERPRETER_stage_status_attestkey"><b>ELEBAKE_INTERPRETER_stage_status_attestkey</b></a></dt>
   <dd>Interpreter for <span class="Li">stage status attestkey</span> &#x2013;
       one derived-state line</dd>
@@ -2535,6 +2554,6 @@ elebake stage site mk daily-v1
 </main>
 <div class="foot" role="doc-pagefooter" aria-label="Manual footer
   line"><span class="foot-left">elebake</span> <span class="foot-date">October
-  13, 2026</span> <span class="foot-right">ELEBAKE(8)</span></div>
+  14, 2026</span> <span class="foot-right">ELEBAKE(8)</span></div>
 </body>
 </html>

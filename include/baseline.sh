@@ -632,7 +632,7 @@ ___stage_witness_show1() {
 
 #@help ___stage_witness_anchor1
 # @command stage witness anchor <stage>
-# @summary The anchor of the witness table in the TPM (the third witness): the stage exists and names the index (kenv loader.trust.tpm.witness.nv) and the PCR list (loader.trust.tpm.keyfile.pcrs), the RAM disk is mounted, the hierarchy password is on it, every witness has its receipt and the conf records stand (loader.trust.inventory.witnesses); then the owner's passphrase is read hidden (the index's auth value is the owner object's) and 'stage witness anchor write' defines the index once and writes the digest. After every rollout of a witness: measure, conf, anchor. The loader's claim WitnessAnchor and elvbootd's witness_anchor_act compare against this index; a conf rewritten on a medium by whoever holds the signing key carries a table the index does not
+# @summary The anchor of the witness table in the TPM (the third witness): the stage exists and names the index (kenv loader.trust.tpm.witness.nv) and the PCR list (loader.trust.tpm.keyfile.pcrs), the RAM disk is mounted, the hierarchy password is on it (the write policy names the owner hierarchy, PolicySecret: the password from the seed, never on the running machine), every witness has its receipt and the conf records stand (loader.trust.inventory.witnesses); then 'stage witness anchor write' defines the index once and writes the digest. After every rollout of a witness: measure, conf, anchor. The loader's claim WitnessAnchor and elvbootd's witness_anchor_act compare against this index; a conf rewritten on a medium by whoever holds the signing key carries a table the index does not
 # @group   provisioning
 # @env     ELEBAKE_TPM_WORKDIR  the RAM disk the auth values live on (default .ram under the database)
 # @example elebake stage witness anchor daily-v1
@@ -649,16 +649,15 @@ ___stage_witness_anchor1() {
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage tpm hierarchy present"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage witness recorded '$1'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage witness receipts complete '$1'"
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage tpm seal read '$1' owner"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage witness anchor write '$1'"
 }
 
 #@help _stage_witness_anchor_write1
 # @command stage witness anchor write <stage>
-# @summary Act terminal (root): the table digest -- sha256 over "<name>:<medium>:<digest>" lines, one per witness in the order of loader.trust.inventory.witnesses, from the stage's kenv records -- into the NV index loader.trust.tpm.witness.nv: a trial session computes the policy (PolicyPCR over loader.trust.tpm.keyfile.pcrs as they stand, then PolicyAuthValue), the index is defined once (32 bytes, policywrite|authread|no_da, auth value = <workdir>/auth-owner.hex from stage tpm seal read) -- an index whose policy no longer matches these PCRs (a rebuild moved them) is undefined under the owner hierarchy and defined anew, the loader's claim sees absent only between the two --, a policy session with the auth value writes the 32 bytes, the receipt line (UTC, digest) is appended to witness-receipts/anchor. The loader reads the index with its empty read auth
+# @summary Act terminal (root): the table digest -- sha256 over "<name>:<medium>:<digest>" lines, one per witness in the order of loader.trust.inventory.witnesses, from the stage's kenv records -- into the NV index loader.trust.tpm.witness.nv: a trial session computes the policy (PolicyPCR over loader.trust.tpm.keyfile.pcrs as they stand, then PolicySecret over the owner hierarchy, authorized with <workdir>/auth-hierarchy.hex), the index is defined once (32 bytes, policywrite|authread|no_da, its own auth value empty: the loader and elvbootd read it with the empty password) -- an index whose policy no longer matches these PCRs (a rebuild moved them) is undefined under the owner hierarchy and defined anew, the loader's claim sees absent only between the two --, a policy session satisfying PCR and secret writes the 32 bytes, the receipt line (UTC, digest) is appended to witness-receipts/anchor. The loader reads the index with its empty read auth
 # @group   provisioning
 # @internal
-# @env     ELEBAKE_TPM_WORKDIR  the RAM disk (auth-owner.hex, auth-hierarchy.hex, the session contexts)
+# @env     ELEBAKE_TPM_WORKDIR  the RAM disk (auth-hierarchy.hex, the session contexts)
 # @see     stage witness anchor
 #@end
 _stage_witness_anchor_write1() {
@@ -669,11 +668,10 @@ _stage_witness_anchor_write1() {
         digest=$(for n in $(printf '%s' "$names" | tr ',' ' '); do
                 printf '%s:%s:%s\n' "$n" "$(sed -n 1p "$ELEBAKE_BASE/stage/$1/kenv/loader.trust.inventory.witness.$n.medium" 2>/dev/null)" "$(sed -n 1p "$ELEBAKE_BASE/stage/$1/kenv/loader.trust.inventory.witness.$n.digest" 2>/dev/null)"
         done | sha256 -q)
-        emit_note "stage witness anchor '$1': the table of $names as $digest into index $idx (PolicyPCR $pcrs and the owner's passphrase); an index already defined is kept while its policy matches, defined anew when a rebuild moved the PCRs"
+        emit_note "stage witness anchor '$1': the table of $names as $digest into index $idx (PolicyPCR $pcrs and PolicySecret over the owner hierarchy); an index already defined is kept while its policy matches, defined anew when a rebuild moved the PCRs"
         cat <<EOF
 export TPM2TOOLS_TCTI=device:/dev/tpm0
 cd '$d' || exit 1
-test -s auth-owner.hex || { printf '# Error: %s\\n' 'stage witness anchor: auth-owner.hex missing on the RAM disk (stage tpm seal read $1 owner)' >&2; exit 1; }
 printf '%s' '$digest' | awk 'BEGIN { h = "0123456789abcdef" } { s = tolower(\$0); for (i = 1; i <= length(s); i += 2) printf "\\\\%03o", (index(h, substr(s, i, 1)) - 1) * 16 + index(h, substr(s, i + 1, 1)) - 1 }' > witness-anchor.oct
 # shellcheck disable=SC2059
 printf "\$(cat witness-anchor.oct)" > witness-anchor.bin
@@ -681,16 +679,16 @@ test "\$(od -An -tx1 witness-anchor.bin | tr -d ' \\n')" = '$digest' || { rm -P 
 tpm2_flushcontext --loaded-session
 tpm2_startauthsession --session=t.ctx || exit 1
 tpm2_policypcr --session=t.ctx --pcr-list='sha256:$pcrs' || exit 1
-tpm2_policyauthvalue --session=t.ctx --policy=witness.policy || exit 1
+tpm2_policysecret --session=t.ctx --object-context=o --policy=witness.policy "hex:\$(cat auth-hierarchy.hex)" || exit 1
 tpm2_flushcontext t.ctx
 have=\$(tpm2_nvreadpublic '$idx' 2>/dev/null | sed -n 's/^ *authorization policy: *//p' | tr 'A-F' 'a-f')
 want=\$(od -An -tx1 witness.policy | tr -d ' \\n')
-[ -z "\$have" ] || [ "\$have" = "\$want" ] || tpm2_nvundefine '$idx' --hierarchy=o --hierarchy-auth="hex:\$(cat auth-hierarchy.hex)" || exit 1
-tpm2_nvreadpublic '$idx' >/dev/null 2>&1 || tpm2_nvdefine '$idx' --hierarchy=o --size=32 --policy=witness.policy --attributes='policywrite|authread|no_da' --index-auth="hex:\$(cat auth-owner.hex)" --hierarchy-auth="hex:\$(cat auth-hierarchy.hex)" || exit 1
+[ -z "\$have" ] || [ "\$have" = "\$want" ] || tpm2_nvundefine '$idx' --hierarchy=o --auth="hex:\$(cat auth-hierarchy.hex)" || exit 1
+tpm2_nvreadpublic '$idx' >/dev/null 2>&1 || tpm2_nvdefine '$idx' --hierarchy=o --size=32 --policy=witness.policy --attributes='policywrite|authread|no_da' --hierarchy-auth="hex:\$(cat auth-hierarchy.hex)" || exit 1
 tpm2_startauthsession --policy-session --session=w.ctx || exit 1
 tpm2_policypcr --session=w.ctx --pcr-list='sha256:$pcrs' || { tpm2_flushcontext w.ctx; exit 1; }
-tpm2_policyauthvalue --session=w.ctx || { tpm2_flushcontext w.ctx; exit 1; }
-tpm2_nvwrite '$idx' --auth="session:w.ctx+hex:\$(cat auth-owner.hex)" --input=witness-anchor.bin || { tpm2_flushcontext w.ctx; exit 1; }
+tpm2_policysecret --session=w.ctx --object-context=o "hex:\$(cat auth-hierarchy.hex)" || { tpm2_flushcontext w.ctx; exit 1; }
+tpm2_nvwrite '$idx' --auth=session:w.ctx --input=witness-anchor.bin || { tpm2_flushcontext w.ctx; exit 1; }
 tpm2_flushcontext w.ctx
 rm -P witness-anchor.oct witness-anchor.bin witness.policy
 $MODIFY_DIR_CREATE '$r' && printf '%s %s\\n' "\$(date -u '+%Y-%m-%dT%H:%M:%SZ')" '$digest' >> '$r/anchor' && chown '$(id -un)' '$r' '$r/anchor' && $MODIFY_FILE_PERMS 0600 '$r/anchor'
@@ -1200,7 +1198,7 @@ _stage_kenv_record3() {
 
 #@help ___stage_baseline_prompt2
 # @command stage baseline prompt <stage> <MACRO>
-# @summary Set a string baseline from a HIDDEN line: the word is read twice on the terminal when the batch runs, both must match, and PBKDF2-HMAC-SHA256 over it -- salted with the first eight bytes of the stage's LOADER_TRUST_RECORD_SALT, 100000 rounds, 32 bytes, hex: what the loader derives and compares -- becomes the string baseline <MACRO> of the stage. The one use today: LOADER_TRUST_UNLOCK_SECRET, the passphrase unlock_act asks for the informed decision on a deviation; the hash opens nothing and tells no second role apart, so it may live in the signed loader (the three-factor design), and the rounds make a card thief's guessing slow. The word reaches neither argv, history nor the batch text. The record salt must stand first (stage baseline add LOADER_TRUST_RECORD_SALT). Baselines are immutable: stage baseline drop <stage> <MACRO> first to change it
+# @summary Set a string baseline from a HIDDEN line: the word is read twice on the terminal when the batch runs, both must match, and PBKDF2-HMAC-SHA512 over it -- salted with the first eight bytes of the stage's LOADER_TRUST_RECORD_SALT, 100000 rounds, 32 bytes, hex: what the loader derives with GELI's pkcs5v2 and compares -- becomes the string baseline <MACRO> of the stage. The one use today: LOADER_TRUST_UNLOCK_SECRET, the passphrase unlock_act asks for the informed decision on a deviation; the hash opens nothing and tells no second role apart, so it may live in the signed loader (the three-factor design), and the rounds make a card thief's guessing slow. The word reaches neither argv, history nor the batch text. The record salt must stand first (stage baseline add LOADER_TRUST_RECORD_SALT). Baselines are immutable: stage baseline drop <stage> <MACRO> first to change it
 # @group   provisioning
 # @example elebake stage baseline prompt daily-v1 LOADER_TRUST_UNLOCK_SECRET
 # @see     stage baseline add
@@ -1230,7 +1228,7 @@ __stage_baseline_prompt_name_valid1() {
 
 #@help _stage_baseline_prompt_read2
 # @command stage baseline prompt read <stage> <MACRO>
-# @summary Act terminal: the script that reads the word twice on /dev/tty with echo off, refuses empty or differing entries, derives PBKDF2-HMAC-SHA256 (openssl enc -pbkdf2, 100000 rounds, the salt the first eight bytes of the stage's record salt) and writes the 64 hex of the key to .tmp/prompt/<stage>-<MACRO> of the database -- the word never leaves the script
+# @summary Act terminal: the script that reads the word twice on /dev/tty with echo off, refuses empty or differing entries, derives PBKDF2-HMAC-SHA512 (openssl enc -pbkdf2 -md sha512, 100000 rounds, the salt the first eight bytes of the stage's record salt; the loader's pkcs5v2 is GELI's, SHA512) and writes the 64 hex of the key to .tmp/prompt/<stage>-<MACRO> of the database -- the word never leaves the script
 # @group   provisioning
 # @internal
 # @see     stage baseline prompt
@@ -1244,7 +1242,7 @@ _stage_baseline_prompt_read2() {
 printf '%s for $1 (hidden): ' '$2' > /dev/tty; stty -echo < /dev/tty; IFS= read -r a < /dev/tty; stty echo < /dev/tty; printf '\\n' > /dev/tty
 printf 'Again: ' > /dev/tty; stty -echo < /dev/tty; IFS= read -r b < /dev/tty; stty echo < /dev/tty; printf '\\n' > /dev/tty
 [ -n "\$a" ] && [ "\$a" = "\$b" ] || { unset a b; printf '# Error: %s\\n' 'stage baseline prompt: the two entries differ or are empty -- nothing done' >&2; exit 1; }
-mkdir -p '$ELEBAKE_BASE/.tmp/prompt' && chmod 0700 '$ELEBAKE_BASE/.tmp/prompt' && printf '%s' "\$a" | openssl enc -aes-256-cbc -pbkdf2 -iter 100000 -md sha256 -S '$salt' -pass stdin -P | sed -n 's/^key=//p' | tr 'A-F' 'a-f' > '$ELEBAKE_BASE/.tmp/prompt/$1-$2' && chmod 0600 '$ELEBAKE_BASE/.tmp/prompt/$1-$2'; unset a b
+mkdir -p '$ELEBAKE_BASE/.tmp/prompt' && chmod 0700 '$ELEBAKE_BASE/.tmp/prompt' && printf '%s' "\$a" | openssl enc -aes-256-cbc -pbkdf2 -iter 100000 -md sha512 -S '$salt' -pass stdin -P | sed -n 's/^key=//p' | tr 'A-F' 'a-f' > '$ELEBAKE_BASE/.tmp/prompt/$1-$2' && chmod 0600 '$ELEBAKE_BASE/.tmp/prompt/$1-$2'; unset a b
 EOF
 }
 

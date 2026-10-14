@@ -6,12 +6,12 @@
 # '# appraisal-<g>') and the spool lines since the boot. Variables from
 # the act: stage, now, host, mode, arg, dir, stamps (the modification
 # times of the snapshots in the old counter-only naming, '<file>=<UTC>'
-# per line: those carry no header, their counter is the file's name and
-# their first line is a leaf already).
+# words, space-separated: those carry no header, their counter is the
+# file's name and their first line is a leaf already).
 function strip(v) { sub(/^"/, "", v); sub(/"$/, "", v); return v }
 function first_word(c,    w) { w = c; sub(/^[A-Z][a-z0-9]*/, "", w); return tolower(substr(c, 1, length(c) - length(w))) }
 function numeric(s) { return s ~ /^[0-9]+$/ }
-BEGIN { m = split(stamps, sl, "\n"); for (i = 1; i <= m; i++) { k = sl[i]; sub(/=.*/, "", k); v = sl[i]; sub(/^[^=]*=/, "", v); mtime[k] = v } }
+BEGIN { m = split(stamps, sl, " "); for (i = 1; i <= m; i++) { k = sl[i]; sub(/=.*/, "", k); v = sl[i]; sub(/^[^=]*=/, "", v); mtime[k] = v } }
 FNR == 1 {
 	n++; file[n] = FILENAME; sub(/.*\//, "", file[n]); section = "loader"
 	medium[n] = "-"; chain[n] = "-"; appr[n] = "-"; failed[n] = ""; nf[n] = 0; unlocks[n] = 0

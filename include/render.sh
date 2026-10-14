@@ -65,7 +65,7 @@ ___stage_earlboot_mk1() {
 
 #@help ___stage_earlboot_test2
 # @command stage earlboot test <stage> <dump>
-# @summary Replay a captured boot through the CURRENT earlboot of the stage, without root and without side effects: the same rendering as 'stage earlboot mk' but with mocks for state and tools -- kenv/sysctl/kldstat answer from <dump>, shutdown and logger become notes on stderr, the state lives under hooks/ and is removed after -- then the run: exit code, every file the run left (appraisal, book, spool, marks). Never run the INSTALLED earlboot by hand: book_act appends to the book. Capture a dump after a boot with: { kenv; sysctl kern.osrelease kern.ident kern.securelevel | sed 's/^/sysctl./'; kldstat -q -m mac_bootlock && echo 'kldstat.mac_bootlock=1'; } > /tmp/ram/boot.kenv
+# @summary Replay a captured boot through the CURRENT earlboot of the stage, without root and without side effects: the same rendering as 'stage earlboot mk' but with mocks for state and tools -- kenv/sysctl/kldstat answer from <dump>, shutdown and logger become notes on stderr, the state lives under hooks/ and is removed after -- then the run: exit code, every file the run left (appraisal, book, spool, marks). Never run the INSTALLED earlboot by hand: book_act appends to the book. Capture a dump after a boot with: { kenv; sysctl -e kern.osrelease kern.ident kern.securelevel security.mac.veriexec.state vfs.root.mountfrom | sed 's/^\([^=]*\)=\(.*\)$/sysctl.\1="\2"/'; kldstat -q -m mac_bootlock && echo 'kldstat.mac_bootlock=1'; } > /tmp/ram/boot.kenv (the mocks answer only the name="value" form)
 # @group   foundation
 # @example elebake stage earlboot test daily-v1 /tmp/ram/boot.kenv
 # @see     stage earlboot mk

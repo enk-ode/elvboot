@@ -3086,13 +3086,14 @@ test_stage_witness_records() {
   run_elebake stage kenv add unitwt loader.trust.inventory.witness.zempty.medium m2 > /dev/null
   run_elebake stage kenv add unitwt loader.trust.inventory.witness.zempty.digest d2 > /dev/null
   local anchor; anchor=$(printf 'zcard-b:m1:d1\nzempty:m2:d2\n' | sha256 -q)
-  if run_elebake stage witness anchor write unitwt | grep -q "tpm2_nvdefine '0x01c10e26' --hierarchy=o --size=32 --policy=witness.policy --attributes='policywrite|authread|no_da' --index-auth=\"hex:\$(cat auth-owner.hex)\"" \
-     && run_elebake stage witness anchor write unitwt | grep -q '^\[ -z "\$have" \] || \[ "\$have" = "\$want" \] || tpm2_nvundefine '"'"'0x01c10e26'"'"' --hierarchy=o --hierarchy-auth="hex:\$(cat auth-hierarchy.hex)" || exit 1$' \
+  if run_elebake stage witness anchor write unitwt | grep -q "tpm2_nvdefine '0x01c10e26' --hierarchy=o --size=32 --policy=witness.policy --attributes='policywrite|authread|no_da' --hierarchy-auth=\"hex:\$(cat auth-hierarchy.hex)\"" \
+     && run_elebake stage witness anchor write unitwt | grep -q "tpm2_policysecret --session=t.ctx --object-context=o --policy=witness.policy \"hex:\$(cat auth-hierarchy.hex)\"" \
+     && run_elebake stage witness anchor write unitwt | grep -q '^\[ -z "\$have" \] || \[ "\$have" = "\$want" \] || tpm2_nvundefine '"'"'0x01c10e26'"'"' --hierarchy=o --auth="hex:\$(cat auth-hierarchy.hex)" || exit 1$' \
      && run_elebake stage witness anchor write unitwt | grep -q "tpm2_policypcr --session=w.ctx --pcr-list='sha256:0,2,7'" \
-     && run_elebake stage witness anchor write unitwt | grep -q "tpm2_nvwrite '0x01c10e26' --auth=\"session:w.ctx+hex:\$(cat auth-owner.hex)\" --input=witness-anchor.bin" \
+     && run_elebake stage witness anchor write unitwt | grep -q "tpm2_nvwrite '0x01c10e26' --auth=session:w.ctx --input=witness-anchor.bin" \
      && run_elebake stage witness anchor write unitwt | grep -q "printf '%s' '$anchor' | awk" \
      && run_elebake stage witness anchor write unitwt | grep -q "'$anchor' >> '.*/witness-receipts/anchor'"; then
-    pass "anchor write: the table digest in the witnesses order, the index defined once under PolicyPCR+AuthValue and anew when its policy moved, written with the owner's auth value, the receipt appended"
+    pass "anchor write: the table digest in the witnesses order, the index defined once under PolicyPCR+PolicySecret(owner hierarchy) with an empty auth value of its own and anew when its policy moved, the receipt appended"
   else
     fail "anchor write: $(run_elebake stage witness anchor write unitwt | head -8)"
   fi
@@ -3422,8 +3423,8 @@ test_stage_baseline_prompt() {
     fail "salt check: $(run_elebake stage baseline prompt read unitp LOADER_TRUST_UNLOCK_SECRET 2>&1 | head -2)"
   fi
   run_elebake stage baseline add unitp LOADER_TRUST_RECORD_SALT string 0123456789abcdef0123456789abcdef > /dev/null 2>&1
-  if run_elebake stage baseline prompt read unitp LOADER_TRUST_UNLOCK_SECRET | grep -q "openssl enc -aes-256-cbc -pbkdf2 -iter 100000 -md sha256 -S '3031323334353637' -pass stdin -P"; then
-    pass "the read derives PBKDF2-HMAC-SHA256 under the first eight bytes of the record salt, the word on stdin"
+  if run_elebake stage baseline prompt read unitp LOADER_TRUST_UNLOCK_SECRET | grep -q "openssl enc -aes-256-cbc -pbkdf2 -iter 100000 -md sha512 -S '3031323334353637' -pass stdin -P"; then
+    pass "the read derives PBKDF2-HMAC-SHA512 (the loader's pkcs5v2) under the first eight bytes of the record salt, the word on stdin"
   else
     fail "prompt read: $(run_elebake stage baseline prompt read unitp LOADER_TRUST_UNLOCK_SECRET | tail -2)"
   fi
@@ -4148,7 +4149,7 @@ test_workflow_family() {
   local f bad=""
   for f in "$(dirname "$TEST_SCRIPT")"/template/workflow/*.md; do
     head -1 "$f" | grep -q "^# " || bad="$bad ${f##*/}"
-    grep -v "^#" "$f" | grep -v "^$" | grep -v "^elebake \|^vpn-switch \|^sudo \|^gpg \|^kenv \|^rm -P\|^export \|^cd " > /dev/null && bad="$bad ${f##*/}(line)"
+    grep -v "^#" "$f" | grep -v "^$" | grep -v "^elebake \|^elvboot \|^vpn-switch \|^sudo \|^gpg \|^kenv \|^rm -P\|^export \|^cd " > /dev/null && bad="$bad ${f##*/}(line)"
   done
   if [ -z "$bad" ]; then
     pass "every workflow starts with a title and holds only commands and comments"
@@ -4449,13 +4450,16 @@ test_elvboot_report() {
   printf '# counter=1 at=2026-10-12T12:00:00Z prev=deadbeef\nloader.trust.bootlock.failed=""\nloader.trust.inventory.failed="GeliHeaders"\nloader.trust.inventory.geli.digest="cccc"\nloader.trust.tellwatch.medium="now=b,last=a"\n' > "$b3"
   printf 'loader.trust.bootlock.failed=""\nloader.trust.recordlock.record="geli=1,counter=5,last=x,bootms=70000,flags=4,chain=match,medium=a"\n' > "$st/boots/6.kenv"
   touch -t 202610111200 "$st/boots/6.kenv"
+  printf 'loader.trust.bootlock.failed=""\n' > "$st/boots/5.kenv"
+  touch -t 202610111100 "$st/boots/5.kenv"
   printf '2026-10-12T09:46:01Z 89306b00 fd519 3426af\n' > "$TEST_DIR/stage/unitrp/witness-receipts/zcard-a"
   printf '2026-10-12T09:53:47Z fd519 5a571a\n' > "$TEST_DIR/stage/unitrp/witness-receipts/zcard-a.full"
   run_elebake setenv ELEBAKE_STATE_DB "$st" > /dev/null 2>&1
   run_elebake setenv ELEBAKE_INTERPRETER_report_render sh > /dev/null 2>&1
   local out; out=$(run_elvboot report unitrp)
   if printf '%s\n' "$out" | grep -q "^# elvboot report -- unitrp" \
-     && printf '%s\n' "$out" | grep -q "boots: 4 (1 of them in the old counter-only naming: before the chain, their time the file's)" \
+     && printf '%s\n' "$out" | grep -q "boots: 5 (2 of them in the old counter-only naming: before the chain, their time the file's)" \
+     && printf '%s\n' "$out" | grep -q "^| 5 | 2026-10-11T0[0-9]:00:00Z | - | - | - | (open: no shutdown run) | 0 |" \
      && printf '%s\n' "$out" | grep -q "^| 6 | 2026-10-11T1[0-9]:00:00Z | - | match | - | (open: no shutdown run) | 0 |" \
      && printf '%s\n' "$out" | grep -q "^| 7 | 2026-10-12T10:00:00Z | a | match | kernellock: PcrBank | custody:pass | 1 |" \
      && printf '%s\n' "$out" | grep -q "^| 8 | 2026-10-12T11:00:00Z | a | match | - | (open: no shutdown run) | 0 |" \
@@ -4474,7 +4478,7 @@ test_elvboot_report() {
   fi
   if printf '%s\n' "$out" | grep "^- boots per medium: " | grep -q "a=2" \
      && printf '%s\n' "$out" | grep "^- boots per medium: " | grep -q "b=1" \
-     && printf '%s\n' "$out" | grep "^- boots per medium: " | grep -q -- "-=1" \
+     && printf '%s\n' "$out" | grep "^- boots per medium: " | grep -q -- "-=2" \
      && printf '%s\n' "$out" | grep -q "^- PcrBank rounds: 1$" \
      && printf '%s\n' "$out" | grep -q "^- unlocks acknowledged: 1$" \
      && printf '%s\n' "$out" | grep -q "^- chain restarts (counter fell): 1, gaps (counter stepped by more than one): 0$" \
@@ -4506,7 +4510,7 @@ test_elvboot_report() {
      && run_elvboot boot unitrp 7 | grep -q "^| 7 |" && ! run_elvboot boot unitrp 7 | grep -q "^| 8 |" \
      && run_elvboot boot unitrp 6 | grep -q "^| 6 |" && ! run_elvboot boot unitrp 6 | grep -q "^| 7 |" \
      && run_elvboot report last unitrp 9 2>&1 | grep -q "^| 6 |" \
-     && run_elvboot boot unitrp 42 2>&1 | grep -q "no snapshot matches boot 42 under .* (4 kept; report all lists them)" \
+     && run_elvboot boot unitrp 42 2>&1 | grep -q "no snapshot matches boot 42 under .* (5 kept; report all lists them)" \
      && run_elvboot boot unitrp 20261012T11 | grep -q "^| 8 |"; then
     pass "last, since and boot select: the newest n, from a time, one counter (old naming too) or one stamp; a miss names the count kept"
   else
@@ -4531,6 +4535,19 @@ test_elvboot_report() {
     pass "pinned to cat the act is displayed: render.sh with the state directory, the stage, the selection, the templates and the database"
   else
     fail "display: $(run_elvboot report unitrp | head -3)"
+  fi
+  run_elebake setenv ELEBAKE_INTERPRETER_freeze_lines sh > /dev/null 2>&1
+  run_elebake setenv ELEBAKE_INTERPRETER_freeze_clear sh > /dev/null 2>&1
+  run_elebake setenv ELEBAKE_INTERPRETER_stage_freeze_check sh > /dev/null 2>&1
+  printf '2026-10-14T05:21:03Z narrow_courier fail failed=[class-identity] passed=[halt-foreign] skipped=[]\n' > "$st/freeze"
+  if run_elvboot freeze unitrp | grep -q "^2026-10-14T05:21:03Z narrow_courier fail failed=\[class-identity\]" \
+     && run_elebake stage freeze check unitrp 2>&1 | grep -q "a freeze mark stands under $st (elvboot freeze unitrp shows the findings, elvboot freeze ack unitrp acknowledges)" \
+     && run_elvboot freeze ack unitrp | grep -q "^# freeze mark acknowledged and removed" && [ ! -e "$st/freeze" ] \
+     && run_elvboot freeze unitrp | grep -q "^# no freeze mark under $st" \
+     && run_elebake stage freeze check unitrp 2>&1 | grep -c . | grep -qx 0; then
+    pass "freeze shows the findings of the mark, stage freeze check refuses while it stands, freeze ack removes it, then both are quiet"
+  else
+    fail "freeze: $(run_elvboot freeze unitrp | head -2); $(run_elebake stage freeze check unitrp 2>&1 | head -2)"
   fi
   rm -rf "$st"
 }

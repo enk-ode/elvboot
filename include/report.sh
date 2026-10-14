@@ -112,6 +112,58 @@ _report_render3() {
         printf 'sh %s %s %s %s %s %s %s\n' "$(sq "$ELEBAKE_TEMPLATE_DIR/report/render.sh")" "$(sq "${ELEBAKE_STATE_DB:-/var/db/elvboot}")" "$(sq "$1")" "$(sq "$2")" "$(sq "$3")" "$(sq "$ELEBAKE_TEMPLATE_DIR")" "$(sq "$ELEBAKE_BASE")"
 }
 
+#@help ___freeze1
+# @command freeze <stage>
+# @summary The freeze mark of the hooks' state directory: the stage exists, then 'freeze lines <stage>' prints the findings that set it -- earlboot's freeze_act keeps one line per fallen narrow gate (UTC, gate, verdict, the fallen tells) -- or says that none stands. While the mark stands, elebake stage push and stage tpm seal refuse (stage freeze check); the owner reads the lines and, once the findings are explained (a rebuild moved PcrBank, a card changed twice), acknowledges with freeze ack
+# @group   report
+# @example elvboot freeze daily-v1
+# @see     freeze ack
+# @see     report
+#@end
+___freeze1() {
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" report stage exists '$1'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" freeze lines '$1'"
+}
+
+#@help ___freeze_ack1
+# @command freeze ack <stage>
+# @summary Acknowledge the freeze mark: the stage exists, the findings are printed once more (freeze lines), then 'freeze clear <stage>' removes the mark. The owner's decision, after reading, that the findings are explained; the next boot's claim freeze-clear passes again and elebake's push and seal are open
+# @group   report
+# @example elvboot freeze ack daily-v1
+# @see     freeze
+#@end
+___freeze_ack1() {
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" report stage exists '$1'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" freeze lines '$1'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" freeze clear '$1'"
+}
+
+#@help _freeze_lines1
+# @command freeze lines <stage>
+# @summary Act terminal (root: the state directory is root's): the lines of ELEBAKE_STATE_DB/freeze, each a finding earlboot's freeze_act kept, or the comment that no mark stands
+# @group   report
+# @internal
+# @env     ELEBAKE_STATE_DB  the state directory of the hooks (freeze below it)
+# @see     freeze
+#@end
+_freeze_lines1() {
+        local f; f=$(sq "${ELEBAKE_STATE_DB:-/var/db/elvboot}/freeze")
+        printf 'if test -s %s; then cat %s; else printf %s; fi\n' "$f" "$f" "$(sq "# no freeze mark under ${ELEBAKE_STATE_DB:-/var/db/elvboot} (freeze_act writes it)\n")"
+}
+
+#@help _freeze_clear1
+# @command freeze clear <stage>
+# @summary Act terminal (root): remove ELEBAKE_STATE_DB/freeze and say so -- the acknowledgement
+# @group   report
+# @internal
+# @env     ELEBAKE_STATE_DB  the state directory of the hooks (freeze below it)
+# @see     freeze ack
+#@end
+_freeze_clear1() {
+        local f; f=$(sq "${ELEBAKE_STATE_DB:-/var/db/elvboot}/freeze")
+        printf 'rm -f %s && printf %s\n' "$f" "$(sq '# freeze mark acknowledged and removed\n')"
+}
+
 #@help _witness_lines1
 # @command witness lines <stage>
 # @summary Print the witnesses' receipts of the stage: per witness the last labels receipt (UTC, GPT uuid, medium identity, digest) and the last whole-card receipt (UTC, medium identity, digest)

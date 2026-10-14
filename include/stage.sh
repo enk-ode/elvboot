@@ -3375,9 +3375,22 @@ _stage_deploy_write2() {
         printf '%s\n' "printf '# deployed signed loader to medium %s (%s:%s, sha256 %s)\\n' '$2' '$node' '$rel' '$want' >&2"
 }
 
+#@help _stage_freeze_check1
+# @command stage freeze check <stage>
+# @summary Act terminal (root): an error line and exit 1 while ELEBAKE_STATE_DB/freeze has content -- what stage push and stage tpm seal run first, the refusal the tells-narrow workflow promises; silent without a mark
+# @group   stage
+# @internal
+# @env     ELEBAKE_STATE_DB  the state directory of the hooks (freeze below it)
+# @see     stage push
+#@end
+_stage_freeze_check1() {
+        local f; f=$(sq "${ELEBAKE_STATE_DB:-/var/db/elvboot}/freeze")
+        printf 'if test -s %s; then printf %s >&2; exit 1; fi\n' "$f" "$(sq "# Error: a freeze mark stands under ${ELEBAKE_STATE_DB:-/var/db/elvboot} (elvboot freeze $1 shows the findings, elvboot freeze ack $1 acknowledges)\n")"
+}
+
 #@help ___stage_push2
 # @command stage push <stage> <medium>
-# @summary Publish the stage: the description checked (stage medium ensure), manifest, attest, verify, the signed loader present; then the ESP mounted read-write and the card proven to be this medium by the letter it carries (stage medium mount: the wrong card is refused before the first write, a fresh card gets its letter with 'stage medium stamp' first), the tree and the loader written (stage medium write), the medium released
+# @summary Publish the stage: the description checked (stage medium ensure), no freeze mark standing (stage freeze check: a finding of the narrow gates waits for elvboot freeze ack), manifest, attest, verify, the signed loader present; then the ESP mounted read-write and the card proven to be this medium by the letter it carries (stage medium mount: the wrong card is refused before the first write, a fresh card gets its letter with 'stage medium stamp' first), the tree and the loader written (stage medium write), the medium released
 # @group   stage
 # @example elebake stage push daily-v1 a
 # @see     stage tree sync
@@ -3385,6 +3398,7 @@ _stage_deploy_write2() {
 #@end
 ___stage_push2() {
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage medium ensure '$1' '$2'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage freeze check '$1'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage manifest '$1'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage attest '$1'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage verify '$1'"
