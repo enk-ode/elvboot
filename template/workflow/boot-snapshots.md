@@ -22,3 +22,7 @@ elebake policy trigger add runtime-watch persist-always        # ... and every o
 elebake stage elvbootd mk daily-v1 && elebake stage elvbootd install daily-v1   # no rebuild: the hooks only
 # Before the install, a replay without root: elebake stage elvbootd test daily-v1 STARTUP /tmp/ram/boot.kenv
 # Boot: /var/db/elvboot/boots/<stamp>-<counter>.kenv appears (sudo ls /var/db/elvboot/boots); after a shutdown it ends in '# elvbootd at=...'.
+# The report: elvboot report daily-v1 (the owner's reading); for a third
+# party the forensic report, signed with the stage's attest key:
+elvboot report forensic daily-v1 > ~/elvboot-report-$(date -u +%Y%m%d).md
+elvboot report sign daily-v1 ~/elvboot-report-$(date -u +%Y%m%d).md

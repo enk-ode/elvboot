@@ -112,6 +112,103 @@ _report_render3() {
         printf 'sh %s %s %s %s %s %s %s\n' "$(sq "$ELEBAKE_TEMPLATE_DIR/report/render.sh")" "$(sq "${ELEBAKE_STATE_DB:-/var/db/elvboot}")" "$(sq "$1")" "$(sq "$2")" "$(sq "$3")" "$(sq "$ELEBAKE_TEMPLATE_DIR")" "$(sq "$ELEBAKE_BASE")"
 }
 
+#@help ___report_forensic1
+# @command report forensic <stage>
+# @summary The forensic report (Markdown on stdout, English): the stage exists, then 'report forensic render <stage>' -- part one from the database as the owner: subject (machine, database, stage, the elebake version and commit, the loader source commit, the export serial), trust anchors (keys, loader, manifest, conf, hooks with digests), requirements (phase, gate, claim, expectation, measurement, reactions), baselines, loader leaves with their record times, inventory sets, disks, witnesses (configuration against every receipt), rescue, quarantine -- then 'report render <stage> all -' as root: every kept boot, the chain, the explanations on file (acknowledged findings, learned expectations), the sources with their digests. Sign the file with 'report sign'
+# @group   report
+# @example elvboot report forensic daily-v1 > report-20261014.md
+# @see     report sign
+# @see     report
+#@end
+___report_forensic1() {
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" report stage exists '$1'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" report forensic render '$1'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" report render '$1' all -"
+}
+
+#@help _report_forensic_render1
+# @command report forensic render <stage>
+# @summary Act terminal (the owner): one line, template/report/forensic.sh with the database, the stage, the template directory, the elebake version line and the state directory -- part one of the forensic report, read from the database's records alone
+# @group   report
+# @internal
+# @env     ELEBAKE_STATE_DB      the state directory of the hooks (named in the subject)
+# @env     ELEBAKE_TEMPLATE_DIR  the template directory (report/forensic.sh, awk/inventory-rows.awk)
+# @env     ELEBAKE_FORMAT        the dump format major version (the version line of the subject)
+# @env     ELEBAKE_LIBDIR        the library directory whose checkout names the commit of the version line
+# @see     report forensic
+#@end
+_report_forensic_render1() {
+        local commit=""
+        commit=$(git -C "$ELEBAKE_LIBDIR" rev-parse --short HEAD 2>/dev/null)
+        test -n "$commit" || commit=$(head -n1 "$ELEBAKE_LIBDIR/VERSION" 2>/dev/null)
+        printf 'sh %s %s %s %s %s %s\n' "$(sq "$ELEBAKE_TEMPLATE_DIR/report/forensic.sh")" "$(sq "$ELEBAKE_BASE")" "$(sq "$1")" "$(sq "$ELEBAKE_TEMPLATE_DIR")" "$(sq "elebake $ELEBAKE_FORMAT ${commit:-unknown}")" "$(sq "${ELEBAKE_STATE_DB:-/var/db/elvboot}")"
+}
+
+#@help ___report_sign2
+# @command report sign <stage> <file>
+# @completion file none
+# @summary Sign a report file with the attest key of the stage (the key that signs the manifests and the baselines, in root's keyring): the stage exists, the file exists, the attest key is bound and carries its keyid; then 'report detachsign <stage> <file>' -- the armored detached signature <file>.asc, the owner's afterwards. Verify with gpg --verify <file>.asc <file> against the key's public part
+# @group   report
+# @example elvboot report sign daily-v1 report-20261014.md
+# @see     report forensic
+#@end
+___report_sign2() {
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" report stage exists '$1'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" report file exists $(sq "$2")"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" report attest key complete '$1'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" report detachsign '$1' $(sq "$2")"
+}
+
+#@help __report_file_exists1
+# @command report file exists <file>
+# @completion file none
+# @summary The file to sign is there and not empty: a comment line, else an error line
+# @group   report
+# @internal
+# @see     report sign
+#@end
+__report_file_exists1() {
+        if test -s "$1"; then
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'report file $1'"
+        else
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'report sign: no such file or empty: $1'"
+        fi
+}
+
+#@help __report_attest_key_complete1
+# @command report attest key complete <stage>
+# @summary The stage's attest-key record is bound and carries its keyid: a comment line naming the keyid, else an error line (elebake stage attest key)
+# @group   report
+# @internal
+# @see     report sign
+#@end
+__report_attest_key_complete1() {
+        if test -s "$ELEBAKE_BASE/stage/$1/attest-key/keyid"; then
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'attest key of $1: $(sed -n 1p "$ELEBAKE_BASE/stage/$1/attest-key/keyid")'"
+        else
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" error 'report sign: stage $1 has no attest key with a keyid (elebake stage attest key $1 openpgp <key>)'"
+        fi
+}
+
+#@help _report_detachsign2
+# @command report detachsign <stage> <file>
+# @completion file none
+# @summary Act terminal (root: the attest key lives in root's keyring): rm -f of a stale <file>.asc, GPG_TTY for the card's pinentry, gpg --detach-sign with the record's keyid (and GNUPGHOME when recorded), the signature handed to the owner (0644)
+# @group   report
+# @internal
+# @see     report sign
+#@end
+_report_detachsign2() {
+        local gpgenv=""
+        test ! -f "$ELEBAKE_BASE/stage/$1/attest-key/gnupghome" || gpgenv="GNUPGHOME='$(head -n1 "$ELEBAKE_BASE/stage/$1/attest-key/gnupghome")' "
+        emit_note "elvboot report sign '$1': armored detached signature -> $2.asc with $(head -n1 "$ELEBAKE_BASE/stage/$1/attest-key/keyid" 2>/dev/null)"
+        printf '%s\n' "rm -f $(sq "$2.asc")"
+        printf '%s\n' "GPG_TTY=\$( { tty </dev/tty; } 2>/dev/null ); export GPG_TTY; ${gpgenv}gpg-connect-agent updatestartuptty /bye >/dev/null 2>&1 || true"
+        printf '%s\n' "${gpgenv}gpg --yes --openpgp -a --detach-sign --local-user '$(head -n1 "$ELEBAKE_BASE/stage/$1/attest-key/keyid" 2>/dev/null)' -o $(sq "$2.asc") $(sq "$2") || { rm -f $(sq "$2.asc"); printf '# Error: report sign failed for %s\\n' $(sq "$2") >&2; exit 1; }"
+        printf '%s\n' "chown '$(id -un)' $(sq "$2.asc") && $MODIFY_FILE_PERMS 0644 $(sq "$2.asc")"
+        printf '%s\n' "printf '# report %s signed: %s.asc\\n' $(sq "$2") $(sq "$2") >&2"
+}
+
 #@help ___freeze1
 # @command freeze <stage>
 # @summary The freeze mark of the hooks' state directory: the stage exists, then 'freeze lines <stage>' prints the findings that set it -- earlboot's freeze_act keeps one line per fallen narrow gate (UTC, gate, verdict, the fallen tells) -- or says that none stands. While the mark stands, elebake stage push and stage tpm seal refuse (stage freeze check); the owner reads the lines and, once the findings are explained (a rebuild moved PcrBank, a card changed twice), acknowledges with freeze ack
@@ -153,15 +250,18 @@ _freeze_lines1() {
 
 #@help _freeze_clear1
 # @command freeze clear <stage>
-# @summary Act terminal (root): remove ELEBAKE_STATE_DB/freeze and say so -- the acknowledgement
+# @summary Act terminal (root): the lines of ELEBAKE_STATE_DB/freeze move, each prefixed with the UTC of the acknowledgement, into ELEBAKE_STATE_DB/acknowledged (the journal the report lists under the explanations on file), then the mark is removed and said so
 # @group   report
 # @internal
 # @env     ELEBAKE_STATE_DB  the state directory of the hooks (freeze below it)
 # @see     freeze ack
 #@end
 _freeze_clear1() {
-        local f; f=$(sq "${ELEBAKE_STATE_DB:-/var/db/elvboot}/freeze")
-        printf 'rm -f %s && printf %s\n' "$f" "$(sq '# freeze mark acknowledged and removed\n')"
+        local f="" j=""
+        f=$(sq "${ELEBAKE_STATE_DB:-/var/db/elvboot}/freeze")
+        j=$(sq "${ELEBAKE_STATE_DB:-/var/db/elvboot}/acknowledged")
+        printf 'if test -s %s; then sed "s/^/$(date -u +%%Y-%%m-%%dT%%H:%%M:%%SZ) acknowledged: /" %s >> %s && chmod 0600 %s; fi\n' "$f" "$f" "$j" "$j"
+        printf 'rm -f %s && printf %s\n' "$f" "$(sq '# freeze mark acknowledged and removed (journal: acknowledged)\n')"
 }
 
 #@help _witness_lines1

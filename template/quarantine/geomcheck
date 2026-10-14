@@ -1,0 +1,62 @@
+#!/bin/sh
+#
+# PROVIDE: geomcheck
+# REQUIRE: mountcritlocal
+# BEFORE: zpool kld zfs
+# KEYWORD: nojail
+
+# geomcheck -- the quarantine distrusts the chain it was booted by: in this
+# system only what the root and the swap need is in use. Every other pool
+# is exported, every GELI provider that lets itself be detached was not in
+# use and goes, every mount from outside is unmounted, the TPM driver is
+# unloaded -- before zpool, kld and zfs, long before securelevel. Written
+# into the quarantine root by elebake stage quarantine guard write.
+
+. /etc/rc.subr
+
+name="geomcheck"
+desc="only the root pool and swap may be open"
+start_cmd="geomcheck_start"
+stop_cmd=":"
+log=/var/log/geomcheck.log
+
+note()
+{
+	echo "$(date +%Y-%m-%dT%H:%M:%S) $*" >> "$log"
+}
+
+geomcheck_start()
+{
+	local rootpool p n
+	rootpool=$(df -t zfs / | awk 'NR == 2 { sub("/.*", "", $1); print $1 }')
+	[ -n "$rootpool" ] || { note "no zfs root"; return 0; }
+	for p in $(zpool list -H -o name); do
+		[ "$p" = "$rootpool" ] && continue
+		if [ -n "$GEOMCHECK_DRYRUN" ]; then note "would export pool $p"; continue; fi
+		zpool export -f "$p" && note "exported pool $p"
+	done
+	for n in $(geli status -s | awk '{ print $1 }'); do
+		if [ -n "$GEOMCHECK_DRYRUN" ]; then
+			case $(geli list "$n" | awk '/^Providers:/ { p = 1 } p && /Mode:/ { print $2; exit }') in
+			r0w0e0) note "would detach provider $n (not in use)" ;;
+			esac
+			continue
+		fi
+		geli detach "$n" 2>/dev/null && note "detached provider $n"
+	done
+	mount -p | awk -v r="$rootpool" '$3 == "zfs" && index($1, r "/") != 1 && $1 != r { print $2 }
+	                               $3 != "zfs" && $3 !~ /^(devfs|tmpfs|fdescfs|procfs|linprocfs|linsysfs)$/ { print $2 }' \
+	| while read -r p; do
+		if [ -n "$GEOMCHECK_DRYRUN" ]; then note "would unmount $p"; continue; fi
+		umount -f "$p" && note "unmounted $p"
+	done
+	if kldstat -q -n tpm.ko; then
+		if [ -n "$GEOMCHECK_DRYRUN" ]; then note "would unload tpm.ko"
+		elif kldunload -n tpm.ko; then note "unloaded tpm.ko"
+		else note "tpm.ko loaded, unload refused"; fi
+	fi
+	return 0
+}
+
+load_rc_config $name
+run_rc_command "$1"

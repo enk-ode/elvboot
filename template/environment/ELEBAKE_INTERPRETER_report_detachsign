@@ -1,0 +1,3 @@
+sudo sh
+# @summary Interpreter of 'report detachsign' (elvboot report sign): the attest key lives in root's keyring -- sudo sh signs, the signature is handed to the owner
+# @see ELEBAKE_INTERPRETER_stage_detachsign

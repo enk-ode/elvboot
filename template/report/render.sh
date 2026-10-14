@@ -54,7 +54,19 @@ for r in "$rdir"/*; do
 	[ -f "$r.full" ] && printf -- '  whole: %s\n' "$(tail -n 1 "$r.full")"
 done
 [ "$n" -gt 0 ] || printf -- '- no witness receipts under %s (stage witness measure)\n' "$rdir"
+printf '\n## Explanations on file\n\n'
+printf 'What the owner did about the findings, as the system recorded it: the acknowledged findings (elvboot freeze ack moves the narrow gates'"'"' mark into %s/acknowledged with the time of the acknowledgement), the mark standing now, and the expectations the owner learned anew with the time of the record (a rebuild moves PcrBank, a halt the owner caused moves the halt counter: pcr-learn and halt-relearn write these).\n\n' "$state"
+printf '### Acknowledged findings\n\n'
+if [ -s "$state/acknowledged" ]; then printf '```\n'; cat "$state/acknowledged"; printf '```\n\n'; else printf 'none on file\n\n'; fi
+printf '### Freeze mark now\n\n'
+if [ -s "$state/freeze" ]; then printf 'STANDING (stage push and stage tpm seal refuse until acknowledged):\n\n```\n'; cat "$state/freeze"; printf '```\n\n'; else printf 'none\n\n'; fi
+printf '### Learned expectations\n\n| leaf | value | recorded (UTC) |\n|---|---|---|\n'
+for k in "$base/stage/$stage"/kenv/*.expected "$base/stage/$stage"/kenv/*.pcrs; do
+	[ -f "$k" ] || continue
+	printf '| %s | %s | %s |\n' "${k##*/}" "$(sed -n 1p "$k")" "$(date -u -r "$(stat -f %m "$k")" +%Y-%m-%dT%H:%M:%SZ)"
+done
 printf '\n## Sources\n\n| file | sha256 |\n|---|---|\n'
 for f in $files; do printf '| %s | %s |\n' "${f##*/}" "$(sha256 -q "$f")"; done
 for r in "$rdir"/*; do [ -f "$r" ] && printf '| witness-receipts/%s | %s |\n' "${r##*/}" "$(sha256 -q "$r")"; done
+for j in "$state/acknowledged" "$state/freeze"; do [ -f "$j" ] && printf '| %s | %s |\n' "${j#"$state/"}" "$(sha256 -q "$j")"; done
 exit 0

@@ -1140,6 +1140,84 @@ and LOADER_TRUST_EFIVARS_KNOWN, every variable any record ever listed
 A part of stage site mk; an empty set renders nothing, the claim is then
 skipped
 .TP
+\f[B]stage quarantine dataset drop <stage>\f[R]
+Forget the build root record of the stage (the dataset itself stays):
+the stage exists and has the record; then it is removed
+.TP
+\f[B]stage quarantine pool add <stage> <pool>\f[R]
+Record the name of the container\(cqs pool (zempty): the stage exists,
+the name is a ZFS pool name; then written (immutable, drop first to
+change)
+.TP
+\f[B]stage quarantine pool drop <stage>\f[R]
+Forget the pool name record of the stage: the stage exists and has the
+record; then it is removed
+.TP
+\f[B]stage quarantine partition add <stage> <partition>\f[R]
+Record the container\(cqs partition (nda1p1, an internal disk of the
+machine): the stage exists, the name is a GPT partition name; then
+written (immutable, drop first to change)
+.TP
+\f[B]stage quarantine partition drop <stage>\f[R]
+Forget the partition record of the stage: the stage exists and has the
+record; then it is removed
+.TP
+\f[B]stage quarantine keyfile add <stage> <name>\f[R]
+Record the name of the TPM\(cqs file on the RAM disk (zempty.bin) that
+opens the container alone \(en the seed writes it there before init,
+open and push (workflow quarantine): the stage exists, the name is a
+file name without a slash; then written (immutable, drop first to
+change)
+.TP
+\f[B]stage quarantine keyfile drop <stage>\f[R]
+Forget the key file name record of the stage: the stage exists and has
+the record; then it is removed
+.TP
+\f[B]stage quarantine swap add <stage> <device>\f[R]
+Record the swap device of the quarantine\(cqs fstab
+(/dev/gpt/illyria\-swap.eli: the production\(cqs swap, geli onetime,
+usable by a system that holds no key of its own): the stage exists, the
+device is an absolute path; then written (immutable, drop first to
+change)
+.TP
+\f[B]stage quarantine swap drop <stage>\f[R]
+Forget the swap device record of the stage: the stage exists and has the
+record; then it is removed
+.TP
+\f[B]stage quarantine rc add <stage> <line>\f[R]
+Add a line of the quarantine\(cqs /etc/rc.conf (name=\(lqvalue\(rq:
+hostname, zfs_enable, sshd_enable=\(lqNO\(rq,
+kern_securelevel=\(lq2\(rq, devmatch_enable=\(lqNO\(rq,
+dumpdev=\(lqNO\(rq, tmpmfs=\(lqYES\(rq, varmfs=\(lqYES\(rq \(en the
+whole configuration, the quarantine mirrors no rc.conf): the stage
+exists, the line has the form; then appended once
+.TP
+\f[B]stage quarantine rc drop <stage> <line>\f[R]
+Remove a line from the quarantine\(cqs rc list: the stage exists, the
+line is listed; then it is removed
+.TP
+\f[B]stage quarantine show <stage>\f[R]
+The quarantine description of the stage as notes: dataset, pool,
+partition, key file name, swap, the rc lines, the last snapshot and what
+the container received; the stage exists
+.TP
+\f[B]stage quarantine dataset open <stage>\f[R]
+Mount the build root for editing under
+$ELEBAKE_ROOT/mnt/<stage>\-quarantine (mount \-t zfs, so the mountpoint
+property stays /), devfs below it: the stage exists, the dataset is
+recorded, nothing is mounted there yet; then `stage quarantine dataset
+mount'
+.TP
+\f[B]stage quarantine dataset close <stage>\f[R]
+Unmount the build root and its devfs: the stage exists, the root is
+mounted; then `stage quarantine dataset umount'
+.TP
+\f[B]stage quarantine snapshot <stage>\f[R]
+Snapshot the quarantine root (<dataset>\(at<stage>\-<stamp>, recursive)
+and record the name: the stage exists, the dataset is recorded, the root
+is not mounted (a quiescent tree), the baseline is signed; then `stage
+quarantine snapshot take' and the record
+.TP
 \f[B]stage rescue dataset drop <stage>\f[R]
 Forget the source dataset record of the stage (the dataset itself
 stays): the stage exists and has the record; then it is removed
@@ -1474,6 +1552,105 @@ is (workflow render) \(en commands and the comments between them, to
 read and to type after
 .SS Medium
 The physical boot medium: bind it, back up its loader, swap, roll back.
+.TP
+\f[B]stage quarantine dataset add <stage> <dataset>\f[R]
+Record the quarantine\(cqs build root dataset (zroot/ROOT/zempty, a boot
+environment on the production pool whose basename names the root on the
+container\(cqs pool): the stage exists, the name is a ZFS dataset name;
+then written (immutable: identical re\-add is a no\-op, a differing one
+is refused \(en drop first)
+.TP
+\f[B]stage quarantine dataset make <stage>\f[R]
+Create the build root on the production pool, empty: the stage exists,
+the dataset is recorded; then `stage quarantine dataset create'
+(mountpoint / and canmount noauto \(en a boot environment nothing mounts
+by itself; the base set fills it)
+.TP
+\f[B]stage quarantine build <stage>\f[R]
+Build the opened quarantine root, in phases: the stage exists, the root
+is mounted; then `stage quarantine package install' (the base set, no
+kernel), `rc write' (/etc/rc.conf from the rc lines), `frame write'
+(fstab, localtime, the console insecure, the root password random, no
+user), `guard write' (rc.d geomcheck from the template), `baseline' (the
+signed manifest of the tree).
+Then close and snapshot
+.TP
+\f[B]stage quarantine package install <stage>\f[R]
+Install the base set into the mounted quarantine root from this
+machine\(cqs repositories, no kernel (the medium\(cqs, verified, boots
+it \(en a disk without kernel and boot code boots nowhere by itself):
+the stage exists, the root is mounted; then `stage quarantine package
+pkg'
+.TP
+\f[B]stage quarantine rc write <stage>\f[R]
+Write /etc/rc.conf of the mounted quarantine root from the rc lines: the
+stage exists, the root is mounted, the list is not empty; then `stage
+quarantine rc file'
+.TP
+\f[B]stage quarantine frame write <stage>\f[R]
+Write the frame of the mounted quarantine root: the stage exists, the
+root is mounted; then `stage quarantine frame file' \(en fstab (the swap
+line when a swap device is recorded, nothing else), localtime copied
+from this machine, the console marked insecure in ttys (single user asks
+the root password, which nobody knows), the root password set to 48
+random bytes nobody keeps, no other user
+.TP
+\f[B]stage quarantine guard write <stage>\f[R]
+Write the guard into the mounted quarantine root: the stage exists, the
+root is mounted; then `stage quarantine guard file' \(en
+/etc/rc.d/geomcheck from the template quarantine/geomcheck of this
+elebake (after mountcritlocal, before zpool, kld and zfs: every pool but
+the root pool exported, every GELI provider not in use detached, foreign
+mounts unmounted, tpm.ko unloaded), checked with sh \-n and placed in
+rcorder
+.TP
+\f[B]stage quarantine baseline <stage>\f[R]
+Take the baseline of the quarantine root \(en the manifest of its tree
+(every file and symlink, LC_ALL=C sorted, `path sha256=hash' / `path
+symlink=target') signed with the pinned attest key, into
+stage/<stage>/quarantine/baseline/MANIFEST(.asc): the stage exists, the
+root is mounted, the key is pinned; then `stage quarantine baseline
+write' and `attest'
+.TP
+\f[B]stage quarantine container init <stage>\f[R]
+Prepare the container, once: GELI on the partition (AES\-XTS 256,
+HMAC/SHA256, BOOT, NODELETE, the TPM\(cqs file alone, no passphrase, its
+own master key), every sector written with zeros (HMAC needs it \(en a
+grown provider without this writes integrity failures on every read of
+the new space), the pool created on it with ROOT below, exported: the
+stage exists, partition, pool and keyfile are recorded, the RAM disk is
+mounted and the file on it; then `stage quarantine container geli' and
+`container pool'
+.TP
+\f[B]stage quarantine container open <stage>\f[R]
+Attach the container with the TPM\(cqs file and import its pool without
+mounting (altroot $ELEBAKE_ROOT/mnt/<stage>\-quarantine\-container): the
+stage exists, partition, pool and keyfile are recorded, the RAM disk is
+mounted and the file on it; then `stage quarantine container attach'
+.TP
+\f[B]stage quarantine container close <stage>\f[R]
+Export the container\(cqs pool and detach the partition: the stage
+exists, partition and pool are recorded; then `stage quarantine
+container detach'
+.TP
+\f[B]stage quarantine push <stage>\f[R]
+Send the recorded snapshot into the container: the stage exists, the
+snapshot is recorded, the container opens (stage quarantine container
+open), the stream goes (the whole tree the first time, the increment
+since the receipt after), bootfs is set, the root on the container is
+set read\-only (a session leaves nothing), the GUID is proven, the
+receipt is recorded, the container closes.
+After it the witness of the container moves: stage witness measure,
+conf, anchor
+.TP
+\f[B]stage quarantine verify <stage>\f[R]
+Check the container against the baseline without sending, three
+questions: does it hold the recorded snapshot (GUID) with a read\-only
+root, is the baseline manifest signed by the pinned key, and is the tree
+in the container exactly the baseline (every entry present and
+unchanged, nothing beyond it): the stage exists, the snapshot is
+recorded, the baseline is signed; then attest verify, container open,
+check, mount, tree check, umount, close
 .TP
 \f[B]stage rescue dataset add <stage> <dataset>\f[R]
 Record the rescue root dataset (zroot/ROOT/rescue, a boot environment on
@@ -2277,6 +2454,15 @@ Interpreter for \f[CR]provenance dump\f[R] \(en dump TEXT
 Interpreter for \f[CR]provenance file\f[R] \(en files the receipt of an
 import
 .TP
+\f[B]ELEBAKE_INTERPRETER_report_detachsign\f[R]
+Interpreter of `report detachsign' (elvboot report sign): the attest key
+lives in root\(cqs keyring \(en sudo sh signs, the signature is handed
+to the owner
+.TP
+\f[B]ELEBAKE_INTERPRETER_report_forensic_render\f[R]
+Interpreter of `report forensic render' (elvboot): the act reads the
+database as the owner; cat displays it
+.TP
 \f[B]ELEBAKE_INTERPRETER_report_render\f[R]
 Interpreter of `report render' (elvboot): the act reads the hooks\(cq
 state directory, root\(cqs \(en sudo sh runs it, cat displays it
@@ -2341,6 +2527,10 @@ TEXT
 \f[B]ELEBAKE_INTERPRETER_stage_dump_prereqs\f[R]
 Interpreter for the dump block \f[CR]stage dump prereqs\f[R] \(en dump
 TEXT
+.TP
+\f[B]ELEBAKE_INTERPRETER_stage_dump_quarantine\f[R]
+Interpreter for the dump block \f[CR]stage dump quarantine\f[R] \(en
+dump TEXT
 .TP
 \f[B]ELEBAKE_INTERPRETER_stage_dump_rescue\f[R]
 Interpreter for the dump block \f[CR]stage dump rescue\f[R] \(en dump

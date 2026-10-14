@@ -179,10 +179,13 @@ The walk that built all this is recorded in `docs/TUTORIAL.md`; its
 current state is the silent boot: every gate green, no claim skipped,
 the database published as an attested, encrypted dump.
 
-Open: the rescue system on the medium (`stage rescue`: a dataset on the
-production pool, described in records, sent to every card -- built,
-its first run on a machine pending), the review of the loader series,
-time windows after a series of settled boots.
+Beside it: the rescue system on the medium (`stage rescue`: a dataset on
+the production pool, described in records, sent to every card, booted
+and witnessed) and the quarantine (`stage quarantine`: the decoy root of
+the duress way, built the same way into a container the TPM's file alone
+opens, with its guard, its signed baseline and its witness). Open: the
+review of the loader series, time windows after a series of settled
+boots.
 
 ## Getting started
 

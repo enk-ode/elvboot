@@ -1,0 +1,2 @@
+sudo sh
+# Act terminal of the quarantine family: geli attach and zpool import need root.

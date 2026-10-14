@@ -1,0 +1,2 @@
+sudo sh
+# Act terminal of the quarantine family: fstab, ttys and the root password of the build root need root.

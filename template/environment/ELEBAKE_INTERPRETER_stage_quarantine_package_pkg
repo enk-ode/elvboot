@@ -1,0 +1,2 @@
+sudo sh
+# Act terminal of the quarantine family: pkg --rootdir into the build root needs root.

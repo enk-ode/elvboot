@@ -4064,6 +4064,7 @@ ___stage_dump_complete1() {
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage dump marker '$1'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage dump backup '$1'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage dump rescue '$1'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage dump quarantine '$1'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage dump boot complete '$1'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage dump rebuild '$1'"
 }

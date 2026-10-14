@@ -1,0 +1,3 @@
+sh
+# @summary Interpreter of 'report forensic render' (elvboot): the act reads the database as the owner; cat displays it
+# @see ELEBAKE_INTERPRETER_report_render

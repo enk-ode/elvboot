@@ -3180,16 +3180,17 @@ test_stage_witness_records() {
     fail "gpt conf: $(ls "$TEST_DIR/.staging/$sid/kenv" | tr '\n' ' '); $(run_elebake stage witness show unitwt)"
   fi
   r=$(run_elebake stage witness whole unitwt zcard-b 2>&1)
-  if printf '%s\n' "$r" | grep -q "w=\$(dd if='/dev/da1' bs=1m 2>/dev/null | sha256 -q)" \
+  if printf '%s\n' "$r" | grep -q "w=\$( { dd if='/dev/da1p3' bs=1m 2>/dev/null" && printf '%s\n' "$r" | grep -q "; } | sha256 -q)" \
+     && ! printf '%s\n' "$r" | grep -q "dd if='/dev/da1' bs=1m" \
      && printf '%s\n' "$r" | grep -q "if \[ \"\$m\" != 'aaaa000000000000000000000000000000000000000000000000000000000000' \]; then printf '# witness %s: not in the slot" \
      && printf '%s\n' "$r" | grep -q ">> '$TEST_DIR/stage/unitwt/witness-receipts/zcard-b.full'" \
      && run_elebake stage witness compare whole unitwt zcard-b 2>&1 | grep -q "no whole-card receipt yet"; then
-    pass "the whole-card receipt hashes the disk the witness lives on, guarded by the medium; compare without one is a note"
+    pass "the whole-card receipt hashes the witness's container and the free tail of its disk (never the ESP or the other partitions), guarded by the medium; compare without one is a note"
   else
     fail "whole card: $r"
   fi
   printf '%s\n' "2026-10-09T12:00:00Z aaaa000000000000000000000000000000000000000000000000000000000000 9999999999999999999999999999999999999999999999999999999999999999" > "$TEST_DIR/.staging/$sid/witness-receipts/zcard-b.full"
-  if run_elebake stage witness compare whole unitwt zcard-b 2>&1 | grep -q "if \[ \"\$w\" = '9999999999999999999999999999999999999999999999999999999999999999' \]; then printf '# witness %s whole card: unchanged since %s\\\\n' 'zcard-b' '2026-10-09T12:00:00Z'" \
+  if run_elebake stage witness compare whole unitwt zcard-b 2>&1 | grep -q "if \[ \"\$w\" = '9999999999999999999999999999999999999999999999999999999999999999' \]; then printf '# witness %s whole (container and free tail): unchanged since %s\\\\n' 'zcard-b' '2026-10-09T12:00:00Z'" \
      && run_elebake stage witness show unitwt | grep -q "    whole card: 2026-10-09T12:00:00Z aaaa0000.* 9999"; then
     pass "compare whole judges the whole-card digest against the last receipt; show prints it"
   else
@@ -3481,6 +3482,160 @@ test_import_bootstrap() {
     pass "an altered dump does not verify against the keyring: refused before any database is made"
   else
     fail "tampered dump: $o"
+  fi
+}
+
+test_stage_quarantine_family() {
+  test_header "stage quarantine: the description records, their dump, the acts rendered (the TPM's file alone opens the container), the batches in order"
+  test_setup
+  run_elebake stage add unitq > /dev/null 2>&1
+  run_elebake stage quarantine dataset add unitq zroot/ROOT/zempty > /dev/null
+  if [ "$(cat "$TEST_DIR/stage/unitq/quarantine/dataset" 2>/dev/null)" = zroot/ROOT/zempty ] \
+     && run_elebake stage quarantine dataset add unitq zroot/ROOT/zempty 2>&1 | grep -q "unchanged" \
+     && run_elebake stage quarantine dataset add unitq zroot/other 2>&1 | grep -q "immutable" \
+     && run_elebake stage quarantine dataset add unitq "/bad name" 2>&1 | grep -q "not a ZFS dataset name"; then
+    pass "quarantine dataset add records the name; identical re-add is a no-op, a different one and a bad name are refused"
+  else
+    fail "quarantine dataset add: $(run_elebake stage quarantine dataset add unitq zroot/other 2>&1)"
+  fi
+  run_elebake stage quarantine pool add unitq zempty > /dev/null
+  run_elebake stage quarantine partition add unitq nda1p1 > /dev/null
+  run_elebake stage quarantine keyfile add unitq zempty.bin > /dev/null
+  run_elebake stage quarantine swap add unitq /dev/gpt/illyria-swap.eli > /dev/null
+  if [ "$(cat "$TEST_DIR/stage/unitq/quarantine/pool")" = zempty ] && [ "$(cat "$TEST_DIR/stage/unitq/quarantine/partition")" = nda1p1 ] \
+     && [ "$(cat "$TEST_DIR/stage/unitq/quarantine/keyfile")" = zempty.bin ] && [ "$(cat "$TEST_DIR/stage/unitq/quarantine/swap")" = /dev/gpt/illyria-swap.eli ] \
+     && run_elebake stage quarantine partition add unitq sda 2>&1 | grep -q "not a GPT partition name" \
+     && run_elebake stage quarantine keyfile add unitq /tmp/x.bin 2>&1 | grep -q "no slash" \
+     && run_elebake stage quarantine swap add unitq relative 2>&1 | grep -q "absolute path"; then
+    pass "pool, partition, key file name and swap device are recorded; a bad partition, a path as key file name and a relative swap are refused"
+  else
+    fail "records: $(ls "$TEST_DIR/stage/unitq/quarantine" | tr '\n' ' ')"
+  fi
+  run_elebake stage quarantine rc add unitq 'sshd_enable="NO"' > /dev/null
+  run_elebake stage quarantine rc add unitq 'kern_securelevel="2"' > /dev/null
+  run_elebake stage quarantine rc add unitq 'tmpmfs="YES"' > /dev/null
+  if [ "$(grep -c . "$TEST_DIR/stage/unitq/quarantine/rc")" = 3 ] \
+     && run_elebake stage quarantine rc add unitq 'sshd_enable="NO"' 2>&1 | grep -q "already list" \
+     && run_elebake stage quarantine rc add unitq 'no quotes' 2>&1 | grep -q "rc.conf line" \
+     && run_elebake stage quarantine rc drop unitq 'tmpmfs="YES"' > /dev/null && [ "$(grep -c . "$TEST_DIR/stage/unitq/quarantine/rc")" = 2 ] \
+     && run_elebake stage quarantine rc drop unitq 'tmpmfs="YES"' 2>&1 | grep -q "not listed"; then
+    pass "rc add appends once per line and refuses a line without the form; rc drop removes it, a second drop is refused"
+  else
+    fail "rc list: $(cat "$TEST_DIR/stage/unitq/quarantine/rc" 2>&1)"
+  fi
+  local sh; sh=$(run_elebake stage quarantine show unitq 2>&1)
+  if printf '%s\n' "$sh" | grep -q "dataset: zroot/ROOT/zempty" && printf '%s\n' "$sh" | grep -q "pool: zempty" \
+     && printf '%s\n' "$sh" | grep -q "partition: nda1p1" && printf '%s\n' "$sh" | grep -q "keyfile: zempty.bin" \
+     && printf '%s\n' "$sh" | grep -q "#     kern_securelevel=" && printf '%s\n' "$sh" | grep -q "baseline: 0 entries"; then
+    pass "quarantine show lists dataset, pool, partition, key file, swap, the rc lines and the baseline state"
+  else
+    fail "quarantine show: $sh"
+  fi
+  local out want; out=$(run_elebake stage dump unitq)
+  for want in "stage quarantine dataset add 'unitq' 'zroot/ROOT/zempty'" "stage quarantine pool add 'unitq' 'zempty'" \
+              "stage quarantine partition add 'unitq' 'nda1p1'" "stage quarantine keyfile add 'unitq' 'zempty.bin'" \
+              "stage quarantine swap add 'unitq' '/dev/gpt/illyria-swap.eli'" "stage quarantine rc add 'unitq' 'sshd_enable=\"NO\"'"; do
+    if printf '%s\n' "$out" | grep -qF "$want"; then
+      pass "dump replays: $want"
+    else
+      fail "dump missing: $want"
+    fi
+  done
+  printf 'unitq-20261014T000000Z\n' > "$TEST_DIR/stage/unitq/quarantine/snapshot"
+  if ! run_elebake stage dump unitq | grep -q "quarantine.*snapshot\|quarantine.*received"; then
+    pass "the dump carries the description only: no snapshot, no receipt"
+  else
+    fail "dump carries observations"
+  fi
+  local f r miss
+  for f in dataset_create dataset_mount dataset_umount package_pkg rc_file frame_file guard_file baseline_write snapshot_take \
+           container_geli container_pool container_attach container_detach send_whole send_increment container_bootfs \
+           container_readonly container_check container_mount container_umount tree_check; do
+    run_elebake setintp "stage_quarantine_$f" cat > /dev/null
+  done
+  r=$(run_elebake stage quarantine dataset create unitq)
+  if printf '%s\n' "$r" | grep -q "zfs create -o mountpoint=/ -o canmount=noauto -o compression=lz4 -o atime=off 'zroot/ROOT/zempty'"; then
+    pass "dataset create renders the build root, mountpoint / and canmount noauto"
+  else
+    fail "dataset create: $r"
+  fi
+  r=$(run_elebake stage quarantine package pkg unitq)
+  miss=""
+  printf '%s\n' "$r" | grep -q "usr/share/keys" || miss="$miss keys"
+  printf '%s\n' "$r" | grep -qF "pkg --rootdir '$TEST_BASE_DIR/mnt/unitq-quarantine' -o REPOS_DIR=/etc/pkg,/usr/local/etc/pkg/repos install -y FreeBSD-set-base || exit 1" || miss="$miss base"
+  printf '%s\n' "$r" | grep -q "boot/kernel\|pkg -c " && miss="$miss kernel-or-chroot"
+  if [ -z "$miss" ]; then
+    pass "package pkg renders the fingerprints copy and the base set through --rootdir only: no kernel, no meta package, no chroot install"
+  else
+    fail "package pkg misses:$miss -- $r"
+  fi
+  r=$(run_elebake stage quarantine rc file unitq)
+  if printf '%s\n' "$r" | grep -q "cat > '$TEST_BASE_DIR/mnt/unitq-quarantine/etc/rc.conf' <<'ELVQRC'" && printf '%s\n' "$r" | grep -qx 'sshd_enable="NO"' \
+     && printf '%s\n' "$r" | grep -qx 'kern_securelevel="2"'; then
+    pass "rc file renders /etc/rc.conf of the root from the rc lines"
+  else
+    fail "rc file: $r"
+  fi
+  r=$(run_elebake stage quarantine frame file unitq)
+  if printf '%s\n' "$r" | grep -q "^/dev/gpt/illyria-swap.eli.*none.*swap.*sw" \
+     && printf '%s\n' "$r" | grep -q "cp /etc/localtime '$TEST_BASE_DIR/mnt/unitq-quarantine/etc/localtime'" \
+     && printf '%s\n' "$r" | grep -q "insecure" \
+     && printf '%s\n' "$r" | grep -q "head -c 48 /dev/urandom | b64encode - | sed -n 2p | chroot '$TEST_BASE_DIR/mnt/unitq-quarantine' pw usermod root -h 0"; then
+    pass "frame file renders the fstab with the swap line, localtime, the console insecure and the random root password, no user"
+  else
+    fail "frame file: $r"
+  fi
+  r=$(run_elebake stage quarantine guard file unitq)
+  if printf '%s\n' "$r" | grep -q "cat > '$TEST_BASE_DIR/mnt/unitq-quarantine/etc/rc.d/geomcheck' <<'ELVQGUARD'" && printf '%s\n' "$r" | grep -q "^# BEFORE: zpool kld zfs" \
+     && printf '%s\n' "$r" | grep -q "zpool export -f" && printf '%s\n' "$r" | grep -q "kldunload -n tpm.ko" \
+     && printf '%s\n' "$r" | grep -q "chroot '$TEST_BASE_DIR/mnt/unitq-quarantine' sh -n /etc/rc.d/geomcheck"; then
+    pass "guard file renders rc.d geomcheck from the template, checked with sh -n inside the root"
+  else
+    fail "guard file: $(printf '%s\n' "$r" | head -5)"
+  fi
+  r=$(run_elebake stage quarantine container geli unitq)
+  if printf '%s\n' "$r" | grep -q "geli init -e AES-XTS -l 256 -a HMAC/SHA256 -s 4096 -b -T -P -K '$TEST_DIR/.ram/zempty.bin' '/dev/nda1p1'" \
+     && printf '%s\n' "$r" | grep -q "geli attach -p -k '$TEST_DIR/.ram/zempty.bin' '/dev/nda1p1'" \
+     && printf '%s\n' "$r" | grep -q "dd if=/dev/zero of='/dev/nda1p1.eli' bs=1m"; then
+    pass "container geli renders geli init with the TPM's file alone (no passphrase), the attach, the zeros over the whole provider"
+  else
+    fail "container geli: $r"
+  fi
+  r=$(run_elebake stage quarantine container attach unitq)
+  if printf '%s\n' "$r" | grep -q "geli attach -p -k '$TEST_DIR/.ram/zempty.bin' '/dev/nda1p1'" \
+     && printf '%s\n' "$r" | grep -q "zpool import -f -d '/dev/nda1p1.eli' -R '$TEST_BASE_DIR/mnt/unitq-quarantine-container' -N 'zempty'"; then
+    pass "container attach renders the attach with the file and the import without mounting"
+  else
+    fail "container attach: $r"
+  fi
+  r=$(run_elebake stage quarantine send whole unitq)
+  if printf '%s\n' "$r" | grep -q "zfs send -R 'zroot/ROOT/zempty@unitq-20261014T000000Z' | zfs recv -F -u 'zempty/ROOT/zempty'"; then
+    pass "send whole renders the whole tree into <pool>/ROOT/<basename>"
+  else
+    fail "send whole: $r"
+  fi
+  printf 'unitq-20261013T000000Z\n' > "$TEST_DIR/stage/unitq/quarantine/received"
+  r=$(run_elebake stage quarantine send increment unitq)
+  if printf '%s\n' "$r" | grep -q "zfs send -R -I '@unitq-20261013T000000Z' 'zroot/ROOT/zempty@unitq-20261014T000000Z' | zfs recv -F -u 'zempty/ROOT/zempty'" \
+     && run_elebake stage quarantine container bootfs unitq | grep -q "zpool set bootfs='zempty/ROOT/zempty' 'zempty'" \
+     && run_elebake stage quarantine container readonly unitq | grep -q "zfs set readonly=on 'zempty/ROOT/zempty'"; then
+    pass "send increment renders the increment since the receipt; bootfs and readonly name the root on the container"
+  else
+    fail "send increment: $r"
+  fi
+  run_elebake setintp stage_quarantine_value_record cat > /dev/null
+  r=$(run_elebake stage quarantine push unitq 2>&1)
+  if printf '%s\n' "$r" | grep -q "no $TEST_DIR/.ram/zempty.bin on the RAM disk\|workdir"; then
+    pass "push stops before the container when the TPM's file is not on the RAM disk"
+  else
+    fail "push without the file: $(printf '%s\n' "$r" | head -4)"
+  fi
+  run_elebake setintp stage_quarantine_value_record sh > /dev/null
+  r=$(run_elebake stage quarantine build unitq 2>&1)
+  if printf '%s\n' "$r" | grep -q "quarantine root not mounted"; then
+    pass "build stops at the mount check when the root is not open"
+  else
+    fail "build without the root: $(printf '%s\n' "$r" | head -3)"
   fi
 }
 
@@ -4549,6 +4704,52 @@ test_elvboot_report() {
   else
     fail "freeze: $(run_elvboot freeze unitrp | head -2); $(run_elebake stage freeze check unitrp 2>&1 | head -2)"
   fi
+  run_elebake setenv ELEBAKE_INTERPRETER_report_render sh > /dev/null 2>&1
+  fixture_worktree unitrp
+  printf 'deadbeef0123\n' > "$TEST_DIR/stage/unitrp/checkout"
+  run_elebake stage baseline add unitrp LOADER_TRUST_RECORD_SALT string 0123456789abcdef0123456789abcdef > /dev/null 2>&1
+  run_elebake stage baseline add unitrp LOADER_TRUST_IMAGES_DIGEST digest 1111111111111111111111111111111111111111111111111111111111111111 > /dev/null 2>&1
+  run_elebake stage kenv add unitrp loader.trust.kernellock.pcr.expected aaaa > /dev/null 2>&1
+  run_elebake stage witness add unitrp zcard-a da1p3 > /dev/null 2>&1
+  run_elebake stage kenv add unitrp loader.trust.inventory.witness.zcard-a.digest 3426af > /dev/null 2>&1
+  run_elebake expectation add halt-quiet byte HaltQuiet 1 > /dev/null 2>&1
+  run_elebake claim add halt-quiet measure_record diagnose_alpha halt.sha256 halt-quiet > /dev/null 2>&1
+  run_elebake gate add recordlock > /dev/null 2>&1
+  run_elebake gate claim add recordlock halt-quiet > /dev/null 2>&1
+  run_elebake trigger add spool-fail when_fail test_act > /dev/null 2>&1
+  run_elebake policy add guard-recordlock recordlock > /dev/null 2>&1
+  run_elebake policy trigger add guard-recordlock spool-fail > /dev/null 2>&1
+  run_elebake stage phase policy add unitrp PHASE_TWO guard-recordlock > /dev/null 2>&1
+  run_elebake openpgp add attest-key DA115B50BDAC6F788FA0325077B2C2E8F5A4C6C7 > /dev/null 2>&1
+  run_elebake stage attest key unitrp openpgp attest-key > /dev/null 2>&1
+  local fr; fr=$(run_elvboot report forensic unitrp)
+  if printf '%s\n' "$fr" | grep -q "^# elvboot report -- forensic" \
+     && printf '%s\n' "$fr" | grep -q "^| stage | unitrp, created 20" \
+     && printf '%s\n' "$fr" | grep -q "^| elebake | elebake [0-9]* [0-9a-f]* |" \
+     && printf '%s\n' "$fr" | grep -q "^| loader source | deadbeef0123 |" \
+     && printf '%s\n' "$fr" | grep -q "^| attest key | attest-key (DA115B50BDAC6F788FA0325077B2C2E8F5A4C6C7) |" \
+     && printf '%s\n' "$fr" | grep -q "^| PHASE_TWO | recordlock (guard-recordlock) | halt-quiet | byte HaltQuiet 1 | measure_record | when_fail -> test_act; |" \
+     && printf '%s\n' "$fr" | grep -q "^| LOADER_TRUST_RECORD_SALT | string | <redacted: string, 32 characters> | 20" \
+     && printf '%s\n' "$fr" | grep -q "^| LOADER_TRUST_IMAGES_DIGEST | digest | 1111111111111111111111111111111111111111111111111111111111111111 | 20" \
+     && printf '%s\n' "$fr" | grep -q "^| loader.trust.kernellock.pcr.expected | aaaa | 20" \
+     && printf '%s\n' "$fr" | grep -q "^### zcard-a on da1p3" \
+     && printf '%s\n' "$fr" | grep -q "^Verdict: the configured digest equals the newest labels receipt (2026-10-12T09:46:01Z)" \
+     && printf '%s\n' "$fr" | grep -q "^## Boots" && printf '%s\n' "$fr" | grep -q "^| 7 | 2026-10-12T10:00:00Z | a | match |" \
+     && printf '%s\n' "$fr" | grep -q "acknowledged: 2026-10-14T05:21:03Z narrow_courier fail failed=\[class-identity\]" \
+     && printf '%s\n' "$fr" | grep -q "^| loader.trust.kernellock.pcr.expected | aaaa | 20.*|$" \
+     && printf '%s\n' "$fr" | grep -q "^| acknowledged | "; then
+    pass "report forensic: subject with the commits, trust anchors, the requirements row per claim, baselines with secrets redacted, leaves with times, the witness verdict, the boots, the acknowledged journal, the sources"
+  else
+    fail "report forensic: $(printf '%s\n' "$fr" | grep -n "^| stage\|^| elebake\|^| loader source\|^| attest key\|^| PHASE_TWO\|^| (no phase\|^| LOADER_TRUST\|^| loader.trust.kernellock\|^### zcard\|^Verdict\|acknowledged" | head -14)"
+  fi
+  run_elebake setintp report_detachsign cat > /dev/null
+  printf 'report\n' > "$st/r.md"
+  if run_elvboot report sign unitrp "$st/r.md" | grep -q "gpg --yes --openpgp -a --detach-sign --local-user 'DA115B50BDAC6F788FA0325077B2C2E8F5A4C6C7' -o '$st/r.md.asc' '$st/r.md'" \
+     && run_elvboot report sign unitrp "$st/nothing.md" 2>&1 | grep -q "no such file or empty"; then
+    pass "report sign renders the detached signature with the stage's attest key; a missing file is refused"
+  else
+    fail "report sign: $(run_elvboot report sign unitrp "$st/r.md" 2>&1 | head -3)"
+  fi
   rm -rf "$st"
 }
 
@@ -5176,6 +5377,7 @@ main() {
   should_run_test test_ram_family
   should_run_test test_stage_tpm_family
   should_run_test test_import_bootstrap
+  should_run_test test_stage_quarantine_family
   should_run_test test_stage_rescue_family
   should_run_test test_workflow_family
   should_run_test test_stage_tree_prune

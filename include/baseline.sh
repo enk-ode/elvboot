@@ -864,22 +864,23 @@ ___stage_witness_measure_full1() {
 
 #@help _stage_witness_whole2
 # @command stage witness whole <stage> <name>
-# @summary Act terminal (root): the digest lines ('stage witness digest') for the medium identity, the guard on the medium, then sha256 over the whole disk the partition lives on (dd bs=1m from LBA 0 to the end) appended as "<UTC> <medium> <digest>" under witness-receipts/<name>.full (owner, 0600), the digest on stderr
+# @summary Act terminal (root): the digest lines ('stage witness digest') for the medium identity, the guard on the medium, then sha256 over the witness's partition (dd bs=1m) followed by the free tail of its disk after the last partition (gpart show at generation: the sectors nobody allotted, where a byte written outside every container would land) appended as "<UTC> <medium> <digest>" under witness-receipts/<name>.full (owner, 0600), the digest on stderr
 # @group   provisioning
 # @internal
 # @see     stage witness measure full
 #@end
 _stage_witness_whole2() {
-        local r="$ELEBAKE_BASE/stage/$1/witness-receipts" first="" medium="" part="" disk=""
+        local r="$ELEBAKE_BASE/stage/$1/witness-receipts" first="" medium="" part="" disk="" tail=""
         part=$(sed -n 1p "$ELEBAKE_BASE/stage/$1/witness/$2" 2>/dev/null); disk=${part%p[0-9]*}
         first=$(sed -n 1p "$r/$2" 2>/dev/null)
         test "$(printf '%s\n' "$first" | awk '{ print NF }')" != 4 || { medium=${first#* }; medium=${medium#* }; medium=${medium%% *}; }
-        emit_note "stage witness measure full '$1' '$2': the whole disk /dev/$disk (GPT, every partition, the free space) -- minutes"
+        tail=$(gpart show -p "$disk" 2>/dev/null | awk 'NR == 1 { end = $2 + $3 } $3 == "-" && $4 == "free" && $1 + $2 == end { s = $1; n = $2 } END { if (n) printf "; dd if=%s bs=512 skip=%s count=%s 2>/dev/null", "/dev/'"$disk"'", s, n }')
+        emit_note "stage witness measure full '$1' '$2': the container /dev/$part and the free tail of /dev/$disk${tail:+ (after the last partition)} -- minutes"
         _stage_witness_digest2 "$1" "$2"
         test -z "$medium" || printf '%s\n' "if [ \"\$m\" != '$medium' ]; then printf '# witness %s: not in the slot (the slot carries the medium %s, the witness is %s) -- no whole-card receipt\\n' '$2' \"\$m\" '$medium' >&2; exit 0; fi"
-        printf '%s\n' "w=\$(dd if='/dev/$disk' bs=1m 2>/dev/null | sha256 -q) && test -n \"\$w\" || { printf '# Error: witness %s: /dev/%s could not be read whole\\n' '$2' '$disk' >&2; exit 1; }"
+        printf '%s\n' "w=\$( { dd if='/dev/$part' bs=1m 2>/dev/null$tail; } | sha256 -q) && test -n \"\$w\" || { printf '# Error: witness %s: /dev/%s could not be read whole\\n' '$2' '$part' >&2; exit 1; }"
         printf '%s\n' "$MODIFY_DIR_CREATE '$r' && printf '%s %s %s\\n' \"\$(date -u '+%Y-%m-%dT%H:%M:%SZ')\" \"\$m\" \"\$w\" >> '$r/$2.full' && chown '$(id -un)' '$r' '$r/$2.full' && $MODIFY_FILE_PERMS 0600 '$r/$2.full' || exit 1"
-        printf '%s\n' "printf '# witness %s whole card /dev/%s: %s\\n' '$2' '$disk' \"\$w\" >&2"
+        printf '%s\n' "printf '# witness %s whole (container and free tail of /dev/%s): %s\\n' '$2' '$disk' \"\$w\" >&2"
 }
 
 #@help ___stage_witness_check_full1
@@ -901,16 +902,17 @@ ___stage_witness_check_full1() {
 
 #@help _stage_witness_compare_whole2
 # @command stage witness compare whole <stage> <name>
-# @summary Act terminal (root): the digest lines for the medium identity, the guard on the medium, then sha256 over the whole disk against the last whole-card receipt -- "unchanged" on stderr, or CHANGED with both digests and exit 1; no whole-card receipt yet is a note (stage witness measure full)
+# @summary Act terminal (root): the digest lines for the medium identity, the guard on the medium, then sha256 over the witness's partition and the free tail of its disk against the last whole-card receipt -- "unchanged" on stderr, or CHANGED with both digests and exit 1; no whole-card receipt yet is a note (stage witness measure full)
 # @group   provisioning
 # @internal
 # @see     stage witness check full
 #@end
 _stage_witness_compare_whole2() {
-        local r="$ELEBAKE_BASE/stage/$1/witness-receipts" last="" medium="" part="" disk=""
+        local r="$ELEBAKE_BASE/stage/$1/witness-receipts" last="" medium="" part="" disk="" tail=""
         part=$(sed -n 1p "$ELEBAKE_BASE/stage/$1/witness/$2" 2>/dev/null); disk=${part%p[0-9]*}
         last=$(tail -n 1 "$r/$2.full" 2>/dev/null)
-        emit_note "stage witness check full '$1' '$2': the whole disk /dev/$disk against the receipt of ${last%% *}"
+        tail=$(gpart show -p "$disk" 2>/dev/null | awk 'NR == 1 { end = $2 + $3 } $3 == "-" && $4 == "free" && $1 + $2 == end { s = $1; n = $2 } END { if (n) printf "; dd if=%s bs=512 skip=%s count=%s 2>/dev/null", "/dev/'"$disk"'", s, n }')
+        emit_note "stage witness check full '$1' '$2': the container /dev/$part and the free tail of /dev/$disk against the receipt of ${last%% *}"
         if test -z "$last"; then
                 printf '%s\n' "printf '# witness %s: no whole-card receipt yet (stage witness measure full %s)\\n' '$2' '$1' >&2; exit 0"
                 return
@@ -918,7 +920,7 @@ _stage_witness_compare_whole2() {
         medium=${last#* }; medium=${medium%% *}
         _stage_witness_digest2 "$1" "$2"
         printf '%s\n' "if [ \"\$m\" != '$medium' ]; then printf '# witness %s: not in the slot (the slot carries the medium %s, the witness is %s) -- not compared\\n' '$2' \"\$m\" '$medium' >&2; exit 0; fi"
-        printf '%s\n' "w=\$(dd if='/dev/$disk' bs=1m 2>/dev/null | sha256 -q); if [ \"\$w\" = '${last##* }' ]; then printf '# witness %s whole card: unchanged since %s\\n' '$2' '${last%% *}' >&2; else printf '# Error: witness %s whole card CHANGED: receipt %s %s, now %s\\n' '$2' '${last%% *}' '${last##* }' \"\$w\" >&2; exit 1; fi"
+        printf '%s\n' "w=\$( { dd if='/dev/$part' bs=1m 2>/dev/null$tail; } | sha256 -q); if [ \"\$w\" = '${last##* }' ]; then printf '# witness %s whole (container and free tail): unchanged since %s\\n' '$2' '${last%% *}' >&2; else printf '# Error: witness %s whole card CHANGED: receipt %s %s, now %s\\n' '$2' '${last%% *}' '${last##* }' \"\$w\" >&2; exit 1; fi"
 }
 
 #@help ___stage_witness_check1

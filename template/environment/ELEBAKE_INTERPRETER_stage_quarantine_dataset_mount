@@ -1,0 +1,2 @@
+sudo sh
+# Act terminal of the quarantine family: mount of the build root and its devfs needs root.

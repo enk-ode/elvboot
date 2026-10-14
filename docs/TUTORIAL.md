@@ -1474,6 +1474,40 @@ seals, the hash chain of the snapshots, and -- Phase C -- append-only
 files under securelevel. The signature belongs where a person with the
 token sits: on the report.
 
+### The forensic report
+
+`elvboot report forensic <stage>` is the document for a third party -- a
+lawyer, an expert who was not there: what was required, from which code,
+under which keys, what every boot measured against it, and what the owner
+did about the findings. English, Markdown, one signature over the whole
+file: `elvboot report sign <stage> <file>` signs with the stage's attest
+key, the key that signs the manifests and the baselines (it lives in
+root's keyring, the act runs as root, the signature is the owner's
+afterwards).
+
+Part one comes from the database alone (template/report/forensic.sh, the
+owner): the subject with the three commits that make the expectations
+traceable -- the elebake version and commit that wrote the database, the
+loader source commit of the stage's checkout (every measurement named is a
+function in that tree), the export serial of the last attested dump --,
+the trust anchors (keys, loader, manifest, conf, hooks with digests), the
+requirements as one row per claim (phase, gate and policy, claim,
+expectation, measurement, reactions), the baselines with secrets
+redacted, the loader leaves with the time of their record, the inventory
+sets, the disks, the witnesses with their configuration against every
+receipt and a verdict, the rescue and the quarantine. Part two is the
+boots report of this chapter as root, extended by the explanations on
+file: the acknowledged findings (`elvboot freeze ack` keeps them in
+`acknowledged` under the state directory with the time of the
+acknowledgement), the freeze mark standing now, the learned expectations
+with their record times -- a rebuild moved PcrBank at 10:21, the owner
+learned the bank at 10:34, quiet since. The last section lists every file
+the report was read from, with its digest.
+
+What it cannot say, it says: what root did after a boot stays invisible
+until the next boot's claims fall, the traces of the database are kept a
+day, the secrets appear redacted.
+
 ## 26. The integrity witnesses: a container nobody opens still has a state
 
 zroot and zdata are the TPM's business: sealed, three factors, the record
@@ -1547,3 +1581,58 @@ an absence beyond a month close zdata until the owner looks, a moved
 identity or a firmware state played back travels on the card to the admin
 machine, a disk read whole stops the boot. The loader informs; the owner
 decides at the unlock; the policy narrows what runs afterwards.
+
+## 27. The quarantine: the decoy root built like the rescue
+
+The duress way ends in zempty, the root the loader diverts to when the
+duress passphrase opens the duress object instead of the owner's. Until
+now its content was installation work by hand (the zempty playbook); now
+`stage quarantine` builds it the way `stage rescue` builds the card: a
+dataset on the production pool, records in the dump, a signed baseline,
+a snapshot the container holds and ZFS proves, a witness that says
+whether it was written since.
+
+What differs from the rescue, and why the quarantine is a role of its
+own (workflow quarantine):
+
+- **The key.** The container opens with the TPM's file alone -- the
+  bytes the duress object seals, written from the seed onto the RAM disk
+  for every open (`stage quarantine keyfile add <stage> zempty.bin`).
+  No passphrase, no key file on a medium: a disk without boot code and
+  without a kernel boots nowhere by itself.
+- **The content.** The base set only (`stage quarantine package install`,
+  pkg --rootdir, no meta package, no tools, no kernel), `/etc/rc.conf`
+  written whole from the recorded lines (`stage quarantine rc add`:
+  there is no rc.conf to mirror, the quarantine is nobody's system), the
+  frame (`stage quarantine frame write`: fstab with the production's
+  swap, localtime, the console insecure so single user asks a password
+  nobody knows, the root password 48 random bytes nobody keeps, no user),
+  and the guard (`stage quarantine guard write`: `/etc/rc.d/geomcheck`
+  from the template, after mountcritlocal and before zpool, kld and zfs
+  -- every pool but the root pool exported, every GELI provider not in
+  use detached, every mount from outside unmounted, tpm.ko unloaded).
+  The root on the container is read-only; tmpmfs and varmfs give a
+  session /tmp and /var, and the session leaves nothing.
+- **The target.** One container on an internal disk (`partition add
+  nda1p1`, `pool add zempty`), not a card per medium. `stage quarantine
+  container init` makes it once -- GELI with the file, zeros over every
+  sector (a provider grown without them writes integrity failures on
+  every read of the new space, the lesson of card b), the pool with ROOT
+  below. `push` sends the snapshot (whole, then increments), sets bootfs
+  and readonly, proves the GUID and records the receipt; `verify` checks
+  the signature, the GUID and the tree against the baseline, entry by
+  entry.
+
+The loader's leaf `loader.trust.tpm.decoy.root` names the root by the
+dataset's basename (`zfs:zempty/ROOT/zempty`); the witness zempty is
+measured anew after every push (labels, table, the container and the
+free tail of its disk), the conf and the anchor follow. The probe of the
+way itself is the Anchor list's §6.2: the duress passphrase at the
+loader, zempty comes up with a login prompt and nothing else, zroot and
+zdata stay closed, the guard's log is empty; the owner object is dead
+afterwards, slot 1 and the reseal bring the production back.
+
+For the report (chapter 25) this is what makes zempty statable: the
+package set and the configuration are records with commit ids, the
+baseline is a signed manifest, the snapshot a GUID, the receipt a line
+-- what was configured, what was pushed, what the witness saw since.
