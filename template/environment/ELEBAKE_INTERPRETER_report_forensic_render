@@ -1,3 +1,5 @@
 sh
 # @summary Interpreter of 'report forensic render' (elvboot): the act reads the database as the owner; cat displays it
 # @see ELEBAKE_INTERPRETER_report_render
+# Example, not the default: the forensic report is two acts (this one and report render), so a pin
+# renders only this part -- pipe the whole report: elvboot report forensic <stage> | sh <templates>/report/view.sh pdf -

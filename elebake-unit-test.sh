@@ -3502,12 +3502,14 @@ test_stage_quarantine_family() {
   run_elebake stage quarantine partition add unitq nda1p1 > /dev/null
   run_elebake stage quarantine keyfile add unitq zempty.bin > /dev/null
   run_elebake stage quarantine swap add unitq /dev/gpt/illyria-swap.eli > /dev/null
+  run_elebake stage quarantine user add unitq brj > /dev/null
   if [ "$(cat "$TEST_DIR/stage/unitq/quarantine/pool")" = zempty ] && [ "$(cat "$TEST_DIR/stage/unitq/quarantine/partition")" = nda1p1 ] \
      && [ "$(cat "$TEST_DIR/stage/unitq/quarantine/keyfile")" = zempty.bin ] && [ "$(cat "$TEST_DIR/stage/unitq/quarantine/swap")" = /dev/gpt/illyria-swap.eli ] \
      && run_elebake stage quarantine partition add unitq sda 2>&1 | grep -q "not a GPT partition name" \
      && run_elebake stage quarantine keyfile add unitq /tmp/x.bin 2>&1 | grep -q "no slash" \
+     && [ "$(cat "$TEST_DIR/stage/unitq/quarantine/user")" = brj ] && run_elebake stage quarantine user add unitq "Root!" 2>&1 | grep -q "login name" \
      && run_elebake stage quarantine swap add unitq relative 2>&1 | grep -q "absolute path"; then
-    pass "pool, partition, key file name and swap device are recorded; a bad partition, a path as key file name and a relative swap are refused"
+    pass "pool, partition, key file name, show user and swap device are recorded; a bad partition, a path as key file name, a bad login name and a relative swap are refused"
   else
     fail "records: $(ls "$TEST_DIR/stage/unitq/quarantine" | tr '\n' ' ')"
   fi
@@ -3534,7 +3536,7 @@ test_stage_quarantine_family() {
   local out want; out=$(run_elebake stage dump unitq)
   for want in "stage quarantine dataset add 'unitq' 'zroot/ROOT/zempty'" "stage quarantine pool add 'unitq' 'zempty'" \
               "stage quarantine partition add 'unitq' 'nda1p1'" "stage quarantine keyfile add 'unitq' 'zempty.bin'" \
-              "stage quarantine swap add 'unitq' '/dev/gpt/illyria-swap.eli'" "stage quarantine rc add 'unitq' 'sshd_enable=\"NO\"'"; do
+              "stage quarantine swap add 'unitq' '/dev/gpt/illyria-swap.eli'" "stage quarantine user add 'unitq' 'brj'" "stage quarantine rc add 'unitq' 'sshd_enable=\"NO\"'"; do
     if printf '%s\n' "$out" | grep -qF "$want"; then
       pass "dump replays: $want"
     else
@@ -3548,7 +3550,7 @@ test_stage_quarantine_family() {
     fail "dump carries observations"
   fi
   local f r miss
-  for f in dataset_create dataset_mount dataset_umount package_pkg rc_file frame_file guard_file baseline_write snapshot_take \
+  for f in dataset_create dataset_mount dataset_umount package_pkg rc_file frame_file user_read user_file guard_file baseline_write snapshot_take \
            container_geli container_pool container_attach container_detach send_whole send_increment container_bootfs \
            container_readonly container_check container_mount container_umount tree_check; do
     run_elebake setintp "stage_quarantine_$f" cat > /dev/null
@@ -3584,6 +3586,16 @@ test_stage_quarantine_family() {
     pass "frame file renders the fstab with the swap line, localtime, the console insecure and the random root password, no user"
   else
     fail "frame file: $r"
+  fi
+  r=$(run_elebake stage quarantine user file unitq)
+  if printf '%s\n' "$r" | grep -q "chroot '$TEST_BASE_DIR/mnt/unitq-quarantine' pw useradd 'brj' -m -s /bin/sh" \
+     && printf '%s\n' "$r" | grep -q "pw usermod 'brj' -H 0 < '$TEST_DIR/.ram/user-quarantine.hash'" \
+     && ! printf '%s\n' "$r" | grep -q -- "-G " \
+     && run_elebake stage quarantine user read unitq | grep -q "openssl passwd -6 -stdin > '$TEST_DIR/.ram/user-quarantine.hash'" \
+     && run_elebake stage quarantine build unitq 2>&1 | grep -q "quarantine root not mounted"; then
+    pass "user file renders useradd without a group and the password hash from the RAM disk; user read hashes the hidden entry there"
+  else
+    fail "user file: $r"
   fi
   r=$(run_elebake stage quarantine guard file unitq)
   if printf '%s\n' "$r" | grep -q "cat > '$TEST_BASE_DIR/mnt/unitq-quarantine/etc/rc.d/geomcheck' <<'ELVQGUARD'" && printf '%s\n' "$r" | grep -q "^# BEFORE: zpool kld zfs" \
@@ -4614,22 +4626,30 @@ test_elvboot_report() {
   local out; out=$(run_elvboot report unitrp)
   if printf '%s\n' "$out" | grep -q "^# elvboot report -- unitrp" \
      && printf '%s\n' "$out" | grep -q "boots: 5 (2 of them in the old counter-only naming: before the chain, their time the file's)" \
-     && printf '%s\n' "$out" | grep -q "^| 5 | 2026-10-11T0[0-9]:00:00Z | - | - | - | (open: no shutdown run) | 0 |" \
-     && printf '%s\n' "$out" | grep -q "^| 6 | 2026-10-11T1[0-9]:00:00Z | - | match | - | (open: no shutdown run) | 0 |" \
-     && printf '%s\n' "$out" | grep -q "^| 7 | 2026-10-12T10:00:00Z | a | match | kernellock: PcrBank | custody:pass | 1 |" \
-     && printf '%s\n' "$out" | grep -q "^| 8 | 2026-10-12T11:00:00Z | a | match | - | (open: no shutdown run) | 0 |" \
-     && printf '%s\n' "$out" | grep -q "^| 1 | 2026-10-12T12:00:00Z | b | - | inventory: GeliHeaders |"; then
-    pass "one table line per boot: counter, time, medium, chain, fallen gates, elvbootd verdicts, unlocks; the old counter-only snapshot first, its time the file's"
+     && printf '%s\n' "$out" | grep -q "^### Boot 5 (2026-10-11T0[0-9]:00:00Z)" \
+     && printf '%s\n' "$out" | grep -q "^### Boot 6 (2026-10-11T1[0-9]:00:00Z)" \
+     && printf '%s\n' "$out" | grep -q "^### Boot 7 (2026-10-12T10:00:00Z)" \
+     && printf '%s\n' "$out" | sed -n '/^### Boot 7 /,/^### Boot 8 /p' | grep -q "^- medium: \*\*a\*\*" \
+     && printf '%s\n' "$out" | sed -n '/^### Boot 7 /,/^### Boot 8 /p' | grep -q "^- chain: \*\*match\*\*" \
+     && printf '%s\n' "$out" | sed -n '/^### Boot 7 /,/^### Boot 8 /p' | grep -q "^- unlocks acknowledged: \*\*1\*\*" \
+     && printf '%s\n' "$out" | sed -n '/^### Boot 7 /,/^### Boot 8 /p' | grep -q "^- failed: kernellock: \[PcrBank\]{.fail}$" \
+     && printf '%s\n' "$out" | sed -n '/^### Boot 7 /,/^### Boot 8 /p' | grep -q "^- passed: kernellock: \[BootHowto\]{.pass}$" \
+     && printf '%s\n' "$out" | sed -n '/^### Boot 7 /,/^### Boot 8 /p' | grep -q "^- skipped: none$" \
+     && printf '%s\n' "$out" | sed -n '/^### Boot 7 /,/^### Boot 8 /p' | grep -q "^- custody: \[pass\]{.pass}$" \
+     && printf '%s\n' "$out" | sed -n '/^### Boot 8 /,/^### Boot 1 /p' | grep -q "^- failed: \[none\]{.pass}$" \
+     && printf '%s\n' "$out" | sed -n '/^### Boot 8 /,/^### Boot 1 /p' | grep -q "^open: the shutdown run did not append" \
+     && printf '%s\n' "$out" | sed -n '/^### Boot 1 /,/^## Aggregates/p' | grep -q "^- failed: inventory: \[GeliHeaders\]{.fail}$"; then
+    pass "one section per boot with its key-value lines, the summary of failed, skipped and passed as classed spans, the session; the old counter-only snapshot first, its time the file's"
   else
-    fail "boots table: $(printf '%s\n' "$out" | grep '^|' | head -6)"
+    fail "boots: $(printf '%s\n' "$out" | sed -n '/^### Boot 7 /,/^#### Failed/p' | head -14)"
   fi
-  if printf '%s\n' "$out" | grep -q "^- kernellock/PcrBank" \
-     && printf '%s\n' "$out" | grep -q '^    loader.trust.kernellock.pcr.expected=aaaa$' \
-     && printf '%s\n' "$out" | grep -q '^    loader.trust.kernellock.pcr.sha256=bbbb$' \
-     && printf '%s\n' "$out" | grep -q '^    loader.trust.inventory.geli.digest=cccc$'; then
-    pass "the fallen claims carry the leaves of the gate that name the claim's first word"
+  if printf '%s\n' "$out" | sed -n '/^### Boot 7 /,/^### Boot 8 /p' | grep -q "^- kernellock/PcrBank" \
+     && printf '%s\n' "$out" | grep -q '^    - `loader.trust.kernellock.pcr.expected` = `aaaa`$' \
+     && printf '%s\n' "$out" | grep -q '^    - `loader.trust.kernellock.pcr.sha256` = `bbbb`$' \
+     && printf '%s\n' "$out" | grep -q '^    - `loader.trust.inventory.geli.digest` = `cccc`$'; then
+    pass "the fallen claims carry the leaves of the gate that name the claim's first word, as code spans"
   else
-    fail "fallen claims: $(printf '%s\n' "$out" | sed -n '/## Fallen/,/## Aggregates/p' | head -12)"
+    fail "fallen claims: $(printf '%s\n' "$out" | sed -n '/^#### Failed/,/^#### Skipped/p' | head -12)"
   fi
   if printf '%s\n' "$out" | grep "^- boots per medium: " | grep -q "a=2" \
      && printf '%s\n' "$out" | grep "^- boots per medium: " | grep -q "b=1" \
@@ -4638,35 +4658,35 @@ test_elvboot_report() {
      && printf '%s\n' "$out" | grep -q "^- unlocks acknowledged: 1$" \
      && printf '%s\n' "$out" | grep -q "^- chain restarts (counter fell): 1, gaps (counter stepped by more than one): 0$" \
      && printf '%s\n' "$out" | grep -q "^- boot time (loader, previous boot's record): 56666 ms average over 3$" \
-     && printf '%s\n' "$out" | grep -q "^- last witness state: zcard-a=match,zempty=match$"; then
+     && printf '%s\n' "$out" | grep -q '^- last witness state: `zcard-a=match,zempty=match`$'; then
     pass "the aggregates: media, PcrBank rounds, unlocks, restarts, boot time, the last witness state"
   else
     fail "aggregates: $(printf '%s\n' "$out" | sed -n '/## Aggregates/,/## Chain/p')"
   fi
-  if printf '%s\n' "$out" | grep -q "^- 6.kenv: before the chain (counter-only naming, no header)$" \
-     && printf '%s\n' "$out" | grep -q "^- 20261012T100000Z-7.kenv: first of the selection (header prev=none)$" \
-     && printf '%s\n' "$out" | grep -q "^- 20261012T110000Z-8.kenv: chained to 20261012T100000Z-7.kenv$" \
-     && printf '%s\n' "$out" | grep -q "^- 20261012T120000Z-1.kenv: NOT chained to 20261012T110000Z-8.kenv (header prev=deadbeef)$" \
-     && printf '%s\n' "$out" | grep -q "^- breaks: 1$"; then
+  if printf '%s\n' "$out" | grep -q '^- `6.kenv`: before the chain (counter-only naming, no header)$' \
+     && printf '%s\n' "$out" | grep -q '^- `20261012T100000Z-7.kenv`: first of the selection (header prev=`none`)$' \
+     && printf '%s\n' "$out" | grep -q '^- `20261012T110000Z-8.kenv`: \[chained\]{.pass} to `20261012T100000Z-7.kenv`$' \
+     && printf '%s\n' "$out" | grep -q '^- `20261012T120000Z-1.kenv`: \[NOT chained\]{.fail} to `20261012T110000Z-8.kenv` (header prev=`deadbeef`)$' \
+     && printf '%s\n' "$out" | grep -q '^- breaks: \*\*1\*\*$'; then
     pass "the chain: the old snapshot before it, then each header's sha256 of its predecessor against the file, breaks counted"
   else
     fail "chain: $(printf '%s\n' "$out" | sed -n '/## Chain/,/## Witnesses/p')"
   fi
-  if printf '%s\n' "$out" | grep -q "^- zcard-a: 2026-10-12T09:46:01Z 89306b00 fd519 3426af$" \
-     && printf '%s\n' "$out" | grep -q "^  whole: 2026-10-12T09:53:47Z fd519 5a571a$" \
-     && printf '%s\n' "$out" | grep -q "^| 20261012T100000Z-7.kenv | $h1 |$" \
-     && printf '%s\n' "$out" | grep -q "^| witness-receipts/zcard-a.full | "; then
+  if printf '%s\n' "$out" | grep -q '^- zcard-a: `2026-10-12T09:46:01Z 89306b00 fd519 3426af`$' \
+     && printf '%s\n' "$out" | grep -q '^    - whole: `2026-10-12T09:53:47Z fd519 5a571a`$' \
+     && printf '%s\n' "$out" | grep -q "^- \`20261012T100000Z-7.kenv\`: \`$h1\`$" \
+     && printf '%s\n' "$out" | grep -q '^- `witness-receipts/zcard-a.full`: `'; then
     pass "the witnesses' receipts and the sources with their digests close the report"
   else
     fail "witnesses/sources: $(printf '%s\n' "$out" | sed -n '/## Witnesses/,$p')"
   fi
-  if [ "$(run_elvboot report last unitrp 1 | grep -c '^| [0-9][0-9]* | 20')" = 1 ] \
-     && [ "$(run_elvboot report since unitrp 2026-10-12T11 | grep -c '^| [0-9][0-9]* | 20')" = 2 ] \
-     && run_elvboot boot unitrp 7 | grep -q "^| 7 |" && ! run_elvboot boot unitrp 7 | grep -q "^| 8 |" \
-     && run_elvboot boot unitrp 6 | grep -q "^| 6 |" && ! run_elvboot boot unitrp 6 | grep -q "^| 7 |" \
-     && run_elvboot report last unitrp 9 2>&1 | grep -q "^| 6 |" \
+  if [ "$(run_elvboot report last unitrp 1 | grep -c '^### Boot ')" = 1 ] \
+     && [ "$(run_elvboot report since unitrp 2026-10-12T11 | grep -c '^### Boot ')" = 2 ] \
+     && run_elvboot boot unitrp 7 | grep -q "^### Boot 7 " && ! run_elvboot boot unitrp 7 | grep -q "^### Boot 8 " \
+     && run_elvboot boot unitrp 6 | grep -q "^### Boot 6 " && ! run_elvboot boot unitrp 6 | grep -q "^### Boot 7 " \
+     && run_elvboot report last unitrp 9 2>&1 | grep -q "^### Boot 6 " \
      && run_elvboot boot unitrp 42 2>&1 | grep -q "no snapshot matches boot 42 under .* (5 kept; report all lists them)" \
-     && run_elvboot boot unitrp 20261012T11 | grep -q "^| 8 |"; then
+     && run_elvboot boot unitrp 20261012T11 | grep -q "^### Boot 8 "; then
     pass "last, since and boot select: the newest n, from a time, one counter (old naming too) or one stamp; a miss names the count kept"
   else
     fail "selection: $(run_elvboot report last unitrp 1 | grep '^|' | head -3)"
@@ -4724,23 +4744,24 @@ test_elvboot_report() {
   run_elebake stage attest key unitrp openpgp attest-key > /dev/null 2>&1
   local fr; fr=$(run_elvboot report forensic unitrp)
   if printf '%s\n' "$fr" | grep -q "^# elvboot report -- forensic" \
-     && printf '%s\n' "$fr" | grep -q "^| stage | unitrp, created 20" \
-     && printf '%s\n' "$fr" | grep -q "^| elebake | elebake [0-9]* [0-9a-f]* |" \
-     && printf '%s\n' "$fr" | grep -q "^| loader source | deadbeef0123 |" \
-     && printf '%s\n' "$fr" | grep -q "^| attest key | attest-key (DA115B50BDAC6F788FA0325077B2C2E8F5A4C6C7) |" \
-     && printf '%s\n' "$fr" | grep -q "^| PHASE_TWO | recordlock (guard-recordlock) | halt-quiet | byte HaltQuiet 1 | measure_record | when_fail -> test_act; |" \
-     && printf '%s\n' "$fr" | grep -q "^| LOADER_TRUST_RECORD_SALT | string | <redacted: string, 32 characters> | 20" \
-     && printf '%s\n' "$fr" | grep -q "^| LOADER_TRUST_IMAGES_DIGEST | digest | 1111111111111111111111111111111111111111111111111111111111111111 | 20" \
-     && printf '%s\n' "$fr" | grep -q "^| loader.trust.kernellock.pcr.expected | aaaa | 20" \
+     && printf '%s\n' "$fr" | grep -q "^- stage: \*\*unitrp\*\*, created 20" \
+     && printf '%s\n' "$fr" | grep -q "^- elebake: \*\*elebake [0-9]* [0-9a-f]*\*\*" \
+     && printf '%s\n' "$fr" | grep -q "^- loader source: \*\*deadbeef0123\*\*" \
+     && printf '%s\n' "$fr" | grep -q '^- attest key: \*\*attest-key\*\* (`DA115B50BDAC6F788FA0325077B2C2E8F5A4C6C7`)' \
+     && printf '%s\n' "$fr" | grep -q "^### Phase PHASE_TWO" && printf '%s\n' "$fr" | grep -q "^#### Gate recordlock, policy guard-recordlock" \
+     && printf '%s\n' "$fr" | grep -q '^- claim \*\*halt-quiet\*\*: expectation `byte HaltQuiet 1`, measurement `measure_record`$' \
+     && printf '%s\n' "$fr" | grep -q "^- reactions: \*\*when_fail -> test_act; \*\*" \
+     && printf '%s\n' "$fr" | grep -q '^- `LOADER_TRUST_RECORD_SALT` (string): `<redacted: string, 32 characters>`, recorded 20' \
+     && printf '%s\n' "$fr" | grep -q '^- `LOADER_TRUST_IMAGES_DIGEST` (digest): `1111111111111111111111111111111111111111111111111111111111111111`, recorded 20' \
+     && printf '%s\n' "$fr" | grep -q '^- `loader.trust.kernellock.pcr.expected` = `aaaa` (recorded 20' \
      && printf '%s\n' "$fr" | grep -q "^### zcard-a on da1p3" \
-     && printf '%s\n' "$fr" | grep -q "^Verdict: the configured digest equals the newest labels receipt (2026-10-12T09:46:01Z)" \
-     && printf '%s\n' "$fr" | grep -q "^## Boots" && printf '%s\n' "$fr" | grep -q "^| 7 | 2026-10-12T10:00:00Z | a | match |" \
+     && printf '%s\n' "$fr" | grep -q "^\[The configured digest equals the newest labels receipt\]{.pass} (2026-10-12T09:46:01Z)" \
+     && printf '%s\n' "$fr" | grep -q "^## Boots" && printf '%s\n' "$fr" | grep -q "^### Boot 7 (2026-10-12T10:00:00Z)" \
      && printf '%s\n' "$fr" | grep -q "acknowledged: 2026-10-14T05:21:03Z narrow_courier fail failed=\[class-identity\]" \
-     && printf '%s\n' "$fr" | grep -q "^| loader.trust.kernellock.pcr.expected | aaaa | 20.*|$" \
-     && printf '%s\n' "$fr" | grep -q "^| acknowledged | "; then
+     && printf '%s\n' "$fr" | grep -q '^- `acknowledged`: `'; then
     pass "report forensic: subject with the commits, trust anchors, the requirements row per claim, baselines with secrets redacted, leaves with times, the witness verdict, the boots, the acknowledged journal, the sources"
   else
-    fail "report forensic: $(printf '%s\n' "$fr" | grep -n "^| stage\|^| elebake\|^| loader source\|^| attest key\|^| PHASE_TWO\|^| (no phase\|^| LOADER_TRUST\|^| loader.trust.kernellock\|^### zcard\|^Verdict\|acknowledged" | head -14)"
+    fail "report forensic: $(printf '%s\n' "$fr" | grep -n "^- stage\|^- elebake\|^- loader source\|^- attest key\|^### Phase\|^#### Gate\|^- claim\|^- reactions\|LOADER_TRUST\|kernellock.pcr.expected\|^### zcard\|^\[The configured\|acknowledged" | head -16)"
   fi
   run_elebake setintp report_detachsign cat > /dev/null
   printf 'report\n' > "$st/r.md"

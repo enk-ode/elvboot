@@ -35,13 +35,13 @@ printf '\n## Chain\n\n'
 p=""; breaks=0
 for f in $files; do
 	h=$(head -n 1 "$f" | sed -n 's/^# counter=.* prev=//p')
-	if ! head -n 1 "$f" | grep -q '^# counter='; then printf -- '- %s: before the chain (counter-only naming, no header)\n' "${f##*/}"; continue
-	elif [ -z "$p" ]; then printf -- '- %s: first of the selection (header prev=%s)\n' "${f##*/}" "${h:-none}"
-	elif [ "$h" = "$(sha256 -q "$p")" ]; then printf -- '- %s: chained to %s\n' "${f##*/}" "${p##*/}"
-	else printf -- '- %s: NOT chained to %s (header prev=%s)\n' "${f##*/}" "${p##*/}" "${h:-none}"; breaks=$((breaks + 1)); fi
+	if ! head -n 1 "$f" | grep -q '^# counter='; then printf -- '- `%s`: before the chain (counter-only naming, no header)\n' "${f##*/}"; continue
+	elif [ -z "$p" ]; then printf -- '- `%s`: first of the selection (header prev=`%s`)\n' "${f##*/}" "${h:-none}"
+	elif [ "$h" = "$(sha256 -q "$p")" ]; then printf -- '- `%s`: [chained]{.pass} to `%s`\n' "${f##*/}" "${p##*/}"
+	else printf -- '- `%s`: [NOT chained]{.fail} to `%s` (header prev=`%s`)\n' "${f##*/}" "${p##*/}" "${h:-none}"; breaks=$((breaks + 1)); fi
 	p=$f
 done
-printf -- '- breaks: %s\n' "$breaks"
+printf -- '- breaks: **%s**\n' "$breaks"
 printf '\n## Witnesses\n\n'
 rdir="$base/stage/$stage/witness-receipts"
 n=0
@@ -49,24 +49,27 @@ for r in "$rdir"/*; do
 	[ -f "$r" ] || continue
 	case "$r" in *.full|*.gpt) continue ;; esac
 	n=$((n + 1))
-	printf -- '- %s: %s\n' "${r##*/}" "$(tail -n 1 "$r")"
-	[ -f "$r.gpt" ] && printf -- '  table: %s\n' "$(tail -n 1 "$r.gpt")"
-	[ -f "$r.full" ] && printf -- '  whole: %s\n' "$(tail -n 1 "$r.full")"
+	printf -- '- %s: `%s`\n' "${r##*/}" "$(tail -n 1 "$r")"
+	[ -f "$r.gpt" ] && printf -- '    - table: `%s`\n' "$(tail -n 1 "$r.gpt")"
+	[ -f "$r.full" ] && printf -- '    - whole: `%s`\n' "$(tail -n 1 "$r.full")"
 done
 [ "$n" -gt 0 ] || printf -- '- no witness receipts under %s (stage witness measure)\n' "$rdir"
 printf '\n## Explanations on file\n\n'
 printf 'What the owner did about the findings, as the system recorded it: the acknowledged findings (elvboot freeze ack moves the narrow gates'"'"' mark into %s/acknowledged with the time of the acknowledgement), the mark standing now, and the expectations the owner learned anew with the time of the record (a rebuild moves PcrBank, a halt the owner caused moves the halt counter: pcr-learn and halt-relearn write these).\n\n' "$state"
 printf '### Acknowledged findings\n\n'
-if [ -s "$state/acknowledged" ]; then printf '```\n'; cat "$state/acknowledged"; printf '```\n\n'; else printf 'none on file\n\n'; fi
+if [ -s "$state/acknowledged" ]; then sed 's/^/- `/; s/$/`/' "$state/acknowledged"; printf '\n'; else printf 'none on file\n\n'; fi
 printf '### Freeze mark now\n\n'
-if [ -s "$state/freeze" ]; then printf 'STANDING (stage push and stage tpm seal refuse until acknowledged):\n\n```\n'; cat "$state/freeze"; printf '```\n\n'; else printf 'none\n\n'; fi
-printf '### Learned expectations\n\n| leaf | value | recorded (UTC) |\n|---|---|---|\n'
+if [ -s "$state/freeze" ]; then printf '[STANDING]{.fail} (stage push and stage tpm seal refuse until acknowledged):\n\n'; sed 's/^/- `/; s/$/`/' "$state/freeze"; printf '\n'; else printf 'none\n\n'; fi
+printf '### Learned expectations\n\n'
+any=0
 for k in "$base/stage/$stage"/kenv/*.expected "$base/stage/$stage"/kenv/*.pcrs; do
 	[ -f "$k" ] || continue
-	printf '| %s | %s | %s |\n' "${k##*/}" "$(sed -n 1p "$k")" "$(date -u -r "$(stat -f %m "$k")" +%Y-%m-%dT%H:%M:%SZ)"
+	any=1
+	printf -- '- `%s` = `%s` (recorded %s)\n' "${k##*/}" "$(sed -n 1p "$k")" "$(date -u -r "$(stat -f %m "$k")" +%Y-%m-%dT%H:%M:%SZ)"
 done
-printf '\n## Sources\n\n| file | sha256 |\n|---|---|\n'
-for f in $files; do printf '| %s | %s |\n' "${f##*/}" "$(sha256 -q "$f")"; done
-for r in "$rdir"/*; do [ -f "$r" ] && printf '| witness-receipts/%s | %s |\n' "${r##*/}" "$(sha256 -q "$r")"; done
-for j in "$state/acknowledged" "$state/freeze"; do [ -f "$j" ] && printf '| %s | %s |\n' "${j#"$state/"}" "$(sha256 -q "$j")"; done
+[ "$any" = 1 ] || printf 'none\n'
+printf '\n## Sources\n\nEvery file this part was read from, with its sha256.\n\n'
+for f in $files; do printf -- '- `%s`: `%s`\n' "${f##*/}" "$(sha256 -q "$f")"; done
+for r in "$rdir"/*; do [ -f "$r" ] && printf -- '- `witness-receipts/%s`: `%s`\n' "${r##*/}" "$(sha256 -q "$r")"; done
+for j in "$state/acknowledged" "$state/freeze"; do [ -f "$j" ] && printf -- '- `%s`: `%s`\n' "${j#"$state/"}" "$(sha256 -q "$j")"; done
 exit 0

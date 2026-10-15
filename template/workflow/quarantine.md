@@ -3,12 +3,13 @@
 # When: the first fill of the quarantine container, and every rollout of
 # it afterwards (a package set updated). zempty is the root the loader
 # diverts to on the duress way: a default installation nobody maintains,
-# no sensitive data, no access -- a system that distrusts the chain it
+# no sensitive data, no access beyond one show user without a group -- a
+# system that distrusts the chain it
 # was booted by (its guard exports every foreign pool, detaches every
 # idle GELI provider, unloads tpm.ko before anything else runs). Its
 # content is DEFINED and built by elebake: the base set from the owner's
 # repository, no kernel (the medium's, verified, boots it), no boot code
-# on its disk, a random root password, no user, no sshd, securelevel 2,
+# on its disk, a random root password, one show user without a group, no sshd, securelevel 2,
 # a read-only root with /tmp and /var in memory. The description is in
 # the dump, the baseline is signed, the container holds the snapshot
 # ZFS proves (GUID), the witness says whether it was written since.
@@ -20,6 +21,7 @@ elebake stage quarantine pool add daily-v1 zempty
 elebake stage quarantine partition add daily-v1 nda1p1
 elebake stage quarantine keyfile add daily-v1 zempty.bin            # the TPM's file on the RAM disk, from the seed (step 2)
 elebake stage quarantine swap add daily-v1 /dev/gpt/illyria-swap.eli
+elebake stage quarantine user add daily-v1 brj                      # the show user: the one login the prompt offers, no group, an everyday password (read hidden at build)
 elebake stage quarantine rc add daily-v1 'hostname="illyria"'
 elebake stage quarantine rc add daily-v1 'zfs_enable="YES"'
 elebake stage quarantine rc add daily-v1 'keymap="de.acc.kbd"'
@@ -40,10 +42,12 @@ elebake ram open
 gpg --decrypt ~/.local/share/hkdf-tree/seed.gpg | hkdf-tree show --config ~/.config/hkdf-tree/inventory.yaml --entry enk-ode/illyria/zempty-tpm-v1 | base64 -d > ~/.elebake/db/.ram/zempty.bin
 # --- 3. the container (once, or anew: zeros over every sector -- a provider grown without them writes integrity failures on every read of the new space) ---
 elebake stage quarantine container init daily-v1                  # geli init with the file alone (no passphrase), attach, zeros (minutes), pool with ROOT, exported
+elebake stage witness drop daily-v1 zempty                         # after an init the container is a new witness (its GELI metadata moved): forget the old receipts ...
+elebake stage witness add daily-v1 zempty nda1p1                   # ... and record it anew; the receipts come in step 5
 # --- 4. the build (every rollout) ---
 elebake stage quarantine dataset make daily-v1
 elebake stage quarantine dataset open daily-v1
-elebake stage quarantine build daily-v1                           # base set, rc.conf, frame (fstab, localtime, console insecure, root password random), guard, baseline signed
+elebake stage quarantine build daily-v1                           # base set, rc.conf, frame (fstab, localtime, console insecure, root password random), the show user (password hidden, twice), guard, baseline signed
 sudo env GEOMCHECK_DRYRUN=1 sh ~/.elebake/mnt/daily-v1-quarantine/etc/rc.d/geomcheck start   # the guard's dry run in THIS system: would export zdata and zempty, would unmount the build root, no "would detach" for zroot's providers
 sudo cat /var/log/geomcheck.log
 sudo rm /var/log/geomcheck.log

@@ -28,6 +28,10 @@
 #   quarantine/swap       the swap device of the quarantine's fstab, optional
 #                         (/dev/gpt/illyria-swap.eli): the production's swap,
 #                         which the quarantine may use (geli onetime)
+#   quarantine/user       the show user (brj): the one account a login prompt
+#                         offers, no group, no wheel, no operator, an everyday
+#                         password read hidden at build time; root's password
+#                         stays random
 #   quarantine/rc         the lines of /etc/rc.conf, name="value" each: the
 #                         whole configuration -- there is no rc.conf to
 #                         mirror, the quarantine is nobody's system
@@ -38,8 +42,9 @@
 # The build fills the opened root in phases -- package install (the base
 # set through pkg --rootdir, the one bootstrap an empty root allows),
 # rc write, frame write (fstab, localtime, the console insecure so single
-# user asks the password, the root password random), guard write (the
-# template quarantine/geomcheck into /etc/rc.d), baseline -- and the
+# user asks the password, the root password random), user write (the show
+# user with the password read hidden), guard write (the template
+# quarantine/geomcheck into /etc/rc.d), baseline -- and the
 # snapshot closes it. The push opens the container with the TPM's file,
 # sends the snapshot (the whole tree the first time, the increment after),
 # sets bootfs and readonly, proves the GUID, records the receipt and
@@ -200,10 +205,37 @@ ___stage_quarantine_swap_drop1() {
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage quarantine value erase '$1' swap"
 }
 
-#@help __stage_quarantine_name_valid2
-# @command stage quarantine name valid <dataset|pool|keyfile|swap> <name>
+#@help ___stage_quarantine_user_add2
+# @command stage quarantine user add <stage> <name>
 # @completion name none
-# @summary A dataset or pool name is a ZFS name (letters, digits, _ . - and, for a dataset, /), a keyfile name a file name without a slash or blank, a swap device an absolute path: a comment line, else an error line
+# @summary Record the show user of the quarantine (brj): the one account its login prompt offers -- created by the build without a group, so neither wheel nor operator, with an everyday password read hidden; the stage exists, the name is a login name; then written (immutable, drop first to change)
+# @group   provisioning
+# @example elebake stage quarantine user add daily-v1 brj
+# @see     stage quarantine user write
+#@end
+___stage_quarantine_user_add2() {
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage check stage '$1'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage quarantine name valid user '$2'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage quarantine value write '$1' user '$2'"
+}
+
+#@help ___stage_quarantine_user_drop1
+# @command stage quarantine user drop <stage>
+# @summary Forget the show user record of the stage: the stage exists and has the record; then it is removed
+# @group   provisioning
+# @example elebake stage quarantine user drop daily-v1
+# @see     stage quarantine user add
+#@end
+___stage_quarantine_user_drop1() {
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage check stage '$1'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage quarantine value set '$1' user"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage quarantine value erase '$1' user"
+}
+
+#@help __stage_quarantine_name_valid2
+# @command stage quarantine name valid <dataset|pool|keyfile|user|swap> <name>
+# @completion name none
+# @summary A dataset or pool name is a ZFS name (letters, digits, _ . - and, for a dataset, /), a keyfile name a file name without a slash or blank, a user a login name (a letter or _, then letters, digits, _ -), a swap device an absolute path: a comment line, else an error line
 # @group   provisioning
 # @internal
 # @see     stage quarantine dataset add
@@ -214,6 +246,7 @@ __stage_quarantine_name_valid2() {
                 dataset) form='[A-Za-z][A-Za-z0-9_.-]*\(/[A-Za-z0-9_.-][A-Za-z0-9_.-]*\)*'; what='ZFS dataset name' ;;
                 pool)    form='[A-Za-z][A-Za-z0-9_.-]*'; what='ZFS pool name' ;;
                 keyfile) form='[A-Za-z0-9_.-][A-Za-z0-9_.-]*'; what='file name (no slash, no blank)' ;;
+                user)    form='[a-z_][a-z0-9_-]*'; what='login name' ;;
                 *)       form='/[^ 	][^ 	]*'; what='absolute path' ;;
         esac
         if printf '%s\n' "$2" | grep -qx "$form"; then
@@ -277,7 +310,7 @@ _stage_quarantine_value_record3() {
 #@help __stage_quarantine_value_set2
 # @command stage quarantine value set <stage> <record>
 # @completion record none
-# @summary The stage has the quarantine record (dataset, pool, partition, keyfile, swap, snapshot): a comment line, else an error line naming the command that records it
+# @summary The stage has the quarantine record (dataset, pool, partition, keyfile, user, swap, snapshot): a comment line, else an error line naming the command that records it
 # @group   provisioning
 # @internal
 # @see     stage quarantine dataset add
@@ -429,7 +462,7 @@ __stage_quarantine_list_filled1() {
 
 #@help ___stage_quarantine_show1
 # @command stage quarantine show <stage>
-# @summary The quarantine description of the stage as notes: dataset, pool, partition, key file name, swap, the rc lines, the last snapshot and what the container received; the stage exists
+# @summary The quarantine description of the stage as notes: dataset, pool, partition, key file name, show user, swap, the rc lines, the last snapshot and what the container received; the stage exists
 # @group   provisioning
 # @example elebake stage quarantine show daily-v1
 # @see     stage quarantine verify
@@ -438,7 +471,7 @@ ___stage_quarantine_show1() {
         local f="" line=""
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage check stage '$1'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" log '# quarantine of $1'"
-        for f in dataset pool partition keyfile swap snapshot received; do
+        for f in dataset pool partition keyfile user swap snapshot received; do
                 printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" log '#   $f: $(sed -n 1p "$ELEBAKE_BASE/stage/$1/quarantine/$f" 2>/dev/null)'"
         done
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" log '#   rc ($(grep -c . "$ELEBAKE_BASE/stage/$1/quarantine/rc" 2>/dev/null) lines):'"
@@ -451,7 +484,7 @@ ___stage_quarantine_show1() {
 
 #@help ___stage_dump_quarantine1
 # @command stage dump quarantine <stage>
-# @summary Dump block: the quarantine description replayed -- dataset, pool, partition, keyfile and swap add, one rc add per line; the snapshot, the receipt and the baseline are built or read, not replayed
+# @summary Dump block: the quarantine description replayed -- dataset, pool, partition, keyfile, user and swap add, one rc add per line; the snapshot, the receipt and the baseline are built or read, not replayed
 # @group   provisioning
 # @internal
 # @see     stage dump
@@ -459,7 +492,7 @@ ___stage_quarantine_show1() {
 #@end
 ___stage_dump_quarantine1() {
         local r="" f=""
-        for r in dataset pool partition keyfile swap; do
+        for r in dataset pool partition keyfile user swap; do
                 test -s "$ELEBAKE_BASE/stage/$1/quarantine/$r" && printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage quarantine $r add '$1' '$(sed -n 1p "$ELEBAKE_BASE/stage/$1/quarantine/$r")'"
         done
         grep . "$ELEBAKE_BASE/stage/$1/quarantine/rc" 2>/dev/null | while IFS= read -r f; do
@@ -586,7 +619,7 @@ _stage_quarantine_dataset_umount1() {
 
 #@help ___stage_quarantine_build1
 # @command stage quarantine build <stage>
-# @summary Build the opened quarantine root, in phases: the stage exists, the root is mounted; then 'stage quarantine package install' (the base set, no kernel), 'rc write' (/etc/rc.conf from the rc lines), 'frame write' (fstab, localtime, the console insecure, the root password random, no user), 'guard write' (rc.d geomcheck from the template), 'baseline' (the signed manifest of the tree). Then close and snapshot
+# @summary Build the opened quarantine root, in phases: the stage exists, the root is mounted; then 'stage quarantine package install' (the base set, no kernel), 'rc write' (/etc/rc.conf from the rc lines), 'frame write' (fstab, localtime, the console insecure, the root password random), 'user bound' (the show user when one is recorded: 'user write' reads its password hidden), 'guard write' (rc.d geomcheck from the template), 'baseline' (the signed manifest of the tree). Then close and snapshot
 # @group   deploy
 # @example elebake stage quarantine build daily-v1
 # @see     stage quarantine dataset open
@@ -598,8 +631,82 @@ ___stage_quarantine_build1() {
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage quarantine package install '$1'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage quarantine rc write '$1'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage quarantine frame write '$1'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage quarantine user bound '$1'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage quarantine guard write '$1'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage quarantine baseline '$1'"
+}
+
+#@help __stage_quarantine_user_bound1
+# @command stage quarantine user bound <stage>
+# @summary A show user is recorded: rewrite to 'stage quarantine user write'; none: a comment line (the quarantine offers root's login only, with a password nobody knows)
+# @group   deploy
+# @internal
+# @see     stage quarantine build
+#@end
+__stage_quarantine_user_bound1() {
+        if test -s "$ELEBAKE_BASE/stage/$1/quarantine/user"; then
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage quarantine user write '$1'"
+        else
+                printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" comment 'quarantine of $1: no show user recorded (stage quarantine user add)'"
+        fi
+}
+
+#@help ___stage_quarantine_user_write1
+# @command stage quarantine user write <stage>
+# @summary Create the show user in the mounted quarantine root: the stage exists, the root is mounted, the user is recorded, the RAM disk is mounted; then 'stage quarantine user read' (the password twice, hidden, hashed onto the RAM disk) and 'stage quarantine user file' (useradd without a group, the hash set, the file removed)
+# @group   deploy
+# @env     ELEBAKE_TPM_WORKDIR  the RAM disk the password hash passes over (default .ram under the database)
+# @example elebake stage quarantine user write daily-v1
+# @see     stage quarantine user add
+#@end
+___stage_quarantine_user_write1() {
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage check stage '$1'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage quarantine dataset mounted '$1'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage quarantine value set '$1' user"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage tpm workdir ready"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage quarantine user read '$1'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage quarantine user file '$1'"
+}
+
+#@help _stage_quarantine_user_read1
+# @command stage quarantine user read <stage>
+# @summary Act terminal (the owner): the script that reads the show user's password twice on /dev/tty with echo off, refuses empty or differing entries, hashes it (openssl passwd -6) into <workdir>/user-quarantine.hash (0600) -- the password reaches neither argv nor the batch text
+# @group   deploy
+# @internal
+# @env     ELEBAKE_TPM_WORKDIR  the RAM disk (default .ram under the database)
+# @see     stage quarantine user write
+#@end
+_stage_quarantine_user_read1() {
+        local d="$(ram_dir)" name=""
+        name=$(sed -n 1p "$ELEBAKE_BASE/stage/$1/quarantine/user" 2>/dev/null)
+        cat <<EOF
+{ : < /dev/tty; } 2>/dev/null || { printf '# Error: %s\\n' 'stage quarantine user write: needs a terminal to read the password hidden' >&2; exit 1; }
+printf 'password of the show user $name for $1 (hidden): ' > /dev/tty; stty -echo < /dev/tty; read -r a < /dev/tty; stty echo < /dev/tty; printf '\\n' > /dev/tty
+printf 'Again: ' > /dev/tty; stty -echo < /dev/tty; read -r b < /dev/tty; stty echo < /dev/tty; printf '\\n' > /dev/tty
+[ -n "\$a" ] || { printf '# Error: %s\\n' 'stage quarantine user write: empty password' >&2; exit 1; }
+[ "\$a" = "\$b" ] || { printf '# Error: %s\\n' 'stage quarantine user write: the two entries differ' >&2; exit 1; }
+printf '%s' "\$a" | openssl passwd -6 -stdin > '$d/user-quarantine.hash' && chmod 0600 '$d/user-quarantine.hash' || exit 1
+unset a b
+EOF
+}
+
+#@help _stage_quarantine_user_file1
+# @command stage quarantine user file <stage>
+# @summary Act terminal (root): chroot pw useradd of the recorded name (-m, /bin/sh, no group) unless it exists, chroot pw usermod -H 0 with the hash from the RAM disk, the hash file removed
+# @group   deploy
+# @internal
+# @env     ELEBAKE_TPM_WORKDIR  the RAM disk (default .ram under the database)
+# @see     stage quarantine user write
+#@end
+_stage_quarantine_user_file1() {
+        local alt="$ELEBAKE_ROOT/mnt/$1-quarantine" d="$(ram_dir)" name=""
+        name=$(sed -n 1p "$ELEBAKE_BASE/stage/$1/quarantine/user" 2>/dev/null)
+        emit_note "stage quarantine user write '$1': $name into $alt (no group), the password from $d/user-quarantine.hash"
+        printf '%s\n' "test -s '$d/user-quarantine.hash' || { printf '# Error: no %s (stage quarantine user read)\\n' '$d/user-quarantine.hash' >&2; exit 1; }"
+        printf '%s\n' "chroot '$alt' pw usershow '$name' >/dev/null 2>&1 || chroot '$alt' pw useradd '$name' -m -s /bin/sh || exit 1"
+        printf '%s\n' "chroot '$alt' pw usermod '$name' -H 0 < '$d/user-quarantine.hash' || exit 1"
+        printf '%s\n' "rm -P '$d/user-quarantine.hash'"
+        printf '%s\n' "printf '# quarantine root of %s: show user %s, no group\\n' '$1' '$name' >&2"
 }
 
 #@help ___stage_quarantine_package_install1
@@ -664,7 +771,7 @@ _stage_quarantine_rc_file1() {
 
 #@help ___stage_quarantine_frame_write1
 # @command stage quarantine frame write <stage>
-# @summary Write the frame of the mounted quarantine root: the stage exists, the root is mounted; then 'stage quarantine frame file' -- fstab (the swap line when a swap device is recorded, nothing else), localtime copied from this machine, the console marked insecure in ttys (single user asks the root password, which nobody knows), the root password set to 48 random bytes nobody keeps, no other user
+# @summary Write the frame of the mounted quarantine root: the stage exists, the root is mounted; then 'stage quarantine frame file' -- fstab (the swap line when a swap device is recorded, nothing else), localtime copied from this machine, the console marked insecure in ttys (single user asks the root password, which nobody knows), the root password set to 48 random bytes nobody keeps (the show user comes with 'stage quarantine user write')
 # @group   deploy
 # @example elebake stage quarantine frame write daily-v1
 # @see     stage quarantine swap add
@@ -693,7 +800,7 @@ _stage_quarantine_frame_file1() {
         printf '%s\n' "test ! -f /etc/localtime || cp /etc/localtime '$alt/etc/localtime'"
         printf '%s\n' "sed -i '' 's/^\\(console[[:space:]].*[[:space:]]\\)secure\$/\\1insecure/' '$alt/etc/ttys' && grep '^console' '$alt/etc/ttys' >&2"
         printf '%s\n' "head -c 48 /dev/urandom | b64encode - | sed -n 2p | chroot '$alt' pw usermod root -h 0 || exit 1"
-        printf '%s\n' "printf '# quarantine root of %s: root password random, no other user\\n' '$1' >&2"
+        printf '%s\n' "printf '# quarantine root of %s: root password random\\n' '$1' >&2"
 }
 
 #@help ___stage_quarantine_guard_write1

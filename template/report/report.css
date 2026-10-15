@@ -1,0 +1,17 @@
+/* SPDX-License-Identifier: BSD-2-Clause
+ *
+ * Copyright (c) 2026 Dr. Johannes Brügmann
+ *
+ * report.css -- the stylesheet for the HTML form of the reports of elvboot
+ * (pandoc -c): the colours of the classes pass, fail and skip, the value
+ * face every code span is set in (smaller monospace, breakable anywhere).
+ * Used with template/report/report.lua.
+ */
+body { font-family: Georgia, "Times New Roman", serif; max-width: 52em; margin: 2em auto; padding: 0 1em; line-height: 1.45; color: #222; }
+h1 { color: #111; } h2 { color: #333; border-bottom: 1px solid #ccc; } h3 { color: #444; } h4 { color: #555; margin-bottom: 0.3em; }
+code, .value { font-family: Menlo, "DejaVu Sans Mono", monospace; font-size: 0.82em; color: #3c3c3c; background: #f4f4f4; padding: 0 0.2em; overflow-wrap: anywhere; word-break: break-all; }
+pre { background: #f4f4f4; padding: 0.6em; overflow-x: auto; font-size: 0.8em; }
+.pass { color: #1b7f3b; font-weight: bold; }
+.fail { color: #b71c1c; font-weight: bold; }
+.skip { color: #8a6d00; font-weight: bold; }
+li { margin: 0.15em 0; }

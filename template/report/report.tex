@@ -1,0 +1,26 @@
+% SPDX-License-Identifier: BSD-2-Clause
+%
+% Copyright (c) 2026 Dr. Johannes Brügmann
+%
+% report.tex -- the LaTeX header for the reports of elvboot (pandoc -H):
+% the colours of the classes pass, fail and skip, the value face every
+% code span is set in (smaller monospace, breakable anywhere), a tighter
+% page. Used with template/report/report.lua.
+\usepackage{xcolor}
+\usepackage{seqsplit}
+\usepackage[a4paper,margin=2.2cm]{geometry}
+\definecolor{ReportPass}{HTML}{1B7F3B}
+\definecolor{ReportFail}{HTML}{B71C1C}
+\definecolor{ReportSkip}{HTML}{8A6D00}
+\definecolor{ReportValue}{HTML}{3C3C3C}
+\newcommand{\reportvalue}[1]{{\small\color{ReportValue}\texttt{\seqsplit{#1}}}}
+\newcommand{\reportword}[1]{{\small\color{ReportValue}\texttt{#1}}}
+\usepackage{fvextra}
+\DefineVerbatimEnvironment{verbatim}{Verbatim}{breaklines=true,breakanywhere=true,fontsize=\small}
+\usepackage{titlesec}
+\titleformat{\section}{\Large\bfseries\color{black!80}}{\thesection}{1em}{}
+\titleformat{\subsection}{\large\bfseries\color{black!70}}{\thesubsection}{1em}{}
+\titleformat{\subsubsection}{\normalsize\bfseries\color{black!60}}{\thesubsubsection}{1em}{}
+\titleformat{\paragraph}[hang]{\normalsize\bfseries\color{black!50}}{\theparagraph}{1em}{}
+\titlespacing*{\paragraph}{0pt}{1.2ex}{0.6ex}
+\setlength{\parskip}{0.4ex}

@@ -1508,6 +1508,17 @@ What it cannot say, it says: what root did after a boot stays invisible
 until the next boot's claims fall, the traces of the database are kept a
 day, the secrets appear redacted.
 
+The form is flat on purpose: no table carries a digest, every row is a
+key-value line, every value a code span, every verdict a span with the
+class pass, fail or skip -- plain Markdown that reads in a terminal and
+signs as it is. For a reader with pandoc, `template/report/report.lua`
+with `report.tex` (PDF) or `report.css` (HTML) renders the classes in
+colour, the values in a smaller monospace face that breaks anywhere, and
+each boot as its own section: summary (failed, skipped, passed), the
+three categories in detail, the session. `template/report/view.sh` is the
+example of a pin that opens the rendered report in the browser or the
+PDF viewer (never the default: the Markdown is the document).
+
 ## 26. The integrity witnesses: a container nobody opens still has a state
 
 zroot and zdata are the TPM's business: sealed, three factors, the record
@@ -1606,8 +1617,11 @@ own (workflow quarantine):
   there is no rc.conf to mirror, the quarantine is nobody's system), the
   frame (`stage quarantine frame write`: fstab with the production's
   swap, localtime, the console insecure so single user asks a password
-  nobody knows, the root password 48 random bytes nobody keeps, no user),
-  and the guard (`stage quarantine guard write`: `/etc/rc.d/geomcheck`
+  nobody knows, the root password 48 random bytes nobody keeps), the show
+  user (`stage quarantine user add`, `user write`: the one login the
+  prompt offers, no group, an everyday password read hidden at build and
+  hashed over the RAM disk -- what the owner hands over under duress,
+  never the production's), and the guard (`stage quarantine guard write`: `/etc/rc.d/geomcheck`
   from the template, after mountcritlocal and before zpool, kld and zfs
   -- every pool but the root pool exported, every GELI provider not in
   use detached, every mount from outside unmounted, tpm.ko unloaded).

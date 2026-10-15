@@ -1,3 +1,7 @@
 sudo sh
 # @summary Interpreter of 'report render' (elvboot): the act reads the hooks' state directory, root's -- sudo sh runs it, cat displays it
 # @see ELEBAKE_STATE_DB
+# Example, not the default: render through pandoc and open the result (template/report/view.sh;
+#   html opens the browser, pdf the PDF viewer, ELEBAKE_REPORT_VIEWER names it):
+#   elebake setenv ELEBAKE_INTERPRETER_report_render "sh <checkout>/template/report/view.sh html sudo"
+# The forensic report is two acts: pipe it instead -- elvboot report forensic <stage> | sh view.sh pdf -
