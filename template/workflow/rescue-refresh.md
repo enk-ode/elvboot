@@ -17,6 +17,7 @@ elebake stage rescue tool package daily-v1 elvboot            # when a tool's ch
 elebake stage rescue tool package daily-v1 vpn-switch
 elebake stage rescue package build daily-v1                   # the meta package of the next serial
 elebake stage rescue build daily-v1                           # package install, kernel mirror (the stage's kernel, the one the medium boots), config mirror, local write, user mirror, transient write, patch apply, baseline
+elebake stage rescue baseline daily-v1                        # the token's PIN comes at the very end of the long run: when pinentry timed out, this line signs the baseline alone
 elebake stage rescue dataset close daily-v1
 elebake stage rescue snapshot daily-v1
 

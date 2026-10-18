@@ -68,6 +68,7 @@ elebake export redacted ~/.elebake/db/.resource/elvboot/dump.sh ~/.elebake/db/.r
 elebake stage rescue dataset open daily-v1
 elebake stage rescue package build daily-v1
 elebake stage rescue build daily-v1
+elebake stage rescue baseline daily-v1            # the token's PIN at the very end of the build: when pinentry timed out, this signs alone
 elebake stage rescue dataset close daily-v1
 elebake stage rescue snapshot daily-v1
 elebake stage rescue passphrase daily-v1
@@ -80,7 +81,8 @@ elebake stage rescue verify daily-v1 a
 elebake stage witness measure daily-v1
 elebake stage witness measure full daily-v1
 elebake stage witness conf daily-v1
-elebake stage witness anchor daily-v1             # auth-hierarchy.hex is still on the RAM disk
+gpg --decrypt ~/.local/share/hkdf-tree/seed.gpg | hkdf-tree show --config ~/.config/hkdf-tree/inventory.yaml --entry enk-ode/illyria/tpm-hierarchy-v1 | base64 -d | hexdump -ve '1/1 "%02x"' > ~/.elebake/db/.ram/auth-hierarchy.hex   # stage tpm clean took the file with the auth hashes: once more for the anchor
+elebake stage witness anchor daily-v1
 elebake ram close
 elebake stage witness show daily-v1               # the receipt lines: paper and the public commit
 

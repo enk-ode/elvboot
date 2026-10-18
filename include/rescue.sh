@@ -1753,7 +1753,7 @@ _stage_rescue_kernel_copy1() {
 
 #@help ___stage_rescue_build1
 # @command stage rescue build <stage>
-# @summary Build the opened rescue root, in phases: the stage exists, the root is mounted; then 'stage rescue package install' (the meta package and everything it names), 'kernel mirror' (the stage's kernel over the package's), 'config mirror', 'local write', 'user mirror', 'transient write', 'patch apply' (the databases, built into the image by the recorded patches) and, last, 'baseline' (the signed manifest of the finished tree). Before: dataset open and package build; after: dataset close and snapshot
+# @summary Build the opened rescue root, in phases: the stage exists, the root is mounted; then 'stage rescue package install' (the meta package and everything it names), 'kernel mirror' (the stage's kernel over the package's), 'config mirror', 'local write', 'user mirror', 'transient write', 'patch apply' (the databases, built into the image by the recorded patches) and, last, 'baseline' (the signed manifest of the finished tree). Before: dataset open and package build; after: dataset close and snapshot -- the baseline signs with the token at the very end of the run: a PIN prompt missed there leaves the manifest unsigned, and 'stage rescue baseline' alone signs it
 # @group   deploy
 # @example elebake stage rescue build daily-v1
 # @see     stage rescue dataset open
