@@ -711,7 +711,7 @@ _stage_quarantine_user_file1() {
 
 #@help ___stage_quarantine_package_install1
 # @command stage quarantine package install <stage>
-# @summary Install the base set into the mounted quarantine root from this machine's repositories, no kernel (the medium's, verified, boots it -- a disk without kernel and boot code boots nowhere by itself): the stage exists, the root is mounted; then 'stage quarantine package pkg'
+# @summary Install the base set into the mounted quarantine root from this machine's repositories, no kernel (the medium's, verified, boots it -- a disk without kernel and boot code boots nowhere by itself), and upgrade what a root built before already holds (the set's version does not move with a patch level; its members do): the stage exists, the root is mounted; then 'stage quarantine package pkg'
 # @group   deploy
 # @example elebake stage quarantine package install daily-v1
 # @see     stage quarantine build
@@ -724,7 +724,7 @@ ___stage_quarantine_package_install1() {
 
 #@help _stage_quarantine_package_pkg1
 # @command stage quarantine package pkg <stage>
-# @summary Act terminal (root): the repository fingerprints copied under the root, pkg --rootdir update and install of FreeBSD-set-base (the bootstrap an empty root allows; no meta package, no tools, no kernel), then pkg --rootdir clean; the installed set listed
+# @summary Act terminal (root): the repository fingerprints copied under the root, pkg --rootdir update, install of FreeBSD-set-base (the bootstrap an empty root allows; no meta package, no tools, no kernel) and upgrade (a root built before: the members of the set to the repository's versions -- install alone leaves them, the set's own version is the same), then pkg --rootdir clean; the installed set listed
 # @group   deploy
 # @internal
 #@end
@@ -735,6 +735,7 @@ _stage_quarantine_package_pkg1() {
         printf '%s\n' "cp -a /usr/share/keys/pkg /usr/share/keys/pkgbase-* '$alt/usr/share/keys/' 2>/dev/null; :"
         printf '%s\n' "pkg --rootdir '$alt' -o REPOS_DIR=/etc/pkg,/usr/local/etc/pkg/repos update || exit 1"
         printf '%s\n' "pkg --rootdir '$alt' -o REPOS_DIR=/etc/pkg,/usr/local/etc/pkg/repos install -y FreeBSD-set-base || exit 1"
+        printf '%s\n' "pkg --rootdir '$alt' -o REPOS_DIR=/etc/pkg,/usr/local/etc/pkg/repos upgrade -y || exit 1"
         printf '%s\n' "pkg --rootdir '$alt' -o REPOS_DIR=/etc/pkg,/usr/local/etc/pkg/repos clean -ay >/dev/null 2>&1; :"
         printf '%s\n' "pkg --rootdir '$alt' info -q | wc -l | sed 's/^ *//; s/\$/ packages in the quarantine root/' >&2"
 }

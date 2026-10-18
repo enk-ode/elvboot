@@ -1423,6 +1423,21 @@ that is silent. Three probes of the plan are behind the walk with this:
 the duress boot, the coercion-class answer, and the loader's silence
 around both.
 
+The probe repeated on the finished setup -- the decoy root from the
+quarantine, the witnesses, the rescue on the card -- showed what a duress
+boot costs the owner afterwards, and the sequence is a file:
+`elebake workflow show duress-reseal`. The recovery slot opens the disks
+(GeliSlot slot1), and because the record's key is derived from the GELI
+user key, the chain starts anew at that boot and once more at the first
+boot back on slot 0. The decoy boot imported its pool and moved the
+quarantine's witness (WitnessLabels: zempty differ) -- the witness saw
+the decoy boot, as it should. Then the freeze acknowledged, the short
+form of the seal, the halt learned, the rescue image refreshed with the
+records, the witnesses measured card by card after the pushes, one conf
+onto both cards. Three passphrases at the GELI prompt are three: the
+loader halts and the halt counter steps -- the owner tries the dead
+object once, then types from the paper.
+
 **Two decisions of these days**, both configuration time, not run time. A
 build with no policy bound boots like the stock loader -- a user may
 start without policies -- so the loader's halt at zero policies is gone;

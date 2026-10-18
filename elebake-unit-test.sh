@@ -3565,9 +3565,10 @@ test_stage_quarantine_family() {
   miss=""
   printf '%s\n' "$r" | grep -q "usr/share/keys" || miss="$miss keys"
   printf '%s\n' "$r" | grep -qF "pkg --rootdir '$TEST_BASE_DIR/mnt/unitq-quarantine' -o REPOS_DIR=/etc/pkg,/usr/local/etc/pkg/repos install -y FreeBSD-set-base || exit 1" || miss="$miss base"
+  printf '%s\n' "$r" | grep -qF "pkg --rootdir '$TEST_BASE_DIR/mnt/unitq-quarantine' -o REPOS_DIR=/etc/pkg,/usr/local/etc/pkg/repos upgrade -y || exit 1" || miss="$miss upgrade"
   printf '%s\n' "$r" | grep -q "boot/kernel\|pkg -c " && miss="$miss kernel-or-chroot"
   if [ -z "$miss" ]; then
-    pass "package pkg renders the fingerprints copy and the base set through --rootdir only: no kernel, no meta package, no chroot install"
+    pass "package pkg renders the fingerprints copy, the base set and its upgrade through --rootdir only: no kernel, no meta package, no chroot install"
   else
     fail "package pkg misses:$miss -- $r"
   fi
