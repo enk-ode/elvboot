@@ -15,6 +15,7 @@
 function strip(v) { sub(/^"/, "", v); sub(/"$/, "", v); return v }
 function first_word(c,    w) { w = c; sub(/^[A-Z][a-z0-9]*/, "", w); return tolower(substr(c, 1, length(c) - length(w))) }
 function numeric(s) { return s ~ /^[0-9]+$/ }
+function counter_of(v) { if (match(v, /counter=[0-9]+/)) return substr(v, RSTART + 8, RLENGTH - 8); return "" }
 function code(v) { if (v == "") return "none"; gsub(/`/, "'", v); return "`" v "`" }
 function listed(s, cls,    out, i, m, a) {
 	if (s == "") return "none"
@@ -87,6 +88,16 @@ END {
 		for (j = 1; j <= nf[i]; j++) {
 			printf "- %s/%s\n", fgate[i, j], fclaim[i, j]
 			w = first_word(fclaim[i, j]); shown = 0
+			if (fclaim[i, j] == "CounterStep") {
+				rc = ""; cc = ""
+				for (k = 1; k <= nk[i]; k++) {
+					if (gateof[i, k] != fgate[i, j]) continue
+					if (keys[i, k] ~ /\.record$/) rc = counter_of(valof[i, k])
+					if (keys[i, k] ~ /\.commit$/) cc = counter_of(valof[i, k])
+				}
+				if (numeric(rc) && numeric(cc) && cc - rc > 1)
+					printf "    - the counter stepped from %s to %s: %d boot(s) left no record in this chain -- a rescue boot (its record goes to the rescue chain on the medium) or a boot that ended before its record (a halt at the dialog, the power cut)\n", rc, cc, cc - rc - 1
+			}
 			for (k = 1; k <= nk[i]; k++) {
 				if (gateof[i, k] != fgate[i, j]) continue
 				if (restof[i, k] ~ /^(failed|passed|skipped|ledger)$/) continue

@@ -4614,7 +4614,7 @@ test_elvboot_report() {
   b1="$st/boots/20261012T100000Z-7.kenv"; b2="$st/boots/20261012T110000Z-8.kenv"; b3="$st/boots/20261012T120000Z-1.kenv"
   printf '# counter=7 at=2026-10-12T10:00:00Z prev=\nloader.trust.bootlock.failed=""\nloader.trust.kernellock.failed="PcrBank"\nloader.trust.kernellock.passed="BootHowto"\nloader.trust.kernellock.pcr.expected="aaaa"\nloader.trust.kernellock.pcr.sha256="bbbb"\nloader.trust.tellwatch.medium="now=a,last=b"\nloader.trust.recordlock.record="geli=1,counter=6,last=x,bootms=60000,flags=4,chain=match,medium=a"\nloader.trust.inventory.witness.state="zcard-a=match,zempty=match"\n# elvbootd at=2026-10-12T10:30:00Z\n# appraisal-custody\ngate=custody verdict=pass\npassed= word-ok\n# spool since 2026-10-12T10:00:00Z\n2026-10-12T10:00:05Z unlock-ack taint=0 gates=[,PcrBank]\n' > "$b1"
   h1=$(sha256 -q "$b1")
-  printf '# counter=8 at=2026-10-12T11:00:00Z prev=%s\nloader.trust.bootlock.failed=""\nloader.trust.kernellock.failed=""\nloader.trust.tellwatch.medium="now=a,last=a"\nloader.trust.recordlock.record="geli=1,counter=7,last=x,bootms=40000,flags=4,chain=match,medium=a"\n' "$h1" > "$b2"
+  printf '# counter=8 at=2026-10-12T11:00:00Z prev=%s\nloader.trust.bootlock.failed=""\nloader.trust.kernellock.failed=""\nloader.trust.tellwatch.medium="now=a,last=a"\nloader.trust.recordlock.failed="CounterStep"\nloader.trust.recordlock.record="geli=1,counter=5,last=x,bootms=40000,flags=4,chain=match,medium=a"\nloader.trust.recordlock.commit="ok,counter=8,ikm=cafe"\n' "$h1" > "$b2"
   printf '# counter=1 at=2026-10-12T12:00:00Z prev=deadbeef\nloader.trust.bootlock.failed=""\nloader.trust.inventory.failed="GeliHeaders"\nloader.trust.inventory.geli.digest="cccc"\nloader.trust.tellwatch.medium="now=b,last=a"\n' > "$b3"
   printf 'loader.trust.bootlock.failed=""\nloader.trust.recordlock.record="geli=1,counter=5,last=x,bootms=70000,flags=4,chain=match,medium=a"\n' > "$st/boots/6.kenv"
   touch -t 202610111200 "$st/boots/6.kenv"
@@ -4637,7 +4637,8 @@ test_elvboot_report() {
      && printf '%s\n' "$out" | sed -n '/^### Boot 7 /,/^### Boot 8 /p' | grep -q "^- passed: kernellock: \[BootHowto\]{.pass}$" \
      && printf '%s\n' "$out" | sed -n '/^### Boot 7 /,/^### Boot 8 /p' | grep -q "^- skipped: none$" \
      && printf '%s\n' "$out" | sed -n '/^### Boot 7 /,/^### Boot 8 /p' | grep -q "^- custody: \[pass\]{.pass}$" \
-     && printf '%s\n' "$out" | sed -n '/^### Boot 8 /,/^### Boot 1 /p' | grep -q "^- failed: \[none\]{.pass}$" \
+     && printf '%s\n' "$out" | sed -n '/^### Boot 8 /,/^### Boot 1 /p' | grep -q "^- failed: recordlock: \[CounterStep\]{.fail}$" \
+     && printf '%s\n' "$out" | sed -n '/^### Boot 8 /,/^### Boot 1 /p' | grep -q "^    - the counter stepped from 5 to 8: 2 boot(s) left no record in this chain -- a rescue boot" \
      && printf '%s\n' "$out" | sed -n '/^### Boot 8 /,/^### Boot 1 /p' | grep -q "^open: the shutdown run did not append" \
      && printf '%s\n' "$out" | sed -n '/^### Boot 1 /,/^## Aggregates/p' | grep -q "^- failed: inventory: \[GeliHeaders\]{.fail}$"; then
     pass "one section per boot with its key-value lines, the summary of failed, skipped and passed as classed spans, the session; the old counter-only snapshot first, its time the file's"
