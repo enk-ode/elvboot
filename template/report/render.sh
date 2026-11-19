@@ -11,12 +11,16 @@
 # database. The program over the snapshots is awk/report.awk; the chain,
 # the witnesses' receipts and the sources are rendered here. Snapshots in
 # the old counter-only naming (<counter>.kenv, no header) come first,
-# ordered by modification time, which stands in for their header's time.
+# ordered by modification time, which stands in for their header's time;
+# the stamped ones follow in the order of their header's at= (the boot),
+# not of the stamp (the chain's start): chains that began at different
+# times interleave, and 'last' means the newest boot.
 state=$1; stage=$2; mode=$3; arg=$4; tdir=$5; base=$6
 d="$state/boots"
 test -d "$d" || { printf '# no snapshots under %s (workflow boot-snapshots)\n' "$d" >&2; exit 1; }
 old=$(find "$d" -type f -name '*.kenv' ! -name '[0-9]*T[0-9]*Z-*.kenv' -exec stat -f '%m %N' {} + | sort -n | sed 's/^[0-9]* //')
-all=$(printf '%s\n%s\n' "$old" "$(find "$d" -type f -name '[0-9]*T[0-9]*Z-*.kenv' | sort)" | sed '/^$/d')
+new=$(for f in $(find "$d" -type f -name '[0-9]*T[0-9]*Z-*.kenv'); do at=$(head -n 1 "$f" | sed -n 's/^# counter=.* at=\([^ ]*\).*/\1/p'); [ -n "$at" ] || at=$(date -u -r "$(stat -f %m "$f")" +%Y-%m-%dT%H:%M:%SZ); printf '%s %s\n' "$at" "$f"; done | sort | sed 's/^[^ ]* //')
+all=$(printf '%s\n%s\n' "$old" "$new" | sed '/^$/d')
 stamps=$(for f in $old; do printf '%s=%s ' "${f##*/}" "$(date -u -r "$(stat -f %m "$f")" +%Y-%m-%dT%H:%M:%SZ)"; done)
 case "$mode" in
 all) files=$all ;;

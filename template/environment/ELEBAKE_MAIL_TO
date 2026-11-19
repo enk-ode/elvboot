@@ -1,0 +1,3 @@
+
+# @summary The address mail_act (elvbootd, workflow boot-mail) sends the boot's snapshot to at STARTUP and SHUTDOWN, rendered into the hooks as ELV_MAIL_TO by 'stage elvbootd mk'; empty (the default): no mail. The host's address, not a loader value -- no baseline, no rebuild; set, then mk and install
+# @see ELEBAKE_STATE_DB

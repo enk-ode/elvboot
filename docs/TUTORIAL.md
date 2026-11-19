@@ -1463,6 +1463,17 @@ gates puts their verdicts into `appraisal-<gate>`, which the SHUTDOWN run
 copies. Before the install, `stage elvbootd test <stage> STARTUP <dump>`
 replays the hook with mocks and prints the snapshot it would write.
 
+Workflow `boot-mail` binds `mail_act` after `kenv_act` in the same two
+phases: the snapshot leaves the host by mail, subject `<host>:
+elvboot[<phase>]: boot <counter> <stamp>`, body the file as it is, to the
+address in the engine's `ELEBAKE_MAIL_TO` (`setenv`; the hooks' constant
+`ELV_MAIL_TO`; empty, nothing is sent -- the host's address, no baseline,
+no loader rebuild). The mailbox keeps the time of
+arrival, the chain header ties the mails together; the mail is a copy
+under root at that moment, not a signature -- that is the forensic
+report's, chapter below. The rendered phase names itself (`ELV_PHASE`),
+which is how the action knows which run it is.
+
 `elvboot` is the second harness of this repository: the same engine, the
 same database, the same pins -- its own vocabulary, nothing of the stage
 commands. `make install` puts the wrapper next to elebake's.

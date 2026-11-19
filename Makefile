@@ -147,6 +147,7 @@ COMPLETIONDIR?=	${HOME}/.local/share/bash-completion/completions
 COMPLETIONDIR?=	${PREFIX}/share/bash-completion/completions
 .endif
 COMPLETION=	${DESTDIR}${COMPLETIONDIR}/elebake
+HARNESS_COMPLETION=	${DESTDIR}${COMPLETIONDIR}/elvboot
 
 .PHONY: install uninstall
 
@@ -175,14 +176,15 @@ install: docs/elebake.8
 	@install -m 0444 docs/elebake.8 ${MANPAGE}
 	@mkdir -p ${DESTDIR}${COMPLETIONDIR}
 	@rm -f ${COMPLETION} && ln -s ${.CURDIR}/completion/elebake.bash ${COMPLETION}
+	@rm -f ${HARNESS_COMPLETION} && ln -s ${.CURDIR}/completion/elvboot.bash ${HARNESS_COMPLETION}
 	@echo "install: ${WRAPPER} -> ${.CURDIR} (RUNNER=${RUNNER})"
 	@echo "install: ${HARNESS_WRAPPER} -> ${.CURDIR}/elvboot.sh"
 	@echo "install: ${MANPAGE}"
-	@echo "install: ${COMPLETION} (bash completion)"
+	@echo "install: ${COMPLETION}, ${HARNESS_COMPLETION} (bash completion)"
 
 uninstall:
-	@rm -f ${WRAPPER} ${HARNESS_WRAPPER} ${MANPAGE} ${COMPLETION}
-	@echo "uninstall: ${WRAPPER}, ${HARNESS_WRAPPER}, ${MANPAGE} and ${COMPLETION} removed"
+	@rm -f ${WRAPPER} ${HARNESS_WRAPPER} ${MANPAGE} ${COMPLETION} ${HARNESS_COMPLETION}
+	@echo "uninstall: ${WRAPPER}, ${HARNESS_WRAPPER}, ${MANPAGE}, ${COMPLETION} and ${HARNESS_COMPLETION} removed"
 
 # --- stage and package ----------------------------------------------------
 # 'stage' lays this checkout out as the package has it: elebake.sh and its
@@ -217,6 +219,7 @@ stage: docs/elebake.8
 	@find ${PKGSTAGE}${PKGLIBDIR}/template -type f -exec chmod 0444 {} \; -o -type d -exec chmod 0755 {} \;
 	@install -m 0444 docs/elebake.8 ${PKGSTAGE}${PKGPREFIX}/share/man/man8/
 	@install -m 0444 completion/elebake.bash ${PKGSTAGE}${PKGPREFIX}/share/bash-completion/completions/elebake
+	@install -m 0444 completion/elvboot.bash ${PKGSTAGE}${PKGPREFIX}/share/bash-completion/completions/elvboot
 	@install -m 0444 README.md LICENSE docs/TUTORIAL.md docs/ARCHITECTURE.md docs/QUICKSTART.md ${PKGSTAGE}${PKGPREFIX}/share/doc/${PKGNAME}/
 	@printf '#!/bin/sh\n# elebake -- the %s package: the tool under %s\nexec /bin/sh %s/elebake.sh "$$@"\n' \
 	    '${PKGNAME}' '${PKGLIBDIR}' '${PKGLIBDIR}' > ${PKGSTAGE}${PKGPREFIX}/bin/elebake

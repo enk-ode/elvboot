@@ -483,7 +483,7 @@ __stage_container_render_header2() {
 
 #@help ___stage_container_render_constants1
 # @command stage container render constants <stage>
-# @summary The readonly constants of a generated container script from the stage records, one terminal each: the word secret, the loader gate publishing the word, the deployed loader digest, the ESP of the first medium, the arm directory, the beacon, the verdict variables
+# @summary The readonly constants of a generated container script from the stage records, one terminal each: the word secret, the loader gate publishing the word, the deployed loader digest, the ESP of the first medium, the arm directory, the beacon, the marker, the images digest, the mail address of mail_act, the verdict variables
 # @group   foundation
 # @internal
 # @see     stage earlboot mk
@@ -497,7 +497,20 @@ ___stage_container_render_constants1() {
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage constant beacon '$1'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage constant marker '$1'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage constant images '$1'"
+        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage constant mail to"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" stage constant verdicts"
+}
+
+#@help _stage_constant_mail_to0
+# @command stage constant mail to
+# @summary Print readonly ELV_MAIL_TO from the engine's ELEBAKE_MAIL_TO (empty by default): the address mail_act sends the boot's snapshot to at STARTUP and SHUTDOWN; empty, mail_act sends nothing. Set with 'setenv ELEBAKE_MAIL_TO <address>', then 'stage elvbootd mk' and 'install': the hooks carry the address, no rebuild -- an address is the host's, not the loader's, so it is no baseline (those are LOADER_TRUST_* macros compiled into the loader)
+# @group   foundation
+# @internal
+# @see     stage container render constants
+# @see     ELEBAKE_MAIL_TO
+#@end
+_stage_constant_mail_to0() {
+        printf 'readonly ELV_MAIL_TO=%s\n' "$(sq "${ELEBAKE_MAIL_TO:-}")"
 }
 
 #@help _stage_constant_word_secret1
@@ -793,13 +806,13 @@ ___stage_container_render_phase2() {
 
 #@help _stage_phase_render_marker1
 # @command stage phase render marker <phase>
-# @summary Print the phase marker line '# ===== phase <phase> =====' (the install checks for it)
+# @summary Print the phase marker line '# ===== phase <phase> =====' (the install checks for it) and the line ELV_PHASE=<phase> under it: the actions of the phase know which run they are (mail_act puts it into the subject); a plain assignment, earlboot renders two phases into one script
 # @group   foundation
 # @internal
 # @see     stage container render phase
 #@end
 _stage_phase_render_marker1() {
-        printf '\n# ===== phase %s =====\n' "$1"
+        printf '\n# ===== phase %s =====\nELV_PHASE=%s\n' "$1" "$1"
 }
 
 #@help ___stage_policy_render1

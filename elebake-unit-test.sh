@@ -1166,8 +1166,8 @@ test_dump_marker_and_backup_blocks() {
   test_header "stage dump: marker/backup blocks declare before copying"
   test_setup
   run_elebake stage add unitq > /dev/null 2>&1
-  mkdir -p "$TEST_DIR/stage/unitq/marker" "$TEST_DIR/stage/unitq/backup/m"
-  printf 'Boot0001\n' > "$TEST_DIR/stage/unitq/marker/bootvar"
+  mkdir -p "$TEST_DIR/stage/unitq/backup/m"
+  run_elebake stage marker store unitq Boot0001 /efi/boot/BOOTX64.EFI > /dev/null 2>&1
   printf 'ORIG\n' > "$TEST_DIR/stage/unitq/backup/m/Boot0001.orig"
   local out; out=$(run_elebake stage dump unitq)
   local d1 f1
@@ -1236,7 +1236,7 @@ test_foundation_catalogs() {
   local out
   out=$(run_elebake stage measure unitc)
   if printf '%s\n' "$out" | grep -q "measure_alpha" && printf '%s\n' "$out" | grep -q "diagnose_alpha" \
-     && printf '%s\n' "$out" | grep -q "checkout: fixture-ref"; then
+     && printf '%s\n' "$out" | grep -q "checkout: $(git -C "$FIXTURE_WORK" rev-parse HEAD)"; then
     pass "measure catalog lists functions with provenance"
   else
     fail "measure catalog wrong: $out"
@@ -1257,8 +1257,7 @@ test_foundation_catalogs() {
   else
     fail "phase catalog wrong: $out"
   fi
-  mkdir -p "$TEST_DIR/stage/unitc/phases"
-  printf 'watch-x\n' > "$TEST_DIR/stage/unitc/phases/PHASE_TWO"
+  run_elebake stage phase policy append unitc PHASE_TWO watch-x > /dev/null 2>&1
   if run_elebake stage phase show unitc PHASE_TWO | grep -q "policy: watch-x"; then
     pass "bound policies render per phase"
   else
@@ -1280,8 +1279,10 @@ fixture_worktree() {
   printf 'struct measurement\tmeasure_alpha(int argc, CHAR16 *argv[]);\nstruct measurement\tmeasure_record(int argc, CHAR16 *argv[]);\nvoid\tdiagnose_alpha(int argc, CHAR16 *argv[], struct diagnosis *);\n' > "$fix/measurement.h"
   printf 'bool\twhen_always(const struct appraisal *);\nbool\twhen_fail(const struct appraisal *);\nenum phase {\n\tPHASE_ONE,\n\tPHASE_TWO,\n};\n' > "$fix/policy.h"
   printf 'extern const struct action\ttest_act;\nextern const struct action\thandover_act;\n' > "$fix/action.h"
-  ln -sfn "$TEST_BASE_DIR/fix-work-$TESTS_RUN-$1" "$TEST_DIR/stage/$1/work"
-  printf 'fixture-ref\n' > "$TEST_DIR/stage/$1/checkout"
+  (cd "$TEST_BASE_DIR/fix-work-$TESTS_RUN-$1" && git init -q . && git config user.email t@t && git config user.name t && git config commit.gpgsign false && git add . && git commit -qm fixture) > /dev/null 2>&1
+  run_elebake setenv ELEBAKE_FREEBSD_SRC "$TEST_BASE_DIR/fix-work-$TESTS_RUN-$1" > /dev/null
+  run_elebake stage checkout "$1" HEAD 2>/dev/null | sh > /dev/null 2>&1
+  FIXTURE_WORK=$(readlink "$TEST_DIR/stage/$1/work")
 }
 
 # --- reference implementations: the engine's helpers before the batch engine, renamed
@@ -2202,13 +2203,13 @@ test_stage_foundation_emitter() {
   else
     fail "unprovisioned notes: $chk"
   fi
-  printf 'CFLAGS+= -DLOADER_TRUST_ALPHA_DIGEST=0x00\n' > "$TEST_BASE_DIR/fix-work-$TESTS_RUN-unite/stand/efi/loader/local/site.mk"
+  printf 'CFLAGS+= -DLOADER_TRUST_ALPHA_DIGEST=0x00\n' > "$FIXTURE_WORK/stand/efi/loader/local/site.mk"
   if run_elebake stage foundation check unite 2>&1 | grep -q "LOADER_TRUST_ALPHA_DIGEST provisioned"; then
     pass "a site.mk line counts as provided: the check reports the macro provisioned"
   else
     fail "after site.mk: $(run_elebake stage foundation check unite 2>&1)"
   fi
-  printf 'CFLAGS.foundation.c += -DLOADER_TRUST_ALPHA_DIGEST=0x00\n' > "$TEST_BASE_DIR/fix-work-$TESTS_RUN-unite/stand/efi/loader/local/site.mk"
+  printf 'CFLAGS.foundation.c += -DLOADER_TRUST_ALPHA_DIGEST=0x00\n' > "$FIXTURE_WORK/stand/efi/loader/local/site.mk"
   if run_elebake stage foundation check unite 2>&1 | grep -q "LOADER_TRUST_ALPHA_DIGEST provisioned"; then
     pass "a per-file line (CFLAGS.foundation.c +=, what site mk board, keys and marker write) counts as provided too"
   else
@@ -2241,7 +2242,7 @@ test_stage_foundation_emitter() {
     fail "hyphenated gate name accepted"
   fi
   run_elebake stage foundation make unite > /dev/null 2>&1
-  local c="$TEST_BASE_DIR/fix-work-$TESTS_RUN-unite/stand/efi/loader/local/foundation/foundation.c"
+  local c="$FIXTURE_WORK/stand/efi/loader/local/foundation/foundation.c"
   if [ -f "$c" ] && grep -q '#ifdef LOADER_TRUST_ALPHA_DIGEST' "$c" \
      && ! grep -q 'SECRET' "$c" \
      && grep -q 'GATE_DEFINE(gsec,$' "$c" \
@@ -2275,9 +2276,9 @@ test_stage_foundation_emitter() {
   else
     fail "build without trust anchor not refused: $(run_elebake stage build unite 2>&1 | head -3)"
   fi
-  mkdir -p "$TEST_BASE_DIR/fix-work-$TESTS_RUN-unite/lib/libsecureboot"
-  printf 'x\n' > "$TEST_BASE_DIR/fix-work-$TESTS_RUN-unite/lib/libsecureboot/ta_openpgp.asc"
-  printf 'x\n' > "$TEST_BASE_DIR/fix-work-$TESTS_RUN-unite/lib/libsecureboot/site.trust.mk"
+  mkdir -p "$FIXTURE_WORK/lib/libsecureboot"
+  printf 'x\n' > "$FIXTURE_WORK/lib/libsecureboot/ta_openpgp.asc"
+  printf 'x\n' > "$FIXTURE_WORK/lib/libsecureboot/site.trust.mk"
   if ! run_elebake stage build unite 2>&1 | grep -q "no trust anchor in the worktree"; then
     pass "with both anchor files present the build passes the anchor check"
   else
@@ -2410,9 +2411,9 @@ test_collect_speaks_archive_base() {
   test_header "collect: real record paths, name symlink last, base as a variable"
   test_setup
   run_elebake stage add c1 > /dev/null 2>&1
-  mkdir -p "$TEST_DIR/stage/c1/boot" "$TEST_DIR/stage/c1/marker"
+  mkdir -p "$TEST_DIR/stage/c1/boot"
   printf 'E\n' > "$TEST_DIR/stage/c1/boot/loader.efi"
-  printf 'B\n' > "$TEST_DIR/stage/c1/marker/bootvar"
+  run_elebake stage marker store c1 B /x > /dev/null 2>&1
   ln -sf /nonexistent/worktree "$TEST_DIR/stage/c1/work"
   local out; out=$(run_elebake stage collect c1)
   if printf '%s\n' "$out" | grep -q '"\$ELEBAKE_ARCHIVE_BASE"/\.staging/.*/work$'; then
@@ -2855,7 +2856,7 @@ test_stage_recheckout() {
   test_setup
   local src="$TEST_BASE_DIR/recheckout-src-$TESTS_RUN"
   mkdir -p "$src"
-  (cd "$src" && git init -q . && git config user.email t@t && git config user.name t \
+  (cd "$src" && git init -q . && git config user.email t@t && git config user.name t && git config commit.gpgsign false \
      && echo x > f && git add f && git commit -qm one && echo y > f && git commit -qam two) > /dev/null 2>&1
   run_elebake setenv ELEBAKE_FREEBSD_SRC "$src" > /dev/null
   run_elebake stage add rstage > /dev/null 2>&1
@@ -2913,7 +2914,7 @@ test_destroy_removes_everything() {
   fi
   local src="$TEST_BASE_DIR/destroy-src-$TESTS_RUN"
   mkdir -p "$src"
-  (cd "$src" && git init -q . && git config user.email t@t && git config user.name t \
+  (cd "$src" && git init -q . && git config user.email t@t && git config user.name t && git config commit.gpgsign false \
      && echo x > f && git add f && git commit -qm init) > /dev/null 2>&1
   run_elebake setenv ELEBAKE_FREEBSD_SRC "$src" > /dev/null
   run_elebake stage add dstage > /dev/null 2>&1
@@ -3293,7 +3294,7 @@ test_stage_kenv_require_loaderconf() {
   test_setup
   run_elebake stage add unitcf > /dev/null 2>&1
   fixture_worktree unitcf
-  local fix="$TEST_BASE_DIR/fix-work-$TESTS_RUN-unitcf/stand/efi/loader/local"
+  local fix="$FIXTURE_WORK/stand/efi/loader/local"
   printf 'extern const struct action\ttest_act;\nextern const struct action\task_act;\n' > "$fix/action.h"
   printf 'static void\naction_ask(const struct appraisal *a)\n{\n\tconst char *q = kenv(a, "question");\n\tconst char *r = kenv(a, "rescue");\n}\nstatic void\naction_test(const struct appraisal *a)\n{\n}\n' > "$fix/action.c"
   run_elebake expectation add e1 byte A 1 > /dev/null
@@ -3543,7 +3544,7 @@ test_stage_quarantine_family() {
       fail "dump missing: $want"
     fi
   done
-  printf 'unitq-20261014T000000Z\n' > "$TEST_DIR/stage/unitq/quarantine/snapshot"
+  run_elebake stage quarantine value record unitq snapshot unitq-20261014T000000Z > /dev/null 2>&1
   if ! run_elebake stage dump unitq | grep -q "quarantine.*snapshot\|quarantine.*received"; then
     pass "the dump carries the description only: no snapshot, no receipt"
   else
@@ -3627,7 +3628,7 @@ test_stage_quarantine_family() {
   else
     fail "send whole: $r"
   fi
-  printf 'unitq-20261013T000000Z\n' > "$TEST_DIR/stage/unitq/quarantine/received"
+  run_elebake stage quarantine value record unitq received unitq-20261013T000000Z > /dev/null 2>&1
   r=$(run_elebake stage quarantine send increment unitq)
   if printf '%s\n' "$r" | grep -q "zfs send -R -I '@unitq-20261013T000000Z' 'zroot/ROOT/zempty@unitq-20261014T000000Z' | zfs recv -F -u 'zempty/ROOT/zempty'" \
      && run_elebake stage quarantine container bootfs unitq | grep -q "zpool set bootfs='zempty/ROOT/zempty' 'zempty'" \
@@ -3733,9 +3734,8 @@ test_stage_rescue_family() {
       fail "dump missing: $want"
     fi
   done
-  mkdir -p "$TEST_DIR/stage/unitr/rescue/media"
-  printf 'unitr-20260927T000000Z\n' > "$TEST_DIR/stage/unitr/rescue/snapshot"
-  printf 'unitr-20260926T000000Z\n' > "$TEST_DIR/stage/unitr/rescue/media/b"
+  run_elebake stage rescue value record unitr snapshot unitr-20260927T000000Z > /dev/null 2>&1
+  run_elebake stage rescue value record unitr media/b unitr-20260926T000000Z > /dev/null 2>&1
   if ! printf '%s\n' "$out" | grep -q "snapshot\|media"; then
     pass "the dump carries the description only: no snapshot, no receipt"
   else
@@ -3889,14 +3889,14 @@ test_stage_rescue_family() {
   else
     fail "card pool: $r"
   fi
-  rm -f "$TEST_DIR/stage/unitr/rescue/media/b"
+  run_elebake stage rescue value erase unitr media/b > /dev/null 2>&1
   r=$(run_elebake stage rescue send unitr b)
   if printf '%s\n' "$r" | grep -q "zfs send -R 'zroot/ROOT/rescue@unitr-20260927T000000Z' | zfs recv -F -u 'zcard/ROOT/rescue'"; then
     pass "a card without a receipt gets the whole root, under its name below the card's ROOT"
   else
     fail "send whole: $r"
   fi
-  printf 'unitr-20260926T000000Z\n' > "$TEST_DIR/stage/unitr/rescue/media/b"
+  run_elebake stage rescue value record unitr media/b unitr-20260926T000000Z > /dev/null 2>&1
   r=$(run_elebake stage rescue send unitr b)
   if printf '%s\n' "$r" | grep -q "zfs send -R -I '@unitr-20260926T000000Z' 'zroot/ROOT/rescue@unitr-20260927T000000Z' | zfs recv -F -u 'zcard/ROOT/rescue'"; then
     pass "a card with a receipt gets the increment since it"
@@ -4377,7 +4377,7 @@ test_stage_require_boot_leafs() {
   test_setup
   run_elebake stage add unitb > /dev/null 2>&1
   fixture_worktree unitb
-  local fix="$TEST_BASE_DIR/fix-work-$TESTS_RUN-unitb/stand/efi/loader/local"
+  local fix="$FIXTURE_WORK/stand/efi/loader/local"
   if ! run_elebake stage require unitb | grep -q "(boot)"; then
     pass "a checkout without the TPM key file or the dialog demands no boot leaf"
   else
@@ -4414,7 +4414,7 @@ test_stage_require_boot_leafs() {
 # fixture_worktree plus minimal earlboot/elvbootd catalog sources
 fixture_containers() {
   fixture_worktree "$1"
-  local fix="$TEST_BASE_DIR/fix-work-$TESTS_RUN-$1/stand/efi/loader/local"
+  local fix="$FIXTURE_WORK/stand/efi/loader/local"
   printf 'extern const struct action\ttest_act;\nextern const struct action\thandover_act;\n' > "$fix/action.h"
   mkdir -p "$fix/earlboot" "$fix/elvbootd"
   printf 'earlboot.measure earlboot/measure.sh ^%%s() not in the earlboot catalog of this checkout\nearlboot.diagnose earlboot/measure.sh ^%%s() not in the earlboot catalog of this checkout\nearlboot.when earlboot/policy.sh ^%%s() not in the earlboot catalog of this checkout\nearlboot.action earlboot/action.sh ^%%s() not in the earlboot catalog of this checkout\nelvbootd.measure elvbootd/measure.sh ^%%s() not in the elvbootd catalog of this checkout\nelvbootd.measure earlboot/measure.sh ^%%s() not in the elvbootd catalog of this checkout\nelvbootd.diagnose elvbootd/measure.sh ^%%s() not in the elvbootd catalog of this checkout\nelvbootd.diagnose earlboot/measure.sh ^%%s() not in the elvbootd catalog of this checkout\nelvbootd.when elvbootd/policy.sh ^%%s() not in the elvbootd catalog of this checkout\nelvbootd.action elvbootd/action.sh ^%%s() not in the elvbootd catalog of this checkout\nelvbootd.action earlboot/action.sh ^%%s() not in the elvbootd catalog of this checkout\n' >> "$fix/catalog.tbl"
@@ -4500,7 +4500,7 @@ test_answer_family() {
   test_setup
   run_elebake stage add unitan > /dev/null 2>&1
   fixture_containers unitan
-  local fix="$TEST_BASE_DIR/fix-work-$TESTS_RUN-unitan/stand/efi/loader/local"
+  local fix="$FIXTURE_WORK/stand/efi/loader/local"
   printf 'measure_answer() { /bin/kenv -q "loader.trust.$1.answer" 2>/dev/null; }\n' >> "$fix/earlboot/measure.sh"
   printf 'spool_act() { :; }\n' >> "$fix/earlboot/action.sh"
   printf 'when_pass() { [ "$GATE_VERDICT" = pass ]; }\n' >> "$fix/earlboot/policy.sh"
@@ -4617,9 +4617,9 @@ test_elvboot_report() {
   printf '# counter=8 at=2026-10-12T11:00:00Z prev=%s\nloader.trust.bootlock.failed=""\nloader.trust.kernellock.failed=""\nloader.trust.tellwatch.medium="now=a,last=a"\nloader.trust.recordlock.failed="CounterStep"\nloader.trust.recordlock.record="geli=1,counter=5,last=x,bootms=40000,flags=4,chain=match,medium=a"\nloader.trust.recordlock.commit="ok,counter=8,ikm=cafe"\n' "$h1" > "$b2"
   printf '# counter=1 at=2026-10-12T12:00:00Z prev=deadbeef\nloader.trust.bootlock.failed=""\nloader.trust.inventory.failed="GeliHeaders"\nloader.trust.inventory.geli.digest="cccc"\nloader.trust.tellwatch.medium="now=b,last=a"\n' > "$b3"
   printf 'loader.trust.bootlock.failed=""\nloader.trust.recordlock.record="geli=1,counter=5,last=x,bootms=70000,flags=4,chain=match,medium=a"\n' > "$st/boots/6.kenv"
-  touch -t 202610111200 "$st/boots/6.kenv"
+  touch -d 2026-10-11T12:00:00Z "$st/boots/6.kenv"
   printf 'loader.trust.bootlock.failed=""\n' > "$st/boots/5.kenv"
-  touch -t 202610111100 "$st/boots/5.kenv"
+  touch -d 2026-10-11T09:00:00Z "$st/boots/5.kenv"
   printf '2026-10-12T09:46:01Z 89306b00 fd519 3426af\n' > "$TEST_DIR/stage/unitrp/witness-receipts/zcard-a"
   printf '2026-10-12T09:53:47Z fd519 5a571a\n' > "$TEST_DIR/stage/unitrp/witness-receipts/zcard-a.full"
   run_elebake setenv ELEBAKE_STATE_DB "$st" > /dev/null 2>&1
@@ -4728,7 +4728,6 @@ test_elvboot_report() {
   fi
   run_elebake setenv ELEBAKE_INTERPRETER_report_render sh > /dev/null 2>&1
   fixture_worktree unitrp
-  printf 'deadbeef0123\n' > "$TEST_DIR/stage/unitrp/checkout"
   run_elebake stage baseline add unitrp LOADER_TRUST_RECORD_SALT string 0123456789abcdef0123456789abcdef > /dev/null 2>&1
   run_elebake stage baseline add unitrp LOADER_TRUST_IMAGES_DIGEST digest 1111111111111111111111111111111111111111111111111111111111111111 > /dev/null 2>&1
   run_elebake stage kenv add unitrp loader.trust.kernellock.pcr.expected aaaa > /dev/null 2>&1
@@ -4748,7 +4747,7 @@ test_elvboot_report() {
   if printf '%s\n' "$fr" | grep -q "^# elvboot report -- forensic" \
      && printf '%s\n' "$fr" | grep -q "^- stage: \*\*unitrp\*\*, created 20" \
      && printf '%s\n' "$fr" | grep -q "^- elebake: \*\*elebake [0-9]* [0-9a-f]*\*\*" \
-     && printf '%s\n' "$fr" | grep -q "^- loader source: \*\*deadbeef0123\*\*" \
+     && printf '%s\n' "$fr" | grep -q "^- loader source: \*\*$(git -C "$FIXTURE_WORK" rev-parse HEAD)\*\*" \
      && printf '%s\n' "$fr" | grep -q '^- attest key: \*\*attest-key\*\* (`DA115B50BDAC6F788FA0325077B2C2E8F5A4C6C7`)' \
      && printf '%s\n' "$fr" | grep -q "^### Phase PHASE_TWO" && printf '%s\n' "$fr" | grep -q "^#### Gate recordlock, policy guard-recordlock" \
      && printf '%s\n' "$fr" | grep -q '^- claim \*\*halt-quiet\*\*: expectation `byte HaltQuiet 1`, measurement `measure_record`$' \
@@ -4809,6 +4808,15 @@ test_elvbootd_test_run() {
     pass "a phase of the other container is refused by name"
   else
     fail "phase check: $(run_elebake stage elvbootd test unitet SYSINIT "$dump" 2>&1 | head -2)"
+  fi
+  run_elebake stage elvbootd mk unitet > /dev/null 2>&1
+  local hook="$TEST_DIR/.staging/$sid/hooks/hook.startup.sh"
+  if grep -q "^ELV_PHASE=STARTUP$" "$hook" && grep -q "^readonly ELV_MAIL_TO=''$" "$hook" \
+     && run_elebake setenv ELEBAKE_MAIL_TO owner+host.elvboot.boot@example.org > /dev/null \
+     && run_elebake stage constant mail to | grep -q "^readonly ELV_MAIL_TO='owner+host.elvboot.boot@example.org'$"; then
+    pass "the rendered hook names its phase (ELV_PHASE) and carries ELV_MAIL_TO from ELEBAKE_MAIL_TO, empty by default"
+  else
+    fail "phase and mail constant: $(grep -n 'ELV_PHASE\|ELV_MAIL_TO' "$hook" 2>&1 | head -3 | tr '\n' ' ') / $(run_elebake stage constant mail to 2>&1 | tail -1)"
   fi
 }
 
@@ -5234,7 +5242,7 @@ test_foundation_prereqs_arrays() {
   else
     pass "old checkout (no extern): no arrays — backwards compatible"
   fi
-  printf 'extern const char *const	prerequisites_exist[];\nextern const char *const	prerequisites_verify[];\nextern const unsigned int	prerequisites_exist_n;\nextern const unsigned int	prerequisites_verify_n;\n' >> "$TEST_BASE_DIR/fix-work-$TESTS_RUN-unita/stand/efi/loader/local/measurement.h"
+  printf 'extern const char *const	prerequisites_exist[];\nextern const char *const	prerequisites_verify[];\nextern const unsigned int	prerequisites_exist_n;\nextern const unsigned int	prerequisites_verify_n;\n' >> "$FIXTURE_WORK/stand/efi/loader/local/measurement.h"
   run_elebake stage prerequisites verify add unita /boot/loader.conf > /dev/null
   run_elebake stage prerequisites verify add unita /boot/loader.efi.signed > /dev/null
   local out; out=$(run_elebake stage foundation render prerequisites unita)

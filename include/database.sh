@@ -195,7 +195,7 @@ _database_dir_create2() {
 
 #@help ___environment_init1
 # @command environment init <profile>
-# @summary Install (or re-sync after an update) the profile's template variables into .env/default: the profile is shipped, then 'environment install'
+# @summary Install (or re-sync after an update) the profile's template variables into .env/default: the profile is shipped, then 'environment install', then the cache built anew (environment cache on: the install dropped it, every later call would scan .env/ file by file)
 # @group   configuration
 # @param   profile  minimal or all
 # @example elebake environment init all
@@ -206,6 +206,7 @@ _database_dir_create2() {
 ___environment_init1() {
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" environment profile valid '$1'"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" environment install '$1'"
+	printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" environment cache on"
 }
 
 #@help _environment_install1
@@ -262,7 +263,7 @@ __environment_cache0() {
 
 #@help ___environment_cache_on0
 # @command environment cache on
-# @summary Build the environment cache, the pattern of stage site mk: 'environment cache render' redirected into .env/local/ELEBAKE_CACHE_ENV_ARGS.new (a fresh scan of .env/), then 'environment cache place' moves it into place (0600) and says how many variables. The scan happens when the lines run, not when this command generates: a compiled script carries them, and they see the setenv acts before them. A database whose cache predates this version knows no pin for 'place' and only displays it: re-sync first (environment init <profile>), it drops the cache
+# @summary Build the environment cache, the pattern of stage site mk: 'environment cache render' redirected into .env/local/ELEBAKE_CACHE_ENV_ARGS.new (a fresh scan of .env/), then 'environment cache place' moves it into place (0600) and says how many variables. The scan happens when the lines run, not when this command generates: a compiled script carries them, and they see the setenv acts before them. A database whose cache predates this version knows no pin for 'place' and only displays it: re-sync first (environment init <profile>): it drops the cache and builds it anew
 # @group   configuration
 # @env     ELEBAKE_CACHE_ENV_ARGS  the cache file the lines write
 # @see     environment cache render
@@ -489,7 +490,7 @@ __environment_frozen_allows1() {
 
 #@help ___init1
 # @command init <profile>
-# @summary Initialize the database at ELEBAKE_BASE: the layout (database init), then the profile's environment (environment init), then the environment cache (environment cache on) -- every later invocation reads one file instead of the layered store
+# @summary Initialize the database at ELEBAKE_BASE: the layout (database init), then the profile's environment (environment init, which ends in the environment cache) -- every later invocation reads one file instead of the layered store
 # @group   configuration
 # @param   profile  minimal or all
 # @example elebake init minimal
@@ -498,7 +499,6 @@ __environment_frozen_allows1() {
 ___init1() {
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" database init"
         printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" environment init '$1'"
-        printf '%s\n' "\"\$ELEBAKE_CONTEXT_SCRIPT\" environment cache on"
 }
 
 #@help __init0

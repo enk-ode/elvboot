@@ -21,6 +21,14 @@ Contributions arrive as pull requests against `main`.
 - New commands that store state must appear in the integration
   fixture (`make_source_db`) — it is the dump/restore coverage
   contract.
+- The suites change the sandbox database only through the API: a pin with
+  `setintp`/`unsetintp`, a variable with `setenv`/`unsetenv`, a record with
+  the command that owns it (`stage marker store`, `stage quarantine value
+  record`, `stage checkout` against a fixture repository). Nothing in a
+  test writes into `.env/` or `stage/` by hand. The one exception is what
+  no API can produce: a database broken on purpose (the scan tests), a
+  build artefact of make, the answer of an interactive prompt, a receipt
+  of a real measurement.
 
 The model is described in `docs/ARCHITECTURE.md` and in the help of the
 command family concerned (`elebake help <command>`); read it before

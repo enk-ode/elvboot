@@ -196,6 +196,13 @@ boots.
   database as one replayable script.
 - `docs/ARCHITECTURE.md` — the combinator model (`_` terminals emit
   shell, `__` combinators re-invoke once, `___` batches sequence).
+- `docs/articles/` — one idea each, from the owner's side, with the
+  reasons: [the question](docs/articles/the-question.md) (the sentinel
+  and the coercion classes), [the decoy root](docs/articles/the-decoy-root.md),
+  [the rescue boot](docs/articles/the-rescue-boot.md),
+  [why it is compiled in](docs/articles/why-compiled.md) and
+  [features against documentation](docs/articles/features-and-docs.md),
+  the map with the gaps.
 - `elebake help` — fully generated, cannot erode; `docs/elebake.8` is
   rendered from the same corpus (`make man`).
 

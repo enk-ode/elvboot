@@ -509,6 +509,7 @@ complete_values() {
                 done ;;
         key)
                 for d in $(complete_values backend); do ls "$base/$d" 2>/dev/null; done ;;
+        foundation-policy) ls "$base/foundation/policies" 2>/dev/null ;;
         foundation-*)
                 ls "$base/foundation/${1#foundation-}s" 2>/dev/null ;;
         database)
@@ -523,7 +524,6 @@ complete_values() {
                         ls "$base/.env/local" 2>/dev/null
                 } | grep -v '^ELEBAKE_PROFILE_' ;;
         interpreter-fn)
-                printf '%s\n' terminal combinator batch
                 for f in $TERMINAL_FUNCTIONS $COMBINATOR_FUNCTIONS $BATCH_COMBINATOR_FUNCTIONS; do
                         f=${f#___}; f=${f#__}; f=${f#_}
                         printf '%s\n' "$f" "${f%[0-9]}"
