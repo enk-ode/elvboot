@@ -131,7 +131,9 @@ the container closed, is a receipt of its state, and the loader compares
 that receipt on every boot (`WitnessLabels`), without opening anything.
 A decoy boot moves the labels, because the pool was imported; the next
 production boot says so. Someone who found the decoy and planted
-something in it moves them too.
+something in it moves them too. Why that matters, and the rules the
+decoy shares with the rescue root so that no byte lies anywhere
+unaccounted for, is the subject of [the planted file](the-planted-file.md).
 
 ## Why a decoy at all, and why not a wipe
 

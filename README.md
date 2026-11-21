@@ -200,6 +200,8 @@ boots.
   reasons: [the question](docs/articles/the-question.md) (the sentinel
   and the coercion classes), [the decoy root](docs/articles/the-decoy-root.md),
   [the rescue boot](docs/articles/the-rescue-boot.md),
+  [the planted file](docs/articles/the-planted-file.md) (manipulation
+  and the receipts against it),
   [why it is compiled in](docs/articles/why-compiled.md) and
   [features against documentation](docs/articles/features-and-docs.md),
   the map with the gaps.
