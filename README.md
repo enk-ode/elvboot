@@ -202,6 +202,8 @@ boots.
   [the rescue boot](docs/articles/the-rescue-boot.md),
   [the planted file](docs/articles/the-planted-file.md) (manipulation
   and the receipts against it),
+  [the signed report](docs/articles/the-signed-report.md) (what it
+  contains and what it weighs as evidence),
   [why it is compiled in](docs/articles/why-compiled.md) and
   [features against documentation](docs/articles/features-and-docs.md),
   the map with the gaps.

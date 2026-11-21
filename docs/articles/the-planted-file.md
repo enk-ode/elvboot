@@ -209,6 +209,8 @@ owner signs the report, not the log.
 
 - [The decoy root](the-decoy-root.md) and [the rescue boot](the-rescue-boot.md):
   the two immutable containers and how they are built.
+- [The signed report](the-signed-report.md): the document a third
+  party reads, and what it weighs.
 - Tutorial, chapters 23 (the card proves itself), 25 (the report the
   owner signs) and 26 (the integrity witnesses).
 - `elebake help stage witness`, `elebake workflow show witness-learn`,
