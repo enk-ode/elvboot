@@ -89,6 +89,166 @@ without one, and the tools do not differ by who holds them.
 Whoever the writer is (an agency, a criminal, a business rival, a
 former partner), the owner's problem is the same.
 
+## The developer's machine
+
+A developer's laptop holds more than the developer's files. It holds
+the keys that sign a release, the token that publishes a package, the
+session that reaches the build system. Whoever writes on that machine
+writes, one step later, on every machine that installs what the
+developer ships. The cases of the last years follow one line: first the
+workstation, then the project, then the project's users.
+
+**FreeBSD, 2012.** Two head nodes of the package building cluster were
+found compromised on 11 November 2012. The project traced the intrusion
+to an SSH key leaked from a developer who legitimately had access, not
+to a flaw in FreeBSD, and stated that it could not guarantee the
+integrity of any package offered for installation between 19 September
+and 11 November [12].
+
+**Security researchers, 2021.** Google's Threat Analysis Group described
+a campaign by a North Korean government-backed group against
+vulnerability researchers. The attackers built a reputation over
+months, proposed joint work and sent a Visual Studio project; building
+it ran a DLL that connected to their server [13].
+
+**3CX, 2023.** An employee installed a trading application on a
+personal computer. Its installer had been tampered with at the vendor.
+The attackers took the employee's corporate credentials from that
+computer, reached the build environment of 3CX and shipped a trojanized
+desktop client to its customers. Mandiant, which investigated,
+attributed the intrusion to a group with a North Korean nexus and
+called it the first case it had seen of one software supply chain
+attack leading to another [14].
+
+**Bybit, 2025.** The attackers posed as an open source contributor and
+got a developer of Safe{Wallet}, one of the few with administrative
+rights, to run a Docker project. From the workstation they took AWS
+session tokens, which pass multi-factor authentication, and kept access
+for nearly twenty days. They replaced one JavaScript file of the wallet
+interface. When the exchange Bybit signed its next large transfer, the
+funds went elsewhere: about 1.4 billion dollars, attributed by the FBI
+to the North Korean group it tracks as TraderTraitor. Before leaving,
+the attackers removed their malware from the developer's machine and
+cleared the shell history [15].
+
+**The npm worm, 2025.** A self-replicating package, publicly called
+Shai-Hulud, searched the machines it was installed on for credentials,
+published them, and used each developer's npm token to add itself to
+that developer's other packages. The US agency CISA counted more than
+500 compromised packages and advised rotating every developer
+credential [16].
+
+**Job interviews, since 2023.** In the campaign known as Contagious
+Interview, recruiters who do not exist send developers a coding
+assignment whose dependencies carry the malware. Socket counted 338
+malicious npm packages in a single wave in October 2025 and attributes
+the campaign to North Korean actors [17].
+
+**axios, 2026.** The lead maintainer of the HTTP library axios was
+approached about two weeks before the attack by someone posing as the
+founder of a company, invited into a Slack workspace built to match,
+and in a video call told that something on his system was out of date.
+What he installed was a remote access tool. On 31 March 2026 two
+releases of axios went out under his npm account, which had two-factor
+authentication enabled; they were live for about three hours and
+installed a backdoor on macOS, Windows and Linux. The affected release
+lines have more than 100 million and 83 million weekly downloads.
+Google attributes the attack to UNC1069, a North Korea-nexus group
+active since 2018 [18][19]. The maintainer wiped every device he owned
+and wrote of the tool on his machine: "they have full unilateral
+control of everything on your machine" [18].
+
+**Binance, 2026.** In September 2026 a software engineer of the
+exchange was approached on a professional networking platform by
+someone posing as a project director. Two video interviews followed,
+then a coding assignment: a repository to download, with the malware
+inside. By the exchange's account, from that workstation the attackers
+reached the machines of further engineers who ran the wallet
+infrastructure, on 20 October, and used an internal AI tool on the way
+to the withdrawals. On 29 October about 6.3 billion dollars left
+through ten blockchains in about twenty minutes, the largest theft of
+its kind so far. The chief executive called it "a campaign built over
+many months" [22]. The FBI tied the attack to TraderTraitor, the group
+it had named in the Bybit case; North Korea denies it [22][23].
+
+In none of these cases did the attackers have to break the project.
+They wrote with the developer's own hands: the developer's key, the
+developer's token, the developer's name on the release. That is also
+where the first question goes afterwards. The record of a compromised
+release names its publisher, and the publisher is the one who has to
+show that the machine was not his own at that hour.
+
+**Whose trace it is.** That attackers leave traces pointing at someone
+else is documented between states. The malware that disrupted the
+opening of the 2018 Winter Olympics carried a forged header copied from
+a sample of another group, which Kaspersky identified as a deliberately
+placed false flag [20]. In 2019 the British NCSC and the NSA reported
+that the group Turla had taken over the tools and the infrastructure of
+an Iranian group and attacked through them [21]. A public case in which
+material was planted on a developer's machine to assign the blame for
+an attack to that developer was not found for this article. The means
+are those of the cases above: the same remote access that publishes a
+release can leave a file, a shell history or a key behind, and the same
+access can remove what was there, as on the workstation in the Bybit
+case. After such an intrusion the machine holds what the attacker chose
+to leave.
+
+For the developer the question is therefore the one this article
+started with, with a larger audience: what state was this machine in,
+when, and who can check that.
+
+## Why the base comes first
+
+Nearly all of the cases above came over the network: a download, a
+dependency, a project someone was asked to build. The defences against
+that are many and they are layers: isolation of what is untrusted,
+hardware tokens for keys, reviews, scanners, monitoring. elvboot is
+none of them. It concerns the layer they all stand on, and the reasons
+that layer comes first are technical.
+
+**A layer cannot vouch for the layer below it.** Every defence is
+software. It runs on a kernel, the kernel was loaded by a loader, the
+loader by firmware. A scanner learns the list of files from the kernel;
+a monitor reports through the kernel's network stack; the kernel
+believes what the loader handed it. Each of them can judge what lies
+above it and has to take on trust what lies below. Ken Thompson showed
+in 1984 that this holds down to the compiler: a tool that was itself
+altered reproduces the alteration in everything it builds, and no
+inspection of the sources above it finds it [24]. The set of
+components whose correctness everything else depends on is called the
+trusted computing base. A defence in depth has depth only above a base
+that is known.
+
+**The base is a target in practice.** Code that runs before the
+operating system decides what the operating system sees. In 2023 ESET
+analysed BlackLotus, a UEFI bootkit sold on forums for 5000 dollars
+that ran on fully patched systems with Secure Boot enabled, bypassing
+it through a vulnerability more than a year old, and established its
+persistence before the system started [25]. What sits there is out of
+reach of every tool that starts later, and it survives a reinstalled
+system.
+
+**Recovery needs a place to return to.** The maintainer of axios wiped
+every device he owned. That is the right answer, and it rests on a
+premise: that the installer, the medium it boots from, the firmware
+and the loader are what they are supposed to be. NIST's guideline for
+platform firmware names three properties, protection, detection and
+recovery, and defines recovery as the return to a state of integrity
+[26]. Without a receipt of that state there is nothing to compare the
+result of a wipe with.
+
+**Detection needs a before.** To say that an intrusion began on a
+certain day, and that the machine was the owner's own until then,
+takes a state recorded earlier and a way to show that the record was
+not rewritten since. A machine with no such record can report an
+intrusion; it cannot bound one.
+
+So the order is not one of importance. Most attacks will go on arriving
+over the network, and the defences against them stay necessary. The
+base does not stop a download. It is what gives the statements of the
+other layers their value, what the rebuild starts from, and what the
+owner can show when the question is what state the machine was in.
+
 ## What the owner needs
 
 Not a promise that nothing can be written. No design delivers that
@@ -186,14 +346,19 @@ owner signs the report, not the log.
 
 ## What this does not solve
 
-- **The running production root.** Both documented cases above were
-  remote access tools writing through the owner's own session. The
-  production root changes with every use, so it has no receipt to
-  compare, and elvboot's witnesses say nothing about a file a compromised
-  session wrote. What narrows this lies beside elvboot: frequent
-  snapshots replicated off the machine bound the time at which a file
-  appeared, and a browser or a mail client in a guest without a view of
-  the home has nothing to write into.
+- **The running production root.** Most of the cases above, those of
+  the developers among them, were remote access tools writing through
+  the owner's own session. The production root changes with every use,
+  so it has no receipt to compare, and elvboot's witnesses say nothing
+  about a file a compromised session wrote. What elvboot does say after
+  such an intrusion is what lay below the session: that the boot path,
+  the rescue root and the decoy are in the state of their receipts, so
+  the rebuild can start from a medium that is known. What narrows the
+  rest lies beside elvboot: frequent snapshots replicated off the
+  machine bound the time at which a file appeared; a browser, a mail
+  client or a stranger's project built in a guest without a view of the
+  home has nothing to write into; and a signing key on a hardware token
+  that asks for a touch signs nothing the owner did not see.
 - **A receipt proves change, not authorship.** A moved witness says the
   container was written; who wrote it is for the boot records, the
   counters and the owner's own calendar to argue.
@@ -256,3 +421,50 @@ owner signs the report, not the log.
     Reform des Nachrichtendienstrechts (Drucksachen 21/7868, 21/8295),
     11 November 2026.
     <https://dserver.bundestag.de/btd/21/091/2109161.pdf>
+12. The FreeBSD Project, "FreeBSD.org intrusion announced November 17th
+    2012".
+    <https://www.freebsd.org/news/2012-compromise/>
+13. Google Threat Analysis Group, "New campaign targeting security
+    researchers", 25 January 2021.
+    <https://blog.google/threat-analysis-group/new-campaign-targeting-security-researchers/>
+14. 3CX, "Mandiant identifies the source of internal network
+    compromise", April 2023.
+    <https://www.3cx.com/blog/news/mandiant-security-update2/>
+15. SecurityWeek, "How Social Engineering Sparked a Billion-Dollar
+    Supply Chain Cryptocurrency Heist", 6 March 2025.
+    <https://www.securityweek.com/how-social-engineering-sparked-a-billion-dollar-supply-chain-cryptocurrency-heist/>
+16. CISA, "Widespread Supply Chain Compromise Impacting npm Ecosystem",
+    23 September 2025.
+    <https://www.cisa.gov/news-events/alerts/2025/09/23/widespread-supply-chain-compromise-impacting-npm-ecosystem>
+17. Socket, "North Korea's Contagious Interview Campaign Escalates: 338
+    Malicious npm Packages", October 2025.
+    <https://socket.dev/blog/north-korea-contagious-interview-campaign-338-malicious-npm-packages>
+18. Jason Saayman, "Post Mortem: axios npm supply chain compromise",
+    axios issue 10636, 2 April 2026, with the maintainer's comments.
+    <https://github.com/axios/axios/issues/10636>
+19. Google Threat Intelligence Group, "North Korea-Nexus Threat Actor
+    Compromises Widely Used Axios NPM Package in Supply Chain Attack",
+    31 March 2026.
+    <https://cloud.google.com/blog/topics/threat-intelligence/north-korea-threat-actor-targets-axios-npm-package/>
+20. Kaspersky, "The devil's in the Rich header", Securelist, March 2018.
+    <https://securelist.com/the-devils-in-the-rich-header/84348/>
+21. National Cyber Security Centre (UK), update on the Turla group,
+    with the joint advisory of NCSC and NSA, 21 October 2019.
+    <https://www.ncsc.gov.uk/news/turla-group-behind-cyber-attack>
+22. Brussels Signal, "Binance shares details of €5.7 billion crypto
+    heist", 4 November 2026, on the exchange's findings of 3 November.
+    <https://brusselssignal.eu/2026/11/binance-shares-details-of-e5-7-billion-crypto-heist/>
+23. Associated Press, as carried by PBS News, "FBI says North Korea was
+    behind $6.3 billion Binance heist, the biggest crypto hack in
+    history", 1 November 2026.
+    <https://www.pbs.org/newshour/world/fbi-says-north-korea-was-behind-6-3-billion-binance-heist-the-biggest-crypto-hack-in-history>
+24. Ken Thompson, "Reflections on Trusting Trust", Communications of
+    the ACM 27 (8), August 1984.
+    <https://doi.org/10.1145/358198.358210>
+25. ESET Research, "ESET Research analyzes BlackLotus: A UEFI bootkit
+    that can bypass UEFI Secure Boot on fully patched systems", March
+    2023.
+    <https://www.eset.com/us/about/newsroom/research/eset-research-analyzes-blacklotus-a-uefi-bootkit-that-can-bypass-uefi-secure-boot-on-fully-patched-systems>
+26. NIST Special Publication 800-193, "Platform Firmware Resiliency
+    Guidelines", May 2018.
+    <https://doi.org/10.6028/NIST.SP.800-193>
