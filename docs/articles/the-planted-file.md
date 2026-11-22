@@ -50,8 +50,9 @@ commercial remote access tool NetWire and had delivered at least ten of
 the incriminating letters into a hidden folder; a second report raised
 the count by 22, a third found 14 planted letters on Surendra Gadling's
 machine, and a later one found the same on the computer of Stan Swamy,
-an 83-year-old priest who had been under attack for nearly five years
-when his device was seized and who died in custody [3][4]. India's
+a Jesuit priest who had been under attack for nearly five years when
+his device was seized, was arrested at the age of 83 and died in
+custody in 2021 [3][4]. India's
 National Investigation Agency rejects the findings. In February 2022
 SentinelLabs described the actor behind the intrusions, which it calls
 ModifiedElephant, as active for a decade, with the objective of
