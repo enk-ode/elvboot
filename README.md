@@ -204,6 +204,9 @@ boots.
   and the receipts against it),
   [the signed report](docs/articles/the-signed-report.md) (what it
   contains and what it weighs as evidence),
+  [how the disk opens](docs/articles/how-the-disk-opens.md) (the loader
+  at run time, from the passphrase through the TPM to GELI, with the
+  code: owner, duress, rescue),
   [why it is compiled in](docs/articles/why-compiled.md) and
   [features against documentation](docs/articles/features-and-docs.md),
   the map with the gaps.

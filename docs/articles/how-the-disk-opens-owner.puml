@@ -1,0 +1,30 @@
+@startuml
+hide footbox
+participant O
+participant L
+participant T
+participant D
+participant K
+O -> L : passphrase
+L -> T : ReadPublic(key) [c]
+T --> L : name, public part [c]
+L -> L : name == baseline
+L -> T : StartAuthSession(OAEP(salt))
+T --> L : session, nonceTPM [c]
+L -> L : sessionKey = KDFa(salt)
+T -> T : sessionKey
+L -> T : PolicyPCR [c]
+L -> T : PolicyAuthValue [c]
+L -> T : PolicyNV(count) [c]
+L -> T : Unseal(owner) [h]
+T --> L : file [e] [h]
+L -> L : verify HMAC, decrypt
+L -> L : preload file
+L -> D : read last sectors
+D --> L : GELI metadata
+L -> L : PBKDF2(passphrase)
+L -> L : HMAC(files, PBKDF2)
+L -> L : master key verifies
+L -> K : user keys, key files
+K -> D : attach
+@enduml

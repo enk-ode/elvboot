@@ -1,0 +1,31 @@
+@startuml
+hide footbox
+participant O
+participant L
+participant T
+participant D
+participant K
+O -> L : passphrase
+L -> T : Unseal(owner) [h]
+T --> L : refused
+L -> T : StartAuthSession(OAEP(salt))
+L -> T : StartAuthSession, 2nd
+L -> T : PolicySecret(PIN) [h2]
+T -> T : pinCount + 1
+L -> T : PolicyPCR [c]
+L -> T : Unseal(duress) [h]
+T --> L : file [e] [h]
+L -> L : verify HMAC, decrypt
+L -> T : NV_Increment(trace) [h]
+L -> T : NV_Increment(count) [h]
+T -> T : seal dead
+L -> T : NV_Read(count) [c]
+L -> L : preload file
+L -> D : read last sectors
+D --> L : GELI metadata
+L -> L : decoy opens
+L -> L : others closed
+L -> L : root = decoy
+L -> K : one user key
+K -> D : attach
+@enduml
