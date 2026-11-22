@@ -25,6 +25,14 @@ where nobody keeps files.
 
 ## It has happened
 
+The cases below have nothing to do with one another. They come from
+different countries and years, the actors differ, and so do their
+reasons. They stand side by side for one purpose only: to show in how
+many forms data comes to lie on a machine without its owner's doing.
+For the person it happens to, it hardly matters whether one actor did
+it for one reason or another actor for another. The machine says the
+same thing in each case, and its owner faces the same question.
+
 **Turkey, OdaTV.** Journalists of the news site OdaTV were arrested in
 2011 on the strength of documents found on their computers. The
 forensics firm Arsenal Consulting later reported that the documents had
@@ -63,31 +71,28 @@ threat and finds that 72 percent of the attacks came with a data leak
 [7]. An attacker who can encrypt every file could as well have added
 one.
 
-**The law.** In Germany the right to the integrity of one's own machine
-has had constitutional rank since 2008, when the Federal Constitutional
-Court derived a "fundamental right to the guarantee of the
-confidentiality and integrity of information technology systems" from
-the Basic Law [8]. Integrity, not only confidentiality. Covert access to
-a system is a regulated instrument beside that right. Criminal procedure
-allows it and says what may be changed on the target: only what is
-indispensable for collecting the data, undone when the measure ends,
-and logged (§ 100a (5) StPO) [9]. In November 2026 the Bundestag passed
-a reform of the intelligence services law [10][11]. It gives the
-domestic service the covert online search of private IT systems, and
-both services protective measures against IT systems from which an
-immediate danger arises; the report of the vote lists redirecting or
-blocking data streams, deleting or falsifying harmful data, and shutting
-down servers from which attacks originate [10]. The measures are
-subsidiary to those of the police and stand under prior review by the
-Independent Control Council [10][11].
+## Integrity in the law
 
-For this article the legal detail matters less than the technical fact
-underneath it: changing data on a system from outside, unseen by its
-owner, is an established capability. It exists with a legal frame and
-without one, and the tools do not differ by who holds them.
+The integrity of a person's own machine is a protected interest. In
+Germany it has had constitutional rank since 2008, when the Federal
+Constitutional Court derived a "fundamental right to the guarantee of
+the confidentiality and integrity of information technology systems"
+from the Basic Law [8]. Integrity, not only confidentiality.
 
-Whoever the writer is (an agency, a criminal, a business rival, a
-former partner), the owner's problem is the same.
+Where the state itself accesses a system covertly, the law says what
+may be changed there. Criminal procedure allows only what is
+indispensable for collecting the data, requires that it be undone when
+the measure ends, and requires that it be logged (§ 100a (5) StPO)
+[9]. A reform of the intelligence services law, passed by the
+Bundestag in November 2026, extends covert access to IT systems and
+places the measures under prior review by the Independent Control
+Council [10][11].
+
+The law thus asks for what this article is about: that a change to a
+system can be accounted for. For the owner of a machine the practical
+question is the same in every case of this article, whoever acted and
+on whatever ground: what state was the machine in, and what can be
+shown about it.
 
 ## The developer's machine
 
