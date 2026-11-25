@@ -1330,12 +1330,24 @@ _batch2() {
 
         # Create batch file with enhanced format
         local batch_file="$ELEBAKE_BASE/.tmp/batch-exits/$batch_id"
-        # Truncate existing file or create new one (round-robin allocation)
+        # A slot that comes round is removed, not truncated: the directory decides,
+        # not the owner of the old file (a run under sudo may have left it)
+        $MODIFY_FILE_REMOVE "$batch_file" 2>>"$LOG_FILE"
         if ! : > "$batch_file" 2>>"$LOG_FILE"; then
                 echo "# Error: Failed to create batch file: $batch_file" >&2
                 export ELEBAKE_INTERPRETER_batch2="$saved_batch_interpreter"
                 set +e
                 return 1
+        fi
+
+        owner_keep "$batch_file"
+
+        # The lines a batch combinator handed over take the slot's place in the ring
+        if [ "$cleanup" = "true" ]; then
+                if $MODIFY_FILE_MOVE_FORCE "$filepath" "$ELEBAKE_BASE/.tmp/batch.$batch_id" 2>>"$LOG_FILE"; then
+                        filepath="$ELEBAKE_BASE/.tmp/batch.$batch_id"
+                fi
+                owner_keep "$filepath"
         fi
 
         trace_log "|" "_batch2" "Batch execution (batch_id=$batch_id, producer_bit=$p_bit)"

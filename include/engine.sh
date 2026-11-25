@@ -22,7 +22,11 @@
 #                   pipeline produce_with_exit | to_trace_file |
 #                   consume_with_exit | to_trace_file, traces and logs
 #                   (trace_log, LOG_FILE, retention)
-#   exit arithmetic the batch ring .tmp/batch-exits (get_batch_id,
+#   exit arithmetic the batch ring: 64 slots, .tmp/batch-exits/<slot> the
+#                   exits of a run and .tmp/batch.<slot> the lines a batch
+#                   combinator handed over (kept when the run failed), both
+#                   overwritten when the slot comes round and both the
+#                   owner's whoever ran (get_batch_id, owner_keep,
 #                   store_batch_exits), combine_exit_codes and
 #                   check_batch_success: a code above 128 is a batch pointer
 #                   only when the child is the runner or a batch combinator,
@@ -1026,6 +1030,15 @@ consume_with_exit() {
 	return $exit_code
 }
 
+# owner_keep <path>... -- what a run as another user (root under sudo) has
+# just created in the database belongs to the owner of the database's .tmp
+# again; a run as that owner does nothing
+owner_keep() {
+	local o
+	o=$($EXAMINE_FILE_OWNER "$ELEBAKE_BASE/.tmp" 2>/dev/null) || return 0
+	test "${o%%:*}" = "$(id -u)" || $MODIFY_FILE_OWNER "$o" "$@" 2>>"$LOG_FILE" || true
+}
+
 # batch_id_take -- BATCH_ID is the next slot of the batch ring (64 slots,
 # round-robin; the counter file holds the next). No process: the counter
 # is read with read, the id is a variable. get_batch_id prints it.
@@ -1041,7 +1054,9 @@ batch_id_take() {
 
 	# Calculate next position (circular)
 	local next_id=$(( (batch_id + 1) % 64 ))
+	$MODIFY_FILE_REMOVE "$counter_file" 2>>"$LOG_FILE"
 	echo "$next_id" > "$counter_file" 2>>"$LOG_FILE"
+	owner_keep "$counter_file"
 
 	# Return current position (caller will overwrite this batch file)
 	BATCH_ID=$batch_id

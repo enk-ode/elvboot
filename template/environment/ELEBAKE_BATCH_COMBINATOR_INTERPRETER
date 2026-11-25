@@ -3,6 +3,10 @@ sh -c 'tmp=$(mktemp "$ELEBAKE_BASE/.tmp/batch.XXXXXX"); chmod 0600 "$tmp"; cat >
 #
 # Batch-combinators emit SEVERAL re-invocation lines. This interpreter captures
 # them into a secure temp file under $ELEBAKE_BASE/.tmp/ and hands the file to
-# 'batch <tmp> true' (true = remove temp file after processing).
+# 'batch <tmp> true'. The runner moves the file into its slot of the batch ring
+# (.tmp/batch.<slot>, 64 slots beside .tmp/batch-exits/<slot>), gives it to the
+# owner of the database's .tmp when it runs as another user, removes it after a
+# run without a failure and keeps it after a failed one until the slot comes
+# round.
 #
 # For dry-run/inspection, override with 'cat'.

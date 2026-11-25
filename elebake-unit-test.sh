@@ -5260,6 +5260,40 @@ test_foundation_prereqs_arrays() {
 # working notes behind them: no design discussions, review packets or
 # import notes as files, no dated or attributed remarks in tracked texts.
 # Those live outside the tree; the public branch is a squash of this one.
+test_batch_ring() {
+  test_header "batch ring: the lines of a batch combinator live in the 64 slots, whoever owned the slot before"
+  test_setup
+  local files slots n ok
+  run_elebake setenv ELEBAKE_BATCH_KEEP_GOING 0 > /dev/null
+  if [ -z "$(ls "$TEST_DIR/.tmp" | grep '^batch\.')" ]; then
+    pass "a batch without a failure leaves no file of its lines"
+  else
+    fail "left behind: $(ls "$TEST_DIR/.tmp" | grep '^batch\.' | tr '\n' ' ')"
+  fi
+  run_elebake setenv 'no name' x > /dev/null
+  run_elebake setenv 'no name' x > /dev/null
+  files=$(ls "$TEST_DIR/.tmp" | grep '^batch\.')
+  slots=$(printf '%s\n' "$files" | grep -c '^batch\.[0-9][0-9]*$')
+  ok=1
+  for n in $(printf '%s\n' "$files" | sed -n 's/^batch\.\([0-9][0-9]*\)$/\1/p'); do
+    [ "$n" -lt 64 ] && [ -f "$TEST_DIR/.tmp/batch-exits/$n" ] || ok=0
+  done
+  if [ "$slots" = 2 ] && [ "$(printf '%s\n' "$files" | grep -c .)" = 2 ] && [ "$ok" = 1 ]; then
+    pass "two failed batches keep their lines as batch.<slot> beside batch-exits/<slot>, nothing else"
+  else
+    fail "files: $(printf '%s' "$files" | tr '\n' ' ')"
+  fi
+  chmod 0400 "$TEST_DIR/.tmp/batch-counter" "$TEST_DIR"/.tmp/batch-exits/* "$TEST_DIR"/.tmp/batch.*
+  n=0
+  while [ "$n" -lt 70 ]; do run_elebake setenv 'no name' x > /dev/null; n=$((n + 1)); done
+  files=$(ls "$TEST_DIR/.tmp" | grep '^batch\.')
+  if [ "$(printf '%s\n' "$files" | grep -c .)" = 64 ] && [ "$(printf '%s\n' "$files" | grep -vc '^batch\.[0-9][0-9]*$')" = 0 ] && [ "$(ls "$TEST_DIR/.tmp/batch-exits" | grep -c .)" = 64 ] && [ -w "$TEST_DIR/.tmp/batch-counter" ]; then
+    pass "seventy more failures come round: 64 files of lines, 64 of exits, slots and counter a run could not write are replaced"
+  else
+    fail "lines $(printf '%s\n' "$files" | grep -c .), exits $(ls "$TEST_DIR/.tmp/batch-exits" | grep -c .), counter $(ls -l "$TEST_DIR/.tmp/batch-counter")"
+  fi
+}
+
 test_repo_no_working_notes() {
   test_header "repository carries no working notes (files or dated remarks)"
   local files remarks
@@ -5423,6 +5457,7 @@ main() {
   should_run_test test_dispatch_wrong_arity
   should_run_test test_filter_prune_orphans_only
   should_run_test test_repo_no_working_notes
+  should_run_test test_batch_ring
 
   test_summary
 }

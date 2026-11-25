@@ -187,9 +187,10 @@ uninstall:
 	@echo "uninstall: ${WRAPPER}, ${HARNESS_WRAPPER}, ${MANPAGE}, ${COMPLETION} and ${HARNESS_COMPLETION} removed"
 
 # --- stage and package ----------------------------------------------------
-# 'stage' lays this checkout out as the package has it: elebake.sh and its
-# other names, include/ and template/ under ${PKGLIBDIR}, the wrapper in
-# bin/, the manual page, the bash completion, the docs, and VERSION (the
+# 'stage' lays this checkout out as the package has it: elebake.sh, its
+# other names and elvboot.sh, include/ and template/ under ${PKGLIBDIR}, the
+# wrappers elebake and elvboot in bin/, the manual page, the bash
+# completion, the docs, and VERSION (the
 # commit: from git in a checkout, from the substituted VERSION file in a
 # git archive) -- NOT the development install above (which execs this
 # checkout). The port (port/Makefile) calls 'stage' into its STAGEDIR.
@@ -212,7 +213,7 @@ stage: docs/elebake.8
 	@mkdir -p ${PKGSTAGE}${PKGPREFIX}/bin ${PKGSTAGE}${PKGLIBDIR}/include ${PKGSTAGE}${PKGLIBDIR}/docs \
 	    ${PKGSTAGE}${PKGPREFIX}/share/man/man8 ${PKGSTAGE}${PKGPREFIX}/share/bash-completion/completions \
 	    ${PKGSTAGE}${PKGPREFIX}/share/doc/${PKGNAME}
-	@install -m 0555 elebake.sh elebake-binary.sh elebake-compile.sh elebake-walkthrough.sh ${PKGSTAGE}${PKGLIBDIR}/
+	@install -m 0555 elebake.sh elebake-binary.sh elebake-compile.sh elebake-walkthrough.sh elvboot.sh ${PKGSTAGE}${PKGLIBDIR}/
 	@printf '%s\n' '${PKGCOMMIT}' > ${PKGSTAGE}${PKGLIBDIR}/VERSION && chmod 0444 ${PKGSTAGE}${PKGLIBDIR}/VERSION
 	@install -m 0444 include/*.sh ${PKGSTAGE}${PKGLIBDIR}/include/
 	@cp -R template ${PKGSTAGE}${PKGLIBDIR}/
@@ -224,6 +225,9 @@ stage: docs/elebake.8
 	@printf '#!/bin/sh\n# elebake -- the %s package: the tool under %s\nexec /bin/sh %s/elebake.sh "$$@"\n' \
 	    '${PKGNAME}' '${PKGLIBDIR}' '${PKGLIBDIR}' > ${PKGSTAGE}${PKGPREFIX}/bin/elebake
 	@chmod 0555 ${PKGSTAGE}${PKGPREFIX}/bin/elebake
+	@printf '#!/bin/sh\n# elvboot -- the %s package: the report over the kept boots, under %s\nexec /bin/sh %s/elvboot.sh "$$@"\n' \
+	    '${PKGNAME}' '${PKGLIBDIR}' '${PKGLIBDIR}' > ${PKGSTAGE}${PKGPREFIX}/bin/elvboot
+	@chmod 0555 ${PKGSTAGE}${PKGPREFIX}/bin/elvboot
 
 package: package-clean stage
 	@mkdir -p ${PKGDIR}

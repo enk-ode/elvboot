@@ -120,6 +120,7 @@ MODIFY_DIR_CREATE='mkdir -p'   # create directory (with parents)
 MODIFY_FILE_PERMS='chmod'      # change file permissions
 MODIFY_FILE_OWNER='chown'      # change file owner (uid:gid)
 MODIFY_FILE_REMOVE='rm -f'     # remove file
+MODIFY_FILE_MOVE_FORCE='mv -f' # move file (force overwrite)
 MODIFY_FILE_COPY_FORCE='cp -f' # copy file (force overwrite)
 MODIFY_LINK_FORCE='ln -sfn'    # force create/overwrite symlink
 
